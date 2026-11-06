@@ -157,3 +157,15 @@ export function configuredRoutes(): Record<string, unknown> {
     'GET /repos': { items: [repo(21, 'kestrel-co/storefront'), repo(22, 'kestrel-co/shop-api')] },
   }
 }
+
+/** A scan status in progress: run 7 fetching alerts, 2 of 5 repos. */
+export const scanningStatus = (over: Record<string, unknown> = {}) => ({
+  state: 'scanning',
+  scanRunId: 7,
+  startedAt: at,
+  phase: 'alerts',
+  done: 2,
+  total: 5,
+  skipped: [],
+  ...over,
+})

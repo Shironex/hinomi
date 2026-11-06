@@ -12,6 +12,7 @@ import {
 } from '@tabler/icons-react'
 import { FieldError } from '@/components/form/field'
 import { Button } from '@/components/ui/button'
+import { ScanPhases } from '@/components/onboarding/scan-phases'
 import { Callout } from '@/components/ui/callout'
 import { useScanStatus } from '@/hooks/use-shell-data'
 import { describeError } from '@/lib/errors'
@@ -55,7 +56,13 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
     refetchInterval: status.state === 'scanning' ? 3_000 : false,
   })
   const latestRun = latest.data?.items[0]
-  const trackedId = runId ?? (latestRun?.status === 'running' ? latestRun.id : null)
+  const trackedId =
+    runId ??
+    (status.state === 'scanning'
+      ? status.scanRunId
+      : latestRun?.status === 'running'
+        ? latestRun.id
+        : null)
   const run = useQuery({ ...scanRunQuery(trackedId ?? 0), enabled: trackedId !== null })
 
   const start = useMutation({
@@ -70,6 +77,8 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
   const current: ScanRun | undefined = trackedId === null ? undefined : run.data
   const running = current?.status === 'running' || (trackedId !== null && !current)
   const finished = current && current.status !== 'running' ? current : undefined
+  // Connected moments ago: the scheduler is about to start the first scan on its own.
+  const starting = !current && !running && startsSoon(status)
 
   // When the tracked run ends, refresh the shell's scan line and tell the page.
   useEffect(() => {
@@ -78,7 +87,7 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
     onFinished?.(finished)
   }, [finished, onFinished, queryClient])
 
-  if (!current && !running) {
+  if (!current && !running && !starting) {
     return (
       <>
         <p className="text-sm text-foreground-2">
@@ -106,7 +115,9 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
 
   return (
     <>
-      {running ? <ScanProgress status={status} /> : null}
+      {running || starting ? (
+        <ScanPhases status={status.state === 'scanning' ? status : null} />
+      ) : null}
       {current ? <SourceLines run={current} /> : null}
       {current && !running ? (
         <ScanSummary run={current} onRescan={() => start.mutate()} rescanning={start.isPending} />
@@ -115,39 +126,12 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
   )
 }
 
-function ScanProgress({ status }: { status: ReturnType<typeof useScanStatus> }) {
-  const known = status.state === 'scanning' && status.total > 0
-  const done = status.state === 'scanning' ? status.done : 0
-  const total = status.state === 'scanning' ? status.total : 0
-  const label = known
-    ? `Looked at ${done} of ${plural(total, 'repo')}`
-    : 'Reading deployments and the repo list'
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-sm text-accent-ink">
-        <IconLoader2 aria-hidden="true" className="size-4 animate-spin" stroke={1.75} />
-        <span aria-live="polite">{label}</span>
-      </div>
-      <div
-        role="progressbar"
-        aria-label="First scan"
-        aria-valuemin={0}
-        aria-valuemax={known ? total : undefined}
-        aria-valuenow={known ? done : undefined}
-        aria-valuetext={label}
-        className="h-1.5 overflow-hidden rounded-full bg-muted"
-      >
-        <div
-          className={
-            known
-              ? 'h-full rounded-full bg-primary transition-[width] duration-500'
-              : 'h-full w-1/3 animate-pulse rounded-full bg-primary/60 motion-reduce:animate-none'
-          }
-          style={known ? { width: `${Math.max(4, Math.round((done / total) * 100))}%` } : undefined}
-        />
-      </div>
-    </div>
-  )
+/** A queued scan due this soon shows as starting instead of offering the start button. */
+const STARTS_SOON_MS = 60_000
+
+function startsSoon(status: ReturnType<typeof useScanStatus>): boolean {
+  if (status.state !== 'queued' || status.nextScanAt === null) return false
+  return new Date(status.nextScanAt).getTime() - Date.now() < STARTS_SOON_MS
 }
 
 function SourceLines({ run }: { run: ScanRun }) {

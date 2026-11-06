@@ -137,7 +137,14 @@ describe('scheduler', () => {
     expect(first.started).toBe(true)
     expect(second).toEqual({ started: false, run: first.run })
     expect(scan.runScan).toHaveBeenCalledTimes(1)
-    expect(scheduler.progress()).toEqual({ scanRunId: first.run.id, done: 0, total: 2 })
+    expect(scheduler.progress()).toEqual({
+      scanRunId: first.run.id,
+      startedAt: first.run.startedAt,
+      phase: 'alerts',
+      done: 0,
+      total: 2,
+      skipped: ['lockfiles'],
+    })
 
     scan.finish()
     await scheduler.idle()

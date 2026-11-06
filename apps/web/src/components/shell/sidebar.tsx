@@ -7,6 +7,7 @@ import {
 } from '@tabler/icons-react'
 import type { NavCounts, ScanStatus } from '@/hooks/use-shell-data'
 import { formatClock, formatRelative } from '@/lib/format'
+import { describeScanning } from '@/lib/scan-phases'
 import { cn } from '@/lib/utils'
 import { Kbd } from '@/components/ui/kbd'
 import { BrandMark } from './brand-mark'
@@ -174,10 +175,17 @@ function ScanLine({ scan }: { scan: ScanStatus }) {
       </Link>
     )
   }
-  if (scan.state === 'scanning') {
-    const text = `Scanning ${scan.done} of ${scan.total} repos`
+  if (scan.state === 'scanning' || scan.state === 'queued') {
+    // The rail is narrow: a short label, the phase in the tooltip.
+    const title = scan.state === 'queued' ? 'First scan starting' : describeScanning(scan)
+    const text =
+      scan.state === 'scanning' && scan.total > 0
+        ? `Scanning ${scan.done} of ${scan.total}`
+        : scan.state === 'queued'
+          ? 'Scan starting'
+          : 'Scanning'
     return (
-      <div className={base} title={text}>
+      <div className={base} title={title}>
         <IconLoader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" stroke={1.75} />
         <span className={LABEL}>{text}</span>
       </div>

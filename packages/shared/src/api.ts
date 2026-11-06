@@ -579,12 +579,37 @@ export const navCountsSchema = z.object({
 })
 export type NavCountsDto = z.infer<typeof navCountsSchema>
 
+/**
+ * The steps of one scan, in order: read deployments from Coolify (and the
+ * account repo list), fetch GitHub health and Dependabot alerts per repo,
+ * scan lockfiles with OSV.dev per repo, match advisories to deployments, and
+ * rank (blind spots and the final tally).
+ */
+export const SCAN_PHASES = ['deployments', 'alerts', 'lockfiles', 'matching', 'ranking'] as const
+export const scanPhaseSchema = z.enum(SCAN_PHASES)
+export type ScanPhase = z.infer<typeof scanPhaseSchema>
+
 export const scanStatusSchema = z.discriminatedUnion('state', [
   /** No Coolify or GitHub source connected yet (first run). */
   z.object({ state: z.literal('unconfigured') }),
+  /** Connected but never scanned: the first scan is about to start. */
+  z.object({ state: z.literal('queued'), nextScanAt: isoDate.nullable() }),
   z.object({ state: z.literal('idle'), lastScanAt: isoDate, nextScanAt: isoDate.nullable() }),
-  /** Repos looked at so far; total is 0 until the repo list is known. */
-  z.object({ state: z.literal('scanning'), done: z.number().int(), total: z.number().int() }),
+  z.object({
+    state: z.literal('scanning'),
+    scanRunId: id,
+    startedAt: isoDate,
+    phase: scanPhaseSchema,
+    /**
+     * Progress inside the phase: Coolify instances (plus the account repo
+     * list) while reading deployments, repos in alerts, lockfiles and
+     * matching. 0 of 0 when the phase has no units (ranking) or none are known yet.
+     */
+    done: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    /** Phases this scan leaves out, for example lockfiles while OSV.dev is off. */
+    skipped: z.array(scanPhaseSchema),
+  }),
   z.object({ state: z.literal('failed'), lastScanAt: isoDate.nullable(), message: z.string() }),
 ])
 export type ScanStatusDto = z.infer<typeof scanStatusSchema>

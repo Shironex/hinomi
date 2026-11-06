@@ -397,7 +397,15 @@ describe('scans, overview and shell', () => {
     expect(scan.runScan).toHaveBeenCalledTimes(1)
 
     const status = scanStatusSchema.parse((await call('GET', '/shell/scan-status')).json)
-    expect(status).toEqual({ state: 'scanning', done: 0, total: 2 })
+    expect(status).toEqual({
+      state: 'scanning',
+      scanRunId: (first.json as { run: { id: number } }).run.id,
+      startedAt: expect.any(String) as string,
+      phase: 'alerts',
+      done: 0,
+      total: 2,
+      skipped: ['lockfiles'],
+    })
 
     scan.finish()
     await scheduler.idle()
@@ -411,6 +419,15 @@ describe('scans, overview and shell', () => {
   it('reports unconfigured before a source is connected', async () => {
     const { call } = createTestApi()
     expect((await call('GET', '/shell/scan-status')).json).toEqual({ state: 'unconfigured' })
+  })
+
+  it('reports queued between connecting a source and the first scan', async () => {
+    const { call, repos } = createTestApi()
+    seedWorld(repos)
+    expect((await call('GET', '/shell/scan-status')).json).toEqual({
+      state: 'queued',
+      nextScanAt: null,
+    })
   })
 
   it('reports a failed last scan with its message', async () => {

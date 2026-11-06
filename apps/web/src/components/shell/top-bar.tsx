@@ -9,6 +9,7 @@ import {
 } from '@tabler/icons-react'
 import type { ScanStatus } from '@/hooks/use-shell-data'
 import type { RouteMeta } from '@/lib/route-meta'
+import { describeScanning } from '@/lib/scan-phases'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
@@ -97,12 +98,15 @@ function SearchTrigger({ onSearch }: { onSearch: () => void }) {
 function ScanSlot({ scan, onScan }: { scan: ScanStatus; onScan?: (() => void) | undefined }) {
   // Nothing to scan before a source is connected; the sidebar links to setup instead.
   if (scan.state === 'unconfigured') return null
-  if (scan.state === 'scanning') {
+  if (scan.state === 'scanning' || scan.state === 'queued') {
+    const detail = scan.state === 'scanning' ? describeScanning(scan) : 'First scan starting'
     return (
-      <Button variant="outline" size="sm" disabled>
+      <Button variant="outline" size="sm" disabled title={detail}>
         <IconLoader2 aria-hidden="true" className="animate-spin" />
         <span aria-live="polite">
-          Scanning {scan.done} of {scan.total}
+          {scan.state === 'scanning' && scan.total > 0
+            ? `Scanning ${scan.done} of ${scan.total}`
+            : 'Scanning'}
         </span>
       </Button>
     )

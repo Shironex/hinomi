@@ -44,6 +44,7 @@ export interface StartScanResult {
 
 export interface ScanProgressState extends ScanProgress {
   scanRunId: number
+  startedAt: Date
 }
 
 export interface Scheduler {
@@ -124,19 +125,28 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const clearTimer = options.clearTimer ?? defaultClearTimer
 
   const listeners = new Set<ScanFinishedListener>()
-  let active: { promise: Promise<void>; runId: number | null; progress: ScanProgress } | null = null
+  let active: {
+    promise: Promise<void>
+    runId: number | null
+    startedAt: Date
+    progress: ScanProgress
+  } | null = null
   let timer: unknown = null
   let nextAt: Date | null = null
   let running = false
 
+  function failRun(run: ScanRunRow, error: string): void {
+    repositories.scanRuns.finish(
+      run.id,
+      { status: 'failed', sourceResults: run.sourceResults, error },
+      now(),
+    )
+  }
+
   function recoverInterrupted(): void {
     let stale = repositories.scanRuns.running()
     while (stale) {
-      repositories.scanRuns.finish(
-        stale.id,
-        { status: 'failed', sourceResults: stale.sourceResults, error: INTERRUPTED_SCAN_MESSAGE },
-        now(),
-      )
+      failRun(stale, INTERRUPTED_SCAN_MESSAGE)
       log.warn('scheduler: marked an interrupted scan as failed', { scanRunId: stale.id })
       stale = repositories.scanRuns.running()
     }
@@ -215,18 +225,26 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     } catch (error) {
       // runScan never throws by contract; this guards against a broken fake or a future change.
       log.error('scheduler: scan crashed', { error: errorMessage(error) })
-      const run = state.runId === null ? undefined : repositories.scanRuns.get(state.runId)
-      if (run?.status === 'running') {
-        repositories.scanRuns.finish(
-          run.id,
-          { status: 'failed', sourceResults: run.sourceResults, error: errorMessage(error) },
-          now(),
-        )
+      try {
+        const run = state.runId === null ? undefined : repositories.scanRuns.get(state.runId)
+        if (run?.status === 'running') failRun(run, errorMessage(error))
+      } catch (inner) {
+        // Storage may already be closed after a shutdown timeout.
+        log.error('scheduler: could not record the crash', { error: errorMessage(inner) })
       }
     } finally {
       active = null
       planNext()
     }
+  }
+
+  function stop(): void {
+    running = false
+    clear()
+  }
+
+  async function idle(): Promise<void> {
+    while (active) await active.promise
   }
 
   function scanNow(trigger: ScanTrigger = 'manual'): StartScanResult {
@@ -241,7 +259,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     const state: NonNullable<typeof active> = {
       promise: Promise.resolve(),
       runId: null,
-      progress: { done: 0, total: 0 },
+      startedAt: now(),
+      progress: { phase: 'deployments', done: 0, total: 0, skipped: [] },
     }
     active = state
     state.promise = execute(trigger, sources)
@@ -251,6 +270,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
       throw new Error('The scan did not record a run')
     }
     state.runId = run.id
+    state.startedAt = run.startedAt
     return { started: true, run }
   }
 
@@ -266,10 +286,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
       })
     },
 
-    stop() {
-      running = false
-      clear()
-    },
+    stop,
 
     scanNow,
 
@@ -287,15 +304,13 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
     progress() {
       if (!active || active.runId === null) return null
-      return { scanRunId: active.runId, ...active.progress }
+      return { scanRunId: active.runId, startedAt: active.startedAt, ...active.progress }
     },
 
     nextScanAt() {
       return nextAt
     },
 
-    async idle() {
-      while (active) await active.promise
-    },
+    idle,
   }
 }

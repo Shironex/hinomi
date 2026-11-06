@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
-import { runScan, type ScanSummary } from './run.js'
+import { runScan, type ScanProgress, type ScanSummary } from './run.js'
 import { SCAN_SETTING_KEYS } from './settings.js'
 import { buildScanSources } from './sources.js'
 import { findingChangesSince, findingCounts, listRankedFindings } from './views.js'
@@ -329,6 +329,44 @@ describe('runScan', () => {
     const counts = findingCounts(repos, new Date(t0))
     expect(counts.advisories).toMatchObject({ total: 2, exposed: 2, needsAction: 2 })
     expect(counts.blindSpots.total).toBe(3)
+  })
+
+  it('reports each phase in order with its progress', async () => {
+    const seen: ScanProgress[] = []
+    const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+    await runScan({ repositories: repos }, sources, {
+      now: () => new Date(t0),
+      onProgress: (p) => seen.push(p),
+    })
+    // Phases only move forward, each starts at 0 and ends at its total.
+    const order = [...new Set(seen.map((p) => p.phase))]
+    expect(order).toEqual(['deployments', 'alerts', 'lockfiles', 'matching', 'ranking'])
+    const last = (phase: ScanProgress['phase']) => seen.filter((p) => p.phase === phase).at(-1)
+    expect(last('deployments')).toMatchObject({ done: 1, total: 1 })
+    expect(last('alerts')).toMatchObject({ done: 3, total: 3 })
+    expect(last('lockfiles')).toMatchObject({ done: 3, total: 3 })
+    expect(last('matching')).toMatchObject({ done: 3, total: 3 })
+    expect(last('ranking')).toMatchObject({ done: 0, total: 0 })
+    expect(seen.every((p) => p.skipped.length === 0)).toBe(true)
+  })
+
+  it('names the phases a scan leaves out', async () => {
+    repos.settings.set(SCAN_SETTING_KEYS.osvEnabled, false)
+    const seen: ScanProgress[] = []
+    const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+    await runScan({ repositories: repos }, sources, { onProgress: (p) => seen.push(p) })
+    expect(seen.some((p) => p.phase === 'lockfiles')).toBe(false)
+    expect(seen[0]?.skipped).toEqual(['lockfiles'])
+  })
+
+  it('keeps scanning when a progress listener throws', async () => {
+    const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+    const summary = await runScan({ repositories: repos }, sources, {
+      onProgress: () => {
+        throw new Error('listener broke')
+      },
+    })
+    expect(summary.status).toBe('succeeded')
   })
 
   it('never marks fixed while a source that reported it errored, and fixes once all agree', async () => {

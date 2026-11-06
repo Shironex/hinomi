@@ -97,17 +97,29 @@ function tierCounts(ranked: RankedFinding[]): Record<FindingTier, number> {
 }
 
 /**
- * Shell scan status. While a scan runs it reports progress; otherwise the
- * latest finished run. Connected but never scanned reports scanning 0 of 0:
+ * Shell scan status. While a scan runs it reports its phase and progress;
+ * otherwise the latest finished run. Connected but never scanned is queued:
  * the scheduler starts the first scan as soon as a source is connected.
  */
 export function scanStatus(repositories: Repositories, scheduler: Scheduler): ScanStatusDto {
   const progress = scheduler.progress()
-  if (progress) return { state: 'scanning', done: progress.done, total: progress.total }
+  if (progress) {
+    return {
+      state: 'scanning',
+      scanRunId: progress.scanRunId,
+      startedAt: progress.startedAt.toISOString(),
+      phase: progress.phase,
+      done: progress.done,
+      total: progress.total,
+      skipped: progress.skipped,
+    }
+  }
   if (!isConfigured(repositories)) return { state: 'unconfigured' }
   const runs = repositories.scanRuns.list(20).filter((r) => r.status !== 'running')
   const latest = runs[0]
-  if (!latest) return { state: 'scanning', done: 0, total: 0 }
+  if (!latest) {
+    return { state: 'queued', nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null }
+  }
   const finishedAt = (latest.finishedAt ?? latest.startedAt).toISOString()
   if (latest.status === 'failed') {
     const lastGood = runs.find((r) => r.status !== 'failed')

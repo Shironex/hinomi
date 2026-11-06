@@ -38,7 +38,7 @@ export function controllableScan() {
       const clock = options.now ?? (() => new Date())
       const startedAt = clock()
       const run = storage.repositories.scanRuns.start(options.trigger ?? 'manual', startedAt)
-      options.onProgress?.({ done: 0, total: 2 })
+      options.onProgress?.({ phase: 'alerts', done: 0, total: 2, skipped: ['lockfiles'] })
       return new Promise<ScanSummary>((resolve) => {
         pending.push({
           release: () => {

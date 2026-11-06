@@ -48,8 +48,10 @@ export const scanStatusQuery = queryOptions({
   queryKey: queryKeys.scanStatus,
   queryFn: ({ signal }) => api.get('/shell/scan-status', scanStatusSchema, { signal }),
   staleTime: 5_000,
-  refetchInterval: (query) =>
-    query.state.data?.state === 'scanning' ? SCAN_POLL_ACTIVE_MS : SHELL_POLL_IDLE_MS,
+  refetchInterval: (query) => {
+    const state = query.state.data?.state
+    return state === 'scanning' || state === 'queued' ? SCAN_POLL_ACTIVE_MS : SHELL_POLL_IDLE_MS
+  },
 })
 
 /** Starts a scan; when one is already running the server returns that one. */
