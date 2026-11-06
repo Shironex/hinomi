@@ -65,6 +65,9 @@ importers:
       hono:
         specifier: ^4.13.14
         version: 4.13.14
+      nodemailer:
+        specifier: 10.3.1
+        version: 10.3.1
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -3378,6 +3381,10 @@ packages:
   node-releases@2.0.62:
     resolution: {integrity: sha512-A0Eq+qVDQI97IbAD6g/HriIuv256el9N8EwF4+xqJ49pwrdRYpdCSmLk0sO4I3fnS6hpYE5v22B73Bk+WArEoQ==}
     engines: {node: '>=18'}
+
+  nodemailer@10.3.1:
+    resolution: {integrity: sha512-uF0AFsJC07Y1vdW7p580DKAnh7rAO+4UPSSB3mDCPNDufoiaOebV6JmrzpxB14OjEEEiBsNdYoM2Y+fN8M7BBA==}
+    engines: {node: '>=20.0.0'}
 
   npm-run-path@4.0.1:
     resolution: {integrity: sha512-S48WzZW777zhNIrn7gxOlISNAqi9ZC/uQFnRdbeIHhZhCA6UqpkOT8T1G7BvfdgP4Er8gF4sUbaS0i7QvIfCWw==}
@@ -7016,6 +7023,8 @@ snapshots:
   node-addon-api@8.9.2: {}
 
   node-releases@2.0.62: {}
+
+  nodemailer@10.3.1: {}
 
   npm-run-path@4.0.1:
     dependencies:
