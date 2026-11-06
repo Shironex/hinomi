@@ -5,6 +5,7 @@ type Handler = (body: unknown, url: URL) => unknown
 export interface ApiCall {
   method: string
   path: string
+  search: URLSearchParams
   body: unknown
 }
 
@@ -30,7 +31,7 @@ export function mockApi(routes: Record<string, unknown>) {
     const method = (init?.method ?? 'GET').toUpperCase()
     const path = url.pathname.replace(/^\/api/, '')
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
-    calls.push({ method, path, body })
+    calls.push({ method, path, search: url.searchParams, body })
     const key = `${method} ${path}`
     if (!(key in routes)) {
       return Promise.resolve(
