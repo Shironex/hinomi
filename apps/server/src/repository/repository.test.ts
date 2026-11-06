@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { SecretDecryptError, SecretKeyMissingError } from '../crypto/secret-box.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { DatabaseHandle } from '../db/client.js'
-import type { Repositories } from './index.js'
+import { deploymentInputFromRecord, type Repositories } from './index.js'
 
 const TOKEN = 'fictional-token-0000000000'
 let repos: Repositories
@@ -26,7 +26,7 @@ function seedDeployment(name = 'shop-web') {
   const deployment = repos.deployments.upsert({
     sourceId: source.id,
     externalId: `uuid-${name}`,
-    type: 'application',
+    kind: 'application',
     name,
     domains: ['shop.example.dev'],
     reach: 'public',
@@ -123,7 +123,7 @@ describe('deployments', () => {
     const { source, deployment } = seedDeployment()
     expect(deployment.domains).toEqual(['shop.example.dev'])
     const again = repos.deployments.upsert(
-      { sourceId: source.id, externalId: 'uuid-shop-web', type: 'application', name: 'shop-web-2' },
+      { sourceId: source.id, externalId: 'uuid-shop-web', kind: 'application', name: 'shop-web-2' },
       new Date(Date.now() + 60_000),
     )
     expect(again.id).toBe(deployment.id)
@@ -138,7 +138,7 @@ describe('deployments', () => {
     repos.deployments.upsert({
       sourceId: source.id,
       externalId: 'uuid-b',
-      type: 'service',
+      kind: 'service',
       name: 'b',
     })
     expect(repos.deployments.removeMissing(source.id, ['uuid-a'])).toBe(1)
@@ -162,6 +162,37 @@ describe('deployments', () => {
 
     expect(repos.deployments.removeRepoOverride(deployment.id, api.id)).toBe(true)
     expect(repos.deployments.effectiveRepoIds(deployment.id)).toEqual([repo.id])
+  })
+
+  it('maps a normalised deployment record', () => {
+    const source = repos.sources.create({ kind: 'coolify', name: 'main' })
+    const input = deploymentInputFromRecord(
+      {
+        source: 'main',
+        externalId: 'uuid-api',
+        name: 'api',
+        kind: 'application',
+        repo: 'kestrel-co/api',
+        branch: 'main',
+        domains: ['https://api.example.dev'],
+        isPublic: true,
+        server: 'edge-1',
+        status: 'running:healthy',
+        image: null,
+        lastDeployAt: '2026-10-01T12:00:00.000Z',
+        watchPaths: ['apps/api/**'],
+      },
+      source.id,
+    )
+    const row = repos.deployments.upsert(input)
+    expect(row).toMatchObject({
+      kind: 'application',
+      reach: 'public',
+      gitRepository: 'kestrel-co/api',
+      watchPaths: ['apps/api/**'],
+      lastDeployedAt: new Date('2026-10-01T12:00:00.000Z'),
+      repoId: null,
+    })
   })
 
   it('cascades when the source is removed', () => {

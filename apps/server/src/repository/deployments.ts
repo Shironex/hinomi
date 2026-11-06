@@ -1,3 +1,4 @@
+import type { DeploymentRecord } from '@hinomi/shared'
 import { and, asc, eq, exists, notExists, notInArray, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import {
@@ -13,6 +14,36 @@ export type UpsertDeploymentInput = Omit<
   NewDeploymentRow,
   'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'
 >
+
+/**
+ * Maps a normalised deployment record (see packages/shared sources) to the
+ * upsert input. `repoId` is the automatically mapped repo, null when the
+ * record has no repo or it is not known yet.
+ */
+export function deploymentInputFromRecord(
+  record: DeploymentRecord,
+  sourceId: number,
+  repoId: number | null = null,
+): UpsertDeploymentInput {
+  const lastDeployedAt = record.lastDeployAt === null ? null : new Date(record.lastDeployAt)
+  return {
+    sourceId,
+    externalId: record.externalId,
+    kind: record.kind,
+    name: record.name,
+    domains: record.domains,
+    reach: record.isPublic ? 'public' : 'internal',
+    server: record.server,
+    status: record.status,
+    image: record.image,
+    gitRepository: record.repo,
+    gitBranch: record.branch,
+    watchPaths: record.watchPaths,
+    repoId,
+    lastDeployedAt:
+      lastDeployedAt && !Number.isNaN(lastDeployedAt.getTime()) ? lastDeployedAt : null,
+  }
+}
 
 export type DeploymentsRepository = ReturnType<typeof createDeploymentsRepository>
 

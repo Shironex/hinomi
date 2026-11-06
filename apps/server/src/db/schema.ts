@@ -8,6 +8,7 @@ import {
   SCAN_TRIGGERS,
   SEVERITIES,
   SOURCE_KINDS,
+  type DeploymentKind,
   type Reporter,
   type SourceKind,
 } from '@hinomi/shared'
@@ -85,8 +86,7 @@ export const deployments = sqliteTable(
       .references(() => sources.id, { onDelete: 'cascade' }),
     /** The id the source uses for this deployment (a Coolify uuid). */
     externalId: text('external_id').notNull(),
-    /** Source specific type, for Coolify: application, service or database. */
-    type: text('type').notNull(),
+    kind: text('kind').$type<DeploymentKind>().notNull(),
     name: text('name').notNull(),
     domains: text('domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
     reach: text('reach', { enum: DEPLOYMENT_REACHES }).notNull().default('unknown'),
@@ -96,6 +96,8 @@ export const deployments = sqliteTable(
     /** Git repository as the source reports it, before mapping. */
     gitRepository: text('git_repository'),
     gitBranch: text('git_branch'),
+    /** Watch paths for monorepos, null when the source does not expose them. */
+    watchPaths: text('watch_paths', { mode: 'json' }).$type<string[]>(),
     /** Repo mapped automatically from gitRepository. Manual overrides live in deployment_repo_overrides. */
     repoId: integer('repo_id').references(() => repos.id, { onDelete: 'set null' }),
     lastDeployedAt: timestamp('last_deployed_at'),

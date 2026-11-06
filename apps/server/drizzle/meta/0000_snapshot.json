@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f55787fd-7d0a-47bf-bd19-c6dc0d25ada1",
+  "id": "4d1ba7d7-1b78-4fd2-a6e2-dd19197f3379",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "advisories": {
@@ -269,8 +269,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "type": {
-          "name": "type",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -329,6 +329,13 @@
         },
         "git_branch": {
           "name": "git_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "watch_paths": {
+          "name": "watch_paths",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
