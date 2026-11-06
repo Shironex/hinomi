@@ -1,4 +1,6 @@
 import {
+  bulkFindingsRequestSchema,
+  bulkFindingsResponseSchema,
   deferFindingRequestSchema,
   FINDING_STATES,
   FINDING_TIERS,
@@ -7,8 +9,11 @@ import {
   findingsResponseSchema,
   idParamSchema,
   reopenFindingRequestSchema,
+  type BulkFindingResult,
+  type DeferFindingRequest,
   type FindingGroup,
   type FindingState,
+  type Reporter,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
 import type { z } from 'zod'
@@ -21,6 +26,7 @@ import {
   snoozeFinding,
   type RankedFinding,
 } from '../../scan/index.js'
+import { findingNotifications } from '../../notify/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { tierOf, toFindingDetail, toFindingListItem } from '../serialize.js'
@@ -46,6 +52,17 @@ function haystack(ranked: RankedFinding): string {
     .toLowerCase()
 }
 
+function sourcesMatch(
+  reportedBy: readonly Reporter[],
+  wanted: readonly Reporter[] | undefined,
+  mode: 'any' | 'all',
+): boolean {
+  if (!wanted?.length) return true
+  return mode === 'all'
+    ? wanted.every((s) => reportedBy.includes(s))
+    : reportedBy.some((s) => wanted.includes(s))
+}
+
 function hasAny<T>(wanted: readonly T[] | undefined, value: T): boolean {
   return wanted === undefined || wanted.length === 0 || wanted.includes(value)
 }
@@ -62,7 +79,7 @@ export function filterFindings(items: RankedFinding[], filter: FindingsFilter): 
       hasAny(filter.tier, tierOf(r)) &&
       hasAny(filter.severity, r.factors.severity) &&
       hasAny(filter.scope, r.finding.scope) &&
-      (!filter.source?.length || r.finding.reportedBy.some((s) => filter.source!.includes(s))) &&
+      sourcesMatch(r.finding.reportedBy, filter.source, filter.sourceMatch) &&
       (!filter.repo?.length || (r.repo !== null && filter.repo.includes(r.repo.id))) &&
       (!filter.deployment?.length ||
         r.deployments.some((d) => filter.deployment!.includes(d.id))) &&
@@ -140,7 +157,12 @@ function findRanked(deps: ApiDeps, id: number): RankedFinding {
 }
 
 function detail(deps: ApiDeps, id: number) {
-  return toFindingDetail(findRanked(deps, id), deps.repositories.findings.listEvents(id))
+  const events = deps.repositories.findings.listEvents(id)
+  return toFindingDetail(
+    findRanked(deps, id),
+    events,
+    findingNotifications(deps.repositories.settings, id, events),
+  )
 }
 
 /** Existence and state checks first, so the status code says what went wrong. */
@@ -150,6 +172,42 @@ function guardTransition(deps: ApiDeps, id: number, to: FindingState): void {
   if (!canUserTransition(finding.state, to)) {
     throw new HttpError(409, 'conflict', `A ${finding.state} finding cannot be moved to ${to}`)
   }
+}
+
+type DeferBody = Pick<DeferFindingRequest, 'reason' | 'until' | 'untilNewAdvisory'>
+
+function deferInput(deps: ApiDeps, body: DeferBody) {
+  return {
+    reason: body.reason,
+    until: body.until === undefined ? null : new Date(body.until),
+    untilNewAdvisory: body.untilNewAdvisory === true,
+    now: deps.now(),
+  }
+}
+
+type Decision =
+  | { action: 'snooze' | 'accept'; body: DeferBody }
+  | { action: 'reopen'; reason: string | undefined }
+
+const TARGET: Record<Decision['action'], FindingState> = {
+  snooze: 'snoozed',
+  accept: 'accepted',
+  reopen: 'open',
+}
+
+/** Checks and applies one decision. Throws HttpError like the single finding routes. */
+function decide(deps: ApiDeps, id: number, decision: Decision): void {
+  guardTransition(deps, id, TARGET[decision.action])
+  const { findings } = deps.repositories
+  transition(() => {
+    if (decision.action === 'reopen') {
+      reopenFinding(findings, id, { reason: decision.reason || null, now: deps.now() })
+    } else if (decision.action === 'snooze') {
+      snoozeFinding(findings, id, deferInput(deps, decision.body))
+    } else {
+      acceptFinding(findings, id, deferInput(deps, decision.body))
+    }
+  })
 }
 
 function transition(run: () => unknown): void {
@@ -184,6 +242,26 @@ export function findingsRoutes(deps: ApiDeps) {
     })
   })
 
+  /** One decision for many findings. Each is applied on its own; failures are reported per id. */
+  app.post('/bulk', async (c) => {
+    const body = await readJson(c, bulkFindingsRequestSchema)
+    const decision: Decision =
+      body.action === 'reopen'
+        ? { action: 'reopen', reason: body.reason }
+        : { action: body.action, body }
+    const results: BulkFindingResult[] = [...new Set(body.ids)].map((id) => {
+      try {
+        decide(deps, id, decision)
+        return { id, ok: true, state: TARGET[decision.action] }
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error
+        return { id, ok: false, error: { code: error.code, message: error.message } }
+      }
+    })
+    const ok = results.filter((r) => r.ok).length
+    return send(c, bulkFindingsResponseSchema, { results, ok, failed: results.length - ok })
+  })
+
   app.get('/:id', (c) => {
     const { id } = readParams(c, idParamSchema)
     return send(c, findingDetailSchema, detail(deps, id))
@@ -193,13 +271,7 @@ export function findingsRoutes(deps: ApiDeps) {
     const { id } = readParams(c, idParamSchema)
     guardTransition(deps, id, 'snoozed')
     const body = await readJson(c, deferFindingRequestSchema)
-    transition(() =>
-      snoozeFinding(deps.repositories.findings, id, {
-        reason: body.reason,
-        until: new Date(body.until),
-        now: deps.now(),
-      }),
-    )
+    decide(deps, id, { action: 'snooze', body })
     return send(c, findingDetailSchema, detail(deps, id))
   })
 
@@ -207,13 +279,7 @@ export function findingsRoutes(deps: ApiDeps) {
     const { id } = readParams(c, idParamSchema)
     guardTransition(deps, id, 'accepted')
     const body = await readJson(c, deferFindingRequestSchema)
-    transition(() =>
-      acceptFinding(deps.repositories.findings, id, {
-        reason: body.reason,
-        until: new Date(body.until),
-        now: deps.now(),
-      }),
-    )
+    decide(deps, id, { action: 'accept', body })
     return send(c, findingDetailSchema, detail(deps, id))
   })
 
@@ -221,12 +287,7 @@ export function findingsRoutes(deps: ApiDeps) {
     const { id } = readParams(c, idParamSchema)
     guardTransition(deps, id, 'open')
     const body = await readJson(c, reopenFindingRequestSchema)
-    transition(() =>
-      reopenFinding(deps.repositories.findings, id, {
-        reason: body.reason || null,
-        now: deps.now(),
-      }),
-    )
+    decide(deps, id, { action: 'reopen', reason: body.reason })
     return send(c, findingDetailSchema, detail(deps, id))
   })
 

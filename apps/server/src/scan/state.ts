@@ -66,14 +66,30 @@ function requireUserTransition(finding: FindingRow, to: FindingState): void {
 
 export interface DeferInput {
   reason: string
-  until: Date
+  /** Expiry. Null only together with `untilNewAdvisory`. */
+  until: Date | null
+  /** Lasts until a new advisory appears for the same package and repo, instead of a date. */
+  untilNewAdvisory?: boolean
   now?: Date
 }
 
-function validateDefer(input: DeferInput, now: Date): string {
+function validateDefer(finding: FindingRow, input: DeferInput, now: Date): string {
   const reason = input.reason.trim()
   if (reason === '') throw new FindingTransitionError('A reason is required')
-  if (Number.isNaN(input.until.getTime()) || input.until.getTime() <= now.getTime()) {
+  if (input.untilNewAdvisory) {
+    if (input.until !== null) {
+      throw new FindingTransitionError('Give either an expiry date or until a new advisory')
+    }
+    if (finding.kind !== 'advisory') {
+      throw new FindingTransitionError('Only advisories can wait for a new advisory')
+    }
+    return reason
+  }
+  if (
+    input.until === null ||
+    Number.isNaN(input.until.getTime()) ||
+    input.until.getTime() <= now.getTime()
+  ) {
     throw new FindingTransitionError('The expiry must be in the future')
   }
   return reason
@@ -88,10 +104,19 @@ function defer(
   const now = input.now ?? new Date()
   const finding = load(findings, id)
   requireUserTransition(finding, state)
-  const reason = validateDefer(input, now)
+  const reason = validateDefer(finding, input, now)
+  const untilNewAdvisory = input.untilNewAdvisory === true
   return findings.changeState(
     id,
-    { state, reason, until: input.until, actor: 'user', eventType: state },
+    {
+      state,
+      reason,
+      until: untilNewAdvisory ? null : input.until,
+      untilNewAdvisory,
+      actor: 'user',
+      eventType: state,
+      ...(untilNewAdvisory && { data: { untilNewAdvisory: true } }),
+    },
     now,
   )
 }
@@ -186,6 +211,45 @@ export function expireDeferred(findings: FindingsRepository, now: Date): Finding
           actor: 'system',
           eventType: finding.state === 'snoozed' ? 'snooze_expired' : 'acceptance_expired',
           data: { expiredAt: finding.stateUntil?.toISOString() ?? null },
+        },
+        now,
+      ),
+    )
+}
+
+/**
+ * Scan: a new advisory finding appeared. Every snooze or acceptance on the same repo and
+ * package that waits for a new advisory ends now (event `snooze_expired` or
+ * `acceptance_expired` with `reason: new_advisory`). Returns the reopened findings.
+ */
+export function expireForNewAdvisory(
+  findings: FindingsRepository,
+  advisoryOf: (id: number) => { ecosystem: string; packageName: string } | undefined,
+  created: FindingRow,
+  now: Date,
+): FindingRow[] {
+  if (created.kind !== 'advisory' || created.repoId === null || created.advisoryId === null) {
+    return []
+  }
+  const pkg = advisoryOf(created.advisoryId)
+  if (!pkg) return []
+  return findings
+    .list({ repoId: created.repoId, kind: 'advisory' })
+    .filter((finding) => {
+      if (finding.id === created.id || !finding.stateUntilNewAdvisory) return false
+      if (!DEFERRED.includes(finding.state) || finding.advisoryId === null) return false
+      if (finding.advisoryId === created.advisoryId) return false
+      const other = advisoryOf(finding.advisoryId)
+      return other?.ecosystem === pkg.ecosystem && other.packageName === pkg.packageName
+    })
+    .map((finding) =>
+      findings.changeState(
+        finding.id,
+        {
+          state: 'open',
+          actor: 'system',
+          eventType: finding.state === 'snoozed' ? 'snooze_expired' : 'acceptance_expired',
+          data: { reason: 'new_advisory', findingId: created.id },
         },
         now,
       ),

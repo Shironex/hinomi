@@ -24,6 +24,8 @@ const proxy = deploymentItem({
   repos: [],
   coverage: { alerts: 'none', blindSpots: ['no_repo_mapping'], covered: false },
   openFindings: { critical: 0, high: 0, moderate: 0, low: 0 },
+  exposed: 0,
+  openBlindSpots: 1,
 })
 
 describe('deployments', () => {

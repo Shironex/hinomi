@@ -30,6 +30,7 @@ export {
 } from './rank.js'
 export {
   countFindings,
+  funnelSteps,
   isDeferred,
   isExposed,
   type AdvisoryFunnel,
@@ -41,6 +42,7 @@ export {
   acceptFinding,
   canUserTransition,
   expireDeferred,
+  expireForNewAdvisory,
   FindingTransitionError,
   reopenFinding,
   snoozeFinding,

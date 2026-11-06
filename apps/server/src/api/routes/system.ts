@@ -1,5 +1,6 @@
 import {
   FINDING_TIERS,
+  FUNNEL_STEPS,
   idParamSchema,
   navCountsSchema,
   overviewResponseSchema,
@@ -12,7 +13,10 @@ import {
   updateSettingsRequestSchema,
   type ActivityItem,
   type FindingTier,
+  type FunnelReach,
+  type FunnelStep,
   type ScanStatusDto,
+  type SeverityCounts,
   type SettingsDto,
   type SourceHealth,
 } from '@hinomi/shared'
@@ -20,6 +24,7 @@ import { Hono } from 'hono'
 import type { Repositories, Source } from '../../repository/index.js'
 import {
   countFindings,
+  funnelSteps,
   listRankedFindings,
   readScanSettings,
   SCAN_SETTING_KEYS,
@@ -98,6 +103,33 @@ function tierCounts(ranked: RankedFinding[]): Record<FindingTier, number> {
   return counts
 }
 
+function tierSeverity(ranked: RankedFinding[]): Record<FindingTier, SeverityCounts> {
+  const counts = Object.fromEntries(
+    FINDING_TIERS.map((t) => [t, { critical: 0, high: 0, moderate: 0, low: 0 }]),
+  ) as Record<FindingTier, SeverityCounts>
+  for (const r of ranked) if (r.state !== 'fixed') counts[tierOf(r)][r.factors.severity]++
+  return counts
+}
+
+/** Distinct repos and deployments behind each funnel step. */
+export function funnelReach(ranked: RankedFinding[]): Record<FunnelStep, FunnelReach> {
+  const sets = Object.fromEntries(
+    FUNNEL_STEPS.map((step) => [step, { repos: new Set<number>(), apps: new Set<number>() }]),
+  ) as Record<FunnelStep, { repos: Set<number>; apps: Set<number> }>
+  for (const r of ranked) {
+    for (const step of funnelSteps(r)) {
+      if (r.repo) sets[step].repos.add(r.repo.id)
+      for (const d of r.deployments) sets[step].apps.add(d.id)
+    }
+  }
+  return Object.fromEntries(
+    FUNNEL_STEPS.map((step) => [
+      step,
+      { repos: sets[step].repos.size, apps: sets[step].apps.size },
+    ]),
+  ) as Record<FunnelStep, FunnelReach>
+}
+
 /**
  * Shell scan status. While a scan runs it reports its phase and progress;
  * otherwise the latest finished run. Connected but never scanned is queued:
@@ -150,7 +182,9 @@ export function overviewRoutes(deps: ApiDeps) {
     return send(c, overviewResponseSchema, {
       funnel: counts.advisories,
       blindSpots: counts.blindSpots,
+      funnelReach: funnelReach(ranked),
       tiers: tierCounts(ranked),
+      tierSeverity: tierSeverity(ranked),
       lastScan: lastScan ? toScanRun(lastScan) : null,
       nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null,
       sources: repositories.sources.list().map(sourceHealth),

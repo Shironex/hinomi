@@ -37,7 +37,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | Method and path | Returns |
 |---|---|
 | `GET /api/health` | `{ status: "ok" }` |
-| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), blind spot counts, counts per tier, last scan, next scan time, health of every source, the 20 latest finding events |
+| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source, the 20 latest finding events |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
 | `GET /api/shell/scan-status` | One of the states below |
 
@@ -69,6 +69,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 | `state` | `open`, `fixing`, `fixed`, `snoozed`, `accepted`, `dismissed_upstream`. Without it every state except `fixed` |
 | `severity` | Effective severity: `critical`, `high`, `moderate`, `low` (unscored advisories count as moderate) |
 | `source` | `github`, `osv` |
+| `sourceMatch` | `any` (default): reported by at least one listed source; `all`: by every listed source, so `source=github,osv&sourceMatch=all` means reported by both |
 | `scope` | `runtime`, `dev`, `unknown` |
 | `kind` | `advisory`, `blind_spot` |
 | `repo`, `deployment` | Ids |
@@ -76,23 +77,31 @@ A scan moves through these phases in order. `done` and `total` count the units o
 | `group` | `none` (default), `tier`, `repo`, `advisory`: rows are ordered group by group and `groups` holds every group's size |
 | `offset`, `limit` | Paging, `limit` 1 to 200 (default 50). `nextOffset` is null on the last page |
 
-Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry, reporting sources, an advisory summary, the repo and the deployments it reaches.
+Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry (`stateUntilNewAdvisory` when it waits for a new advisory instead of a date), reporting sources, an advisory summary, the repo and the deployments it reaches.
 
 | Method and path | Does |
 |---|---|
-| `GET /api/findings/:id` | Detail: full advisory, versions (installed, first patched, vulnerable ranges), dependency scope and manifests, deployments, history newest first |
-| `POST /api/findings/:id/snooze` | `{ reason, until }`, both required, `until` in the future. Returns the detail |
-| `POST /api/findings/:id/accept` | Same body, accepts the risk until the date |
+| `GET /api/findings/:id` | Detail: full advisory with its description, versions (installed, first patched, vulnerable ranges), dependency scope, manifests and path, deployments, history newest first, notifications sent |
+| `POST /api/findings/:id/snooze` | `{ reason, until }` or `{ reason, untilNewAdvisory: true }`. A reason and exactly one expiry; `until` in the future. Returns the detail |
+| `POST /api/findings/:id/accept` | Same body, accepts the risk until the date or the next advisory |
 | `POST /api/findings/:id/reopen` | `{ reason? }`, cancels a snooze or acceptance |
+| `POST /api/findings/bulk` | `{ action: "snooze" \| "accept", ids, reason, until \| untilNewAdvisory }` or `{ action: "reopen", ids, reason? }`, 1 to 200 ids. Each finding is changed on its own: `{ results: [{ id, ok: true, state } \| { id, ok: false, error: { code, message } }], ok, failed }` |
 
-A transition the current state does not allow (snoozing a fixed finding, reopening an open one) answers 409.
+A transition the current state does not allow (snoozing a fixed finding, reopening an open one) answers 409; in a bulk call that finding gets the same code in its result.
+
+**Until a new advisory.** `untilNewAdvisory` keeps the snooze or acceptance in force (`stateUntil` is null) until a scan opens a finding for a different advisory on the same repo and package. The finding then reopens with a `snooze_expired` or `acceptance_expired` event whose data says `reason: "new_advisory"`. Only advisory findings can use it.
+
+**Dependency path.** `dependency.path` is the chain of package names from a direct dependency down to the vulnerable package, taken from the lockfiles Hinomi parses for OSV (pnpm, npm v2 and v3, yarn, bun, Cargo; not npm v1). Chains longer than 12 links keep the first ten, `...` and the package. `pathSource` says what is known: `lockfile` (the path), `manifest` (only `manifestPaths`) or `package` (neither).
+
+**Notifications.** `notifications` lists the immediate messages that announced the finding, one per channel (the latest announcement), with the channel name and kind (null when the channel was removed) and when it went out. Daily digests are not recorded per finding.
 
 ### Deployments and repo mapping
 
 | Method and path | Does |
 |---|---|
-| `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered) and open advisory findings by severity |
+| `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered), open advisory findings by severity, `exposed` (exposed advisories on it) and `openBlindSpots` |
 | `GET /api/deployments/:id` | The same plus watch paths, manual overrides and the open findings that reach it |
+| `GET /api/deployments/:id/deploys?limit=` | Recent deploys read live from Coolify (`limit` 1 to 50, default 10): `{ available, reason, items: [{ id, status, commit, commitMessage, startedAt, finishedAt, webhook, rollback }] }`. Applications only; for services, databases or a source that cannot answer, `available` is false and `reason` says why |
 | `GET /api/deployments/:id/overrides` | Manual repo mappings |
 | `POST /api/deployments/:id/overrides` | `{ repo: "owner/name", note? }`. Overrides replace the automatic repo; blind spots follow on the next scan |
 | `DELETE /api/deployments/:id/overrides/:repoId` | Removes one |

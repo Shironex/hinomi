@@ -52,6 +52,7 @@ export function findingItem(over: Partial<FindingListItem> = {}): FindingListIte
     state: 'open',
     stateReason: null,
     stateUntil: null,
+    stateUntilNewAdvisory: false,
     scope: 'runtime',
     sources: ['github', 'osv'],
     blindSpotType: null,
@@ -125,6 +126,22 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       dismissedUpstream: 0,
     },
     blindSpots: { total: 1, deployed: 1, public: 1, needsAction: 1 },
+    funnelReach: {
+      total: { repos: 64, apps: 31 },
+      deployed: { repos: 22, apps: 31 },
+      runtime: { repos: 19, apps: 27 },
+      criticalOrHigh: { repos: 9, apps: 12 },
+      public: { repos: 4, apps: 6 },
+      exposed: { repos: 2, apps: 2 },
+    },
+    tierSeverity: {
+      blind_spot: { critical: 1, high: 0, moderate: 0, low: 0 },
+      exposed: { critical: 1, high: 1, moderate: 0, low: 0 },
+      internal: { critical: 12, high: 30, moderate: 60, low: 16 },
+      public_low: { critical: 0, high: 0, moderate: 200, low: 65 },
+      dev: { critical: 40, high: 210, moderate: 400, low: 134 },
+      not_deployed: { critical: 300, high: 1200, moderate: 1800, low: 431 },
+    },
     tiers: {
       blind_spot: 1,
       exposed: 2,
@@ -175,6 +192,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
         toState: 'open',
         reason: null,
         until: null,
+        untilNewAdvisory: false,
         actor: 'system',
         at: T0,
         finding: {
@@ -201,13 +219,20 @@ export function findingDetail(over: Partial<FindingDetail> = {}): FindingDetail 
       vulnerableRanges: ['>= 14.0.0, < 14.2.9'],
       publishedAt: T0,
       withdrawnAt: null,
+      description: null,
     },
     versions: {
       installed: '14.2.3',
       firstPatched: '14.2.9',
       vulnerableRanges: ['>= 14.0.0, < 14.2.9'],
     },
-    dependency: { scope: 'runtime', manifestPaths: ['pnpm-lock.yaml'] },
+    dependency: {
+      scope: 'runtime',
+      manifestPaths: ['pnpm-lock.yaml'],
+      path: null,
+      pathSource: 'manifest',
+    },
+    notifications: [],
     history: [
       {
         id: 1,
@@ -217,6 +242,7 @@ export function findingDetail(over: Partial<FindingDetail> = {}): FindingDetail 
         toState: 'open',
         reason: null,
         until: null,
+        untilNewAdvisory: false,
         actor: 'system',
         at: T0,
       },
@@ -241,6 +267,8 @@ export function deploymentItem(over: Partial<DeploymentItem> = {}): DeploymentIt
     repos: [repoRef()],
     coverage: { alerts: 'enabled', blindSpots: [], covered: true },
     openFindings: { critical: 1, high: 2, moderate: 9, low: 0 },
+    exposed: 1,
+    openBlindSpots: 0,
     ...over,
   }
 }

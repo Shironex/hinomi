@@ -246,7 +246,12 @@ describe('findings', () => {
       firstPatched: '2.0.1',
       vulnerableRanges: ['< 2.0.1'],
     })
-    expect(detail.dependency).toEqual({ scope: 'runtime', manifestPaths: ['package-lock.json'] })
+    expect(detail.dependency).toEqual({
+      path: null,
+      pathSource: 'manifest',
+      scope: 'runtime',
+      manifestPaths: ['package-lock.json'],
+    })
     expect(detail.history.map((e) => e.type)).toEqual(['opened'])
     expect((await call('GET', '/findings/9999')).status).toBe(404)
   })

@@ -161,6 +161,8 @@ export const advisories = sqliteTable(
     cvssScore: real('cvss_score'),
     cvssVector: text('cvss_vector'),
     summary: text('summary'),
+    /** Long description from the source (markdown as written). */
+    description: text('description'),
     url: text('url'),
     vulnerableRanges: text('vulnerable_ranges', { mode: 'json' })
       .$type<string[]>()
@@ -200,11 +202,17 @@ export const findings = sqliteTable(
     reportedBy: text('reported_by', { mode: 'json' }).$type<Reporter[]>().notNull().default([]),
     manifestPaths: text('manifest_paths', { mode: 'json' }).$type<string[]>().notNull().default([]),
     installedVersion: text('installed_version'),
+    /** Package names from a direct dependency down to the vulnerable one, from a parsed lockfile. */
+    dependencyPath: text('dependency_path', { mode: 'json' }).$type<string[]>(),
     state: text('state', { enum: FINDING_STATES }).notNull().default('open'),
     /** Why it was snoozed or accepted. */
     stateReason: text('state_reason'),
     /** When a snooze or acceptance expires. */
     stateUntil: timestamp('state_until'),
+    /** The snooze or acceptance lasts until a new advisory shows up for the same package and repo. */
+    stateUntilNewAdvisory: integer('state_until_new_advisory', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     firstSeenAt: timestamp('first_seen_at').notNull(),
     lastSeenAt: timestamp('last_seen_at').notNull(),
     fixedAt: timestamp('fixed_at'),

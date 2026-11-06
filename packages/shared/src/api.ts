@@ -170,6 +170,8 @@ export const findingListItemSchema = z.object({
   state: findingStateSchema,
   stateReason: z.string().nullable(),
   stateUntil: isoDate.nullable(),
+  /** The snooze or acceptance lasts until a new advisory appears for the same package and repo. */
+  stateUntilNewAdvisory: z.boolean(),
   scope: findingScopeSchema,
   /** Sources reporting the advisory now (empty for blind spots). */
   sources: z.array(reporterSchema),
@@ -193,10 +195,20 @@ export const findingEventSchema = z.object({
   toState: findingStateSchema.nullable(),
   reason: z.string().nullable(),
   until: isoDate.nullable(),
+  /** A snooze or acceptance made until a new advisory instead of a date. */
+  untilNewAdvisory: z.boolean(),
   actor: z.enum(['system', 'user']),
   at: isoDate,
 })
 export type FindingEvent = z.infer<typeof findingEventSchema>
+
+export const severityCountsSchema = z.object({
+  critical: z.number().int(),
+  high: z.number().int(),
+  moderate: z.number().int(),
+  low: z.number().int(),
+})
+export type SeverityCounts = z.infer<typeof severityCountsSchema>
 
 export const scanSourceResultSchema = z.object({
   status: z.enum(['ok', 'error', 'skipped']),
@@ -390,6 +402,24 @@ export const activityItemSchema = findingEventSchema.extend({
 })
 export type ActivityItem = z.infer<typeof activityItemSchema>
 
+/** Funnel steps that narrow alerts down to exposed ones, in order. */
+export const FUNNEL_STEPS = [
+  'total',
+  'deployed',
+  'runtime',
+  'criticalOrHigh',
+  'public',
+  'exposed',
+] as const
+export const funnelStepSchema = z.enum(FUNNEL_STEPS)
+export type FunnelStep = z.infer<typeof funnelStepSchema>
+
+export const funnelReachSchema = z.object({
+  repos: z.number().int(),
+  apps: z.number().int(),
+})
+export type FunnelReach = z.infer<typeof funnelReachSchema>
+
 export const overviewResponseSchema = z.object({
   /** Advisory funnel, fixed findings left out. Every step narrows the previous one. */
   funnel: z.object({
@@ -411,8 +441,12 @@ export const overviewResponseSchema = z.object({
     public: z.number().int(),
     needsAction: z.number().int(),
   }),
+  /** Distinct repos and apps (deployments) behind each funnel step, same steps as `funnel`. */
+  funnelReach: z.record(funnelStepSchema, funnelReachSchema),
   /** Advisory counts per display tier (fixed left out). */
   tiers: z.record(findingTierSchema, z.number().int()),
+  /** The same counts split by effective severity (blind spots by the severity they rank as). */
+  tierSeverity: z.record(findingTierSchema, severityCountsSchema),
   lastScan: scanRunSchema.nullable(),
   nextScanAt: isoDate.nullable(),
   sources: z.array(sourceHealthSchema),
@@ -439,6 +473,8 @@ export const findingsQuerySchema = z.strictObject({
   state: csvOf(findingStateSchema).optional(),
   severity: csvOf(severitySchema).optional(),
   source: csvOf(reporterSchema).optional(),
+  /** any (default): reported by at least one listed source; all: by every listed source. */
+  sourceMatch: z.enum(['any', 'all']).default('any'),
   scope: csvOf(findingScopeSchema).optional(),
   kind: csvOf(findingKindSchema).optional(),
   /** Repo ids. */
@@ -474,6 +510,20 @@ export const findingsResponseSchema = z.object({
 })
 export type FindingsResponse = z.infer<typeof findingsResponseSchema>
 
+/** An immediate notification that announced a finding on one channel. */
+export const findingNotificationSchema = z.object({
+  channelId: z.string(),
+  /** Null when the channel was removed since. */
+  channelName: z.string().nullable(),
+  channelKind: z.string().nullable(),
+  /** The announced event: `opened` or `reopened`. */
+  event: z.string(),
+  eventId: id,
+  /** When it was sent. Sends recorded before this field existed fall back to the event time. */
+  sentAt: isoDate,
+})
+export type FindingNotification = z.infer<typeof findingNotificationSchema>
+
 export const findingDetailSchema = findingListItemSchema.extend({
   advisory: advisorySummarySchema
     .extend({
@@ -482,6 +532,8 @@ export const findingDetailSchema = findingListItemSchema.extend({
       vulnerableRanges: z.array(z.string()),
       publishedAt: isoDate.nullable(),
       withdrawnAt: isoDate.nullable(),
+      /** Long description (markdown as the source wrote it), null when no source gave one. */
+      description: z.string().nullable(),
     })
     .nullable(),
   versions: z.object({
@@ -492,21 +544,41 @@ export const findingDetailSchema = findingListItemSchema.extend({
   dependency: z.object({
     scope: findingScopeSchema,
     manifestPaths: z.array(z.string()),
+    /**
+     * How the package is pulled in, from a direct dependency down to the vulnerable package
+     * (both included). Null when no lockfile Hinomi parsed shows it.
+     */
+    path: z.array(z.string()).nullable(),
+    /** lockfile: `path` is the chain; manifest: only the manifest is known; package: neither. */
+    pathSource: z.enum(['lockfile', 'manifest', 'package']),
   }),
   /** Decision and scan history, newest first. */
   history: z.array(findingEventSchema),
+  /** Notifications sent about it, newest first. Daily digests are not recorded per finding. */
+  notifications: z.array(findingNotificationSchema),
 })
 export type FindingDetail = z.infer<typeof findingDetailSchema>
 
 const reason = z.string().trim().min(1, 'A reason is required').max(500)
 
-/** Snooze or accept: a reason and an expiry in the future are both required. */
-export const deferFindingRequestSchema = z.strictObject({
-  reason,
-  until: isoDate.refine((value) => Date.parse(value) > Date.now(), {
-    message: 'The expiry must be in the future',
-  }),
+const futureDate = isoDate.refine((value) => Date.parse(value) > Date.now(), {
+  message: 'The expiry must be in the future',
 })
+
+const deferFields = {
+  reason,
+  /** Expiry in the future. */
+  until: futureDate.optional(),
+  /** Instead of a date: lasts until a new advisory appears for the same package and repo. */
+  untilNewAdvisory: z.literal(true).optional(),
+}
+
+const oneExpiry = (value: { until?: string | undefined; untilNewAdvisory?: true | undefined }) =>
+  (value.until === undefined) !== (value.untilNewAdvisory === undefined)
+const ONE_EXPIRY = { message: 'Give either an expiry date or untilNewAdvisory', path: ['until'] }
+
+/** Snooze or accept: a reason and an expiry (a future date, or until a new advisory) are required. */
+export const deferFindingRequestSchema = z.strictObject(deferFields).refine(oneExpiry, ONE_EXPIRY)
 export type DeferFindingRequest = z.infer<typeof deferFindingRequestSchema>
 
 export const reopenFindingRequestSchema = z.strictObject({
@@ -514,16 +586,45 @@ export const reopenFindingRequestSchema = z.strictObject({
 })
 export type ReopenFindingRequest = z.infer<typeof reopenFindingRequestSchema>
 
+export const BULK_FINDINGS_MAX = 200
+
+/** One decision for many findings. Each finding is changed on its own; failures are listed. */
+export const bulkFindingsRequestSchema = z.discriminatedUnion('action', [
+  z
+    .strictObject({
+      action: z.enum(['snooze', 'accept']),
+      ids: z.array(id).min(1).max(BULK_FINDINGS_MAX),
+      ...deferFields,
+    })
+    .refine(oneExpiry, ONE_EXPIRY),
+  z.strictObject({
+    action: z.literal('reopen'),
+    ids: z.array(id).min(1).max(BULK_FINDINGS_MAX),
+    reason: z.string().trim().max(500).optional(),
+  }),
+])
+export type BulkFindingsRequest = z.infer<typeof bulkFindingsRequestSchema>
+
+export const bulkFindingResultSchema = z.discriminatedUnion('ok', [
+  z.object({ id, ok: z.literal(true), state: findingStateSchema }),
+  z.object({
+    id,
+    ok: z.literal(false),
+    error: z.object({ code: apiErrorCodeSchema, message: z.string() }),
+  }),
+])
+export type BulkFindingResult = z.infer<typeof bulkFindingResultSchema>
+
+export const bulkFindingsResponseSchema = z.object({
+  /** One entry per requested id, in request order. */
+  results: z.array(bulkFindingResultSchema),
+  ok: z.number().int(),
+  failed: z.number().int(),
+})
+export type BulkFindingsResponse = z.infer<typeof bulkFindingsResponseSchema>
+
 // ---------------------------------------------------------------------------
 // Deployments and repo mapping
-
-export const severityCountsSchema = z.object({
-  critical: z.number().int(),
-  high: z.number().int(),
-  moderate: z.number().int(),
-  low: z.number().int(),
-})
-export type SeverityCounts = z.infer<typeof severityCountsSchema>
 
 export const repoOverrideSchema = z.object({
   repo: repoRefSchema,
@@ -556,6 +657,10 @@ export const deploymentItemSchema = deploymentRefSchema.extend({
   }),
   /** Advisory findings not fixed, by effective severity. */
   openFindings: severityCountsSchema,
+  /** Exposed advisories on it (critical or high, runtime, public), not fixed or dismissed upstream. */
+  exposed: z.number().int(),
+  /** Blind spots not fixed on it or its repos. */
+  openBlindSpots: z.number().int(),
 })
 export type DeploymentItem = z.infer<typeof deploymentItemSchema>
 
@@ -569,6 +674,37 @@ export const deploymentDetailSchema = deploymentItemSchema.extend({
   findings: z.array(findingListItemSchema),
 })
 export type DeploymentDetail = z.infer<typeof deploymentDetailSchema>
+
+/** One deploy of an app as its deployment source reports it. */
+export const deployRecordSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  /** Git commit sha, null for image deploys or when the source does not say. */
+  commit: z.string().nullable(),
+  commitMessage: z.string().nullable(),
+  startedAt: isoDate.nullable(),
+  finishedAt: isoDate.nullable(),
+  /** Triggered by a git push webhook. */
+  webhook: z.boolean(),
+  rollback: z.boolean(),
+})
+export type DeployRecord = z.infer<typeof deployRecordSchema>
+
+export const deploymentDeploysQuerySchema = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+})
+
+/**
+ * Recent deploys of a deployment, read live from its source. `available` is false when the
+ * source cannot list them (services and databases, or the source is unreachable).
+ */
+export const deploymentDeploysResponseSchema = z.object({
+  available: z.boolean(),
+  /** Why the list is empty when `available` is false. */
+  reason: z.string().nullable(),
+  items: z.array(deployRecordSchema),
+})
+export type DeploymentDeploysResponse = z.infer<typeof deploymentDeploysResponseSchema>
 
 /** `owner/name` as on GitHub. */
 export const repoFullNameSchema = z
