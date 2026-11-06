@@ -39,6 +39,8 @@ export type ObserveFindingInput =
       reportedBy: Reporter[]
       manifestPaths?: string[]
       installedVersion?: string | null
+      /** Chain from a lockfile; left alone when undefined. */
+      dependencyPath?: string[] | null
     }
   | {
       kind: Extract<FindingKind, 'blind_spot'>
@@ -51,6 +53,8 @@ export interface ChangeStateInput {
   state: FindingState
   reason?: string | null
   until?: Date | null
+  /** A snooze or acceptance that lasts until a new advisory for the same package. */
+  untilNewAdvisory?: boolean
   actor: 'system' | 'user'
   /** Event type written to history. Defaults to `state_changed`. */
   eventType?: string
@@ -147,6 +151,7 @@ export function createFindingsRepository(db: Db) {
                     reportedBy: union([], input.reportedBy),
                     manifestPaths: input.manifestPaths ?? [],
                     installedVersion: input.installedVersion ?? null,
+                    dependencyPath: input.dependencyPath ?? null,
                   }
                 : {
                     blindSpotType: input.blindSpotType,
@@ -171,6 +176,7 @@ export function createFindingsRepository(db: Db) {
               ...(input.installedVersion !== undefined && {
                 installedVersion: input.installedVersion,
               }),
+              ...(input.dependencyPath !== undefined && { dependencyPath: input.dependencyPath }),
             }),
           })
           .where(eq(findings.id, existing.id))
@@ -204,6 +210,7 @@ export function createFindingsRepository(db: Db) {
             state: input.state,
             stateReason: reason,
             stateUntil: until,
+            stateUntilNewAdvisory: input.untilNewAdvisory ?? false,
             fixedAt: input.state === 'fixed' ? (current.fixedAt ?? at) : null,
           })
           .where(eq(findings.id, id))

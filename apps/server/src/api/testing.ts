@@ -90,7 +90,10 @@ export function recordingLogger() {
 }
 
 /** A full app on a fresh in-memory database, with a scheduler whose scans the test controls. */
-export function createTestApi({ withSecret = true } = {}) {
+export function createTestApi({
+  withSecret = true,
+  sourceFetch,
+}: { withSecret?: boolean; sourceFetch?: typeof fetch } = {}) {
   const { handle, repos } = createTestRepositories({ withSecret })
   const scan = controllableScan()
   const logger = recordingLogger()
@@ -153,6 +156,7 @@ export function createTestApi({ withSecret = true } = {}) {
       testers,
       log: logger.log,
       notifications: { notifier, onDigestHourChanged },
+      ...(sourceFetch && { sourceFetch }),
     },
   })
 

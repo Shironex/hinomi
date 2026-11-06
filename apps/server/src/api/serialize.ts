@@ -4,6 +4,7 @@ import type {
   FindingDetail,
   FindingEvent,
   FindingListItem,
+  FindingNotification,
   FindingTier,
   RepoRef,
   ScanRun,
@@ -86,6 +87,7 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     state: finding.state,
     stateReason: finding.stateReason,
     stateUntil: isoOrNull(finding.stateUntil),
+    stateUntilNewAdvisory: finding.stateUntilNewAdvisory,
     scope: finding.scope,
     sources: finding.reportedBy,
     blindSpotType: finding.blindSpotType,
@@ -108,12 +110,30 @@ export function toFindingEvent(event: FindingEventRow): FindingEvent {
     toState: event.toState,
     reason: event.reason,
     until: isoOrNull(event.until),
+    untilNewAdvisory:
+      (event.data as { untilNewAdvisory?: unknown } | null)?.untilNewAdvisory === true,
     actor: event.actor,
     at: iso(event.at),
   }
 }
 
-export function toFindingDetail(ranked: RankedFinding, events: FindingEventRow[]): FindingDetail {
+/** The dependency chain, and how much of it is known. */
+function dependencyOf(finding: RankedFinding['finding']): FindingDetail['dependency'] {
+  const path =
+    finding.dependencyPath && finding.dependencyPath.length > 0 ? finding.dependencyPath : null
+  return {
+    scope: finding.scope,
+    manifestPaths: finding.manifestPaths,
+    path,
+    pathSource: path ? 'lockfile' : finding.manifestPaths.length > 0 ? 'manifest' : 'package',
+  }
+}
+
+export function toFindingDetail(
+  ranked: RankedFinding,
+  events: FindingEventRow[],
+  notifications: FindingNotification[] = [],
+): FindingDetail {
   const { advisory, finding } = ranked
   return {
     ...toFindingListItem(ranked),
@@ -125,6 +145,7 @@ export function toFindingDetail(ranked: RankedFinding, events: FindingEventRow[]
           vulnerableRanges: advisory.vulnerableRanges,
           publishedAt: isoOrNull(advisory.publishedAt),
           withdrawnAt: isoOrNull(advisory.withdrawnAt),
+          description: advisory.description,
         }
       : null,
     versions: {
@@ -132,8 +153,9 @@ export function toFindingDetail(ranked: RankedFinding, events: FindingEventRow[]
       firstPatched: advisory?.firstPatchedVersion ?? null,
       vulnerableRanges: advisory?.vulnerableRanges ?? [],
     },
-    dependency: { scope: finding.scope, manifestPaths: finding.manifestPaths },
+    dependency: dependencyOf(finding),
     history: events.map(toFindingEvent),
+    notifications,
   }
 }
 

@@ -26,6 +26,8 @@ export interface ApiOptions {
   testers?: SourceTesters
   log?: Logger
   now?: () => Date
+  /** Fetch for live reads from a source (deploy history). Defaults to the global fetch. */
+  sourceFetch?: typeof fetch
   /** Notification channels and settings. Without it those routes are not registered. */
   notifications?: NotificationsApiOptions
 }
@@ -41,6 +43,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     testers: options.testers ?? createSourceTesters(),
     log: options.log ?? silentLogger,
     now: options.now ?? (() => new Date()),
+    ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
   }
 
   api.use(

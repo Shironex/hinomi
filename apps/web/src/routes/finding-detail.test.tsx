@@ -103,7 +103,7 @@ describe('finding detail', () => {
         ...blindSpotItem(),
         advisory: null,
         versions: { installed: null, firstPatched: null, vulnerableRanges: [] },
-        dependency: { scope: 'unknown', manifestPaths: [] },
+        dependency: { scope: 'unknown', manifestPaths: [], path: null, pathSource: 'package' },
         history: [],
       },
     })

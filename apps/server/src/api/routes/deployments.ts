@@ -1,5 +1,7 @@
 import {
   addRepoOverrideRequestSchema,
+  deploymentDeploysQuerySchema,
+  deploymentDeploysResponseSchema,
   deploymentDetailSchema,
   deploymentsResponseSchema,
   idParamSchema,
@@ -15,9 +17,10 @@ import { Hono } from 'hono'
 import type { DeploymentRow, RepoRow } from '../../db/schema.js'
 import type { Repositories, Source } from '../../repository/index.js'
 import { needsRepoMapping } from '../../scan/deployments.js'
-import { listRankedFindings, type RankedFinding } from '../../scan/index.js'
+import { isExposed, listRankedFindings, type RankedFinding } from '../../scan/index.js'
+import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
-import { HttpError, notFound, readJson, readParams, send } from '../http.js'
+import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { toDeploymentRef, toFindingListItem, toRepoRef } from '../serialize.js'
 
 function alertsCoverage(repos: RepoRow[]): DeploymentItem['coverage']['alerts'] {
@@ -94,6 +97,8 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
       covered: mapped && blindSpots.length === 0,
     },
     openFindings: bySeverity(open),
+    exposed: open.filter(isExposed).length,
+    openBlindSpots: open.filter((f) => f.kind === 'blind_spot').length,
   }
 }
 
@@ -132,6 +137,17 @@ export function deploymentsRoutes(deps: ApiDeps) {
       overrides: overridesOf(repositories, id),
       findings: openFindingsOf(ctx.ranked, id).map(toFindingListItem),
     })
+  })
+
+  /** Recent deploys and their commits, read live from the deployment's source. */
+  app.get('/:id/deploys', async (c) => {
+    const { id } = readParams(c, idParamSchema)
+    const deployment = requireDeployment(repositories, id)
+    const { limit } = readQuery(c, deploymentDeploysQuerySchema)
+    const history = await readDeployHistory(repositories, deployment, limit, {
+      ...(deps.sourceFetch && { fetch: deps.sourceFetch }),
+    })
+    return send(c, deploymentDeploysResponseSchema, history)
   })
 
   app.get('/:id/overrides', (c) => {

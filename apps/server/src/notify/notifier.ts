@@ -206,8 +206,11 @@ export function createNotifier(options: NotifierOptions) {
           todo.map((p) => p.item),
           immediateSummary(todo.map((p) => p.item)),
           (batch) => {
-            for (const item of batch)
+            const sentAt = (state.sentAt[channel.id] ??= {})
+            for (const item of batch) {
               sent[String(item.findingId)] = eventIds.get(item.findingId) ?? 0
+              sentAt[String(item.findingId)] = now().getTime()
+            }
           },
         )
       } catch (error) {

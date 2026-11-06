@@ -1,5 +1,6 @@
 export { createCoolifyClient, normalizeBaseUrl } from './client.js'
 export type { CoolifyClient, CoolifyClientOptions } from './client.js'
+export { fetchApplicationDeploys } from './deploys.js'
 export { CoolifyError } from './errors.js'
 export { fetchCoolifyInventory, testCoolifyConnection } from './inventory.js'
 export type { CoolifyOptions } from './inventory.js'

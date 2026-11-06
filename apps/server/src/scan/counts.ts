@@ -1,4 +1,4 @@
-import type { FindingKind, FindingState } from '@hinomi/shared'
+import type { FindingKind, FindingState, FunnelStep } from '@hinomi/shared'
 import type { ExposureFactors } from './rank.js'
 
 /** The fields of a ranked finding the counts need. */
@@ -63,6 +63,26 @@ export function isExposed(finding: CountableFinding): boolean {
     isCriticalOrHigh(factors) &&
     factors.public
   )
+}
+
+/**
+ * Funnel steps an advisory finding reaches, in order (the same rules as `countFindings`).
+ * Empty for blind spots and fixed findings.
+ */
+export function funnelSteps(finding: CountableFinding): FunnelStep[] {
+  if (finding.kind !== 'advisory' || finding.state === 'fixed') return []
+  const { factors } = finding
+  const steps: FunnelStep[] = ['total']
+  if (!factors.deployed) return steps
+  steps.push('deployed')
+  if (!factors.runtime) return steps
+  steps.push('runtime')
+  if (!isCriticalOrHigh(factors)) return steps
+  steps.push('criticalOrHigh')
+  if (!factors.public) return steps
+  steps.push('public')
+  if (finding.state !== 'dismissed_upstream') steps.push('exposed')
+  return steps
 }
 
 export function countFindings(findings: readonly CountableFinding[], now: Date): FindingCounts {

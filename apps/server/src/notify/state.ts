@@ -9,18 +9,28 @@ import { NOTIFY_SETTING_KEYS } from './settings.js'
  * event that was announced. The same event is never announced twice; a new
  * `reopened` event (the finding came back) has a new id and is announced again.
  *
+ * `sentAt[channelId][findingId]` is when (unix ms) that announcement went out.
+ * State written before it existed has no entry; readers fall back to the event time.
+ *
  * `digestSince[channelId]` is the time (unix ms) up to which the digest of
  * that channel covers. It only moves when the digest was delivered.
  */
 const stateSchema = z.object({
   immediate: z.record(z.string(), z.record(z.string(), z.number())).default({}),
+  sentAt: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   digestSince: z.record(z.string(), z.number()).default({}),
 })
 
 export type NotifyState = z.infer<typeof stateSchema>
 
 export function readState(settings: SettingsRepository): NotifyState {
-  return settings.get(NOTIFY_SETTING_KEYS.state, stateSchema) ?? { immediate: {}, digestSince: {} }
+  return (
+    settings.get(NOTIFY_SETTING_KEYS.state, stateSchema) ?? {
+      immediate: {},
+      sentAt: {},
+      digestSince: {},
+    }
+  )
 }
 
 export function writeState(settings: SettingsRepository, state: NotifyState): void {
@@ -31,5 +41,9 @@ export function writeState(settings: SettingsRepository, state: NotifyState): vo
 export function pruneState(state: NotifyState, channelIds: ReadonlySet<string>): NotifyState {
   const keep = <T>(record: Record<string, T>) =>
     Object.fromEntries(Object.entries(record).filter(([id]) => channelIds.has(id)))
-  return { immediate: keep(state.immediate), digestSince: keep(state.digestSince) }
+  return {
+    immediate: keep(state.immediate),
+    sentAt: keep(state.sentAt),
+    digestSince: keep(state.digestSince),
+  }
 }

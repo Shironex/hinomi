@@ -10,4 +10,6 @@ export interface ApiDeps {
   testers: SourceTesters
   log: Logger
   now: () => Date
+  /** Fetch for live reads from a source (deploy history). Replaced in tests. */
+  sourceFetch?: typeof fetch
 }

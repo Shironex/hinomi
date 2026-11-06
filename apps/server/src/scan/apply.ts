@@ -5,6 +5,7 @@ import { advisoryFromGithub, advisoryFromOsv, saveAdvisory } from './advisories.
 import type { RepoScan } from './collect.js'
 import {
   markDismissedUpstream,
+  expireForNewAdvisory,
   markFixed,
   noteUpstreamDismissal,
   reopenIfDismissedUpstream,
@@ -24,6 +25,9 @@ interface Observation {
   scopes: Set<FindingScope>
   manifestPaths: Set<string>
   installedVersion: string | undefined
+  /** Shortest chain any lockfile showed, runtime ones first. */
+  dependencyPath: string[] | undefined
+  pathIsRuntime: boolean
 }
 
 /**
@@ -74,10 +78,24 @@ function observationFor(map: Map<number, Observation>, advisoryId: number): Obse
       scopes: new Set(),
       manifestPaths: new Set(),
       installedVersion: undefined,
+      dependencyPath: undefined,
+      pathIsRuntime: false,
     }
     map.set(advisoryId, obs)
   }
   return obs
+}
+
+/** Keeps the path that best explains the finding: runtime over dev, then the shortest. */
+function notePath(obs: Observation, path: string[] | undefined, runtime: boolean): void {
+  if (!path || path.length === 0) return
+  const better =
+    obs.dependencyPath === undefined ||
+    (runtime && !obs.pathIsRuntime) ||
+    (runtime === obs.pathIsRuntime && path.length < obs.dependencyPath.length)
+  if (!better) return
+  obs.dependencyPath = path
+  obs.pathIsRuntime = runtime
 }
 
 function collectObservations(repositories: Repositories, scan: RepoScan) {
@@ -103,6 +121,8 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
       obs.reporters.add('osv')
       obs.scopes.add(match.scope)
       obs.installedVersion = match.installedVersion
+      if (match.lockfile) obs.manifestPaths.add(match.lockfile)
+      notePath(obs, match.path, match.scope === 'runtime')
     }
   }
   return map
@@ -186,11 +206,16 @@ function applyObservation(
       reportedBy: [...obs.reporters],
       manifestPaths: [...obs.manifestPaths],
       ...(obs.installedVersion !== undefined && { installedVersion: obs.installedVersion }),
+      ...(obs.dependencyPath !== undefined && { dependencyPath: obs.dependencyPath }),
     },
     now,
   )
   if (created) {
     changes.push({ findingId: finding.id, change: 'opened' })
+    const advisoryOf = (id: number) => repositories.advisories.get(id)
+    for (const reopened of expireForNewAdvisory(findings, advisoryOf, finding, now)) {
+      changes.push({ findingId: reopened.id, change: 'expired' })
+    }
     return finding.id
   }
   const before = finding.reportedBy

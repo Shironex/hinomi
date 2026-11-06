@@ -21,6 +21,7 @@ export {
   type MailMessage,
   type MailSender,
 } from './email.js'
+export { findingNotifications } from './history.js'
 export { msUntilNextDigest } from './schedule.js'
 export {
   DEFAULT_DIGEST_HOUR,
