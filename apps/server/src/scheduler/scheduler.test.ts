@@ -256,5 +256,23 @@ describe('scheduler', () => {
         vi.useRealTimers()
       }
     })
+
+    it('waits for the configured time, no longer and no shorter', async () => {
+      vi.useFakeTimers()
+      try {
+        const { repos, scheduler } = setup({ shutdownTimeoutMs: 30_000 })
+        const { run } = scheduler.scanNow()
+        let result: { drained: boolean } | undefined
+        void scheduler.shutdown().then((r) => (result = r))
+        await vi.advanceTimersByTimeAsync(29_999)
+        expect(result).toBeUndefined()
+        expect(repos.scanRuns.get(run.id)?.status).toBe('running')
+        await vi.advanceTimersByTimeAsync(1)
+        expect(result).toEqual({ drained: false })
+        expect(repos.scanRuns.get(run.id)?.status).toBe('failed')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

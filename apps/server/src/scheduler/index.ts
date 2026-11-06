@@ -5,7 +5,7 @@ export {
   readScanIntervalMinutes,
   SCAN_INTERVAL_KEY,
   SchedulerClosedError,
-  SHUTDOWN_TIMEOUT_MS,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type ScanFinishedListener,
   type ScanProgressState,
   type Scheduler,

@@ -49,4 +49,22 @@ describe('loadConfig', () => {
     expect(message).toMatch(/HINOMI_SECRET_KEY must be at least 16 characters/)
     expect(message).not.toContain('short-secret')
   })
+
+  it('waits 25 seconds for a running scan on shutdown by default', () => {
+    expect(loadConfig({}).shutdownTimeoutMs).toBe(25_000)
+    expect(loadConfig({ HINOMI_SHUTDOWN_TIMEOUT_SECONDS: '' }).shutdownTimeoutMs).toBe(25_000)
+  })
+
+  it('reads HINOMI_SHUTDOWN_TIMEOUT_SECONDS', () => {
+    expect(loadConfig({ HINOMI_SHUTDOWN_TIMEOUT_SECONDS: '90' }).shutdownTimeoutMs).toBe(90_000)
+    expect(loadConfig({ HINOMI_SHUTDOWN_TIMEOUT_SECONDS: '0' }).shutdownTimeoutMs).toBe(0)
+  })
+
+  it('rejects an invalid shutdown timeout', () => {
+    for (const value of ['-1', '1.5', 'abc', '3601']) {
+      expect(() => loadConfig({ HINOMI_SHUTDOWN_TIMEOUT_SECONDS: value })).toThrow(
+        /HINOMI_SHUTDOWN_TIMEOUT_SECONDS must be a whole number/,
+      )
+    }
+  })
 })

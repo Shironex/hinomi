@@ -6,6 +6,7 @@ import {
 } from '@hinomi/shared'
 import { z } from 'zod'
 import type { ScanRunRow } from '../db/schema.js'
+import { DEFAULT_SHUTDOWN_TIMEOUT_SECONDS } from '../config.js'
 import { silentLogger, type Logger } from '../log.js'
 import type { Repositories, SettingsRepository } from '../repository/index.js'
 import {
@@ -55,8 +56,8 @@ export class SchedulerClosedError extends Error {
   }
 }
 
-/** How long shutdown waits for a running scan by default. Below Docker's 10 s stop grace. */
-export const SHUTDOWN_TIMEOUT_MS = 8_000
+/** How long shutdown waits for a running scan when nothing is configured. */
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = DEFAULT_SHUTDOWN_TIMEOUT_SECONDS * 1000
 
 export interface Scheduler {
   /** Fails runs a crash left `running`, then plans the next scan (now, when one is overdue). */
@@ -79,8 +80,8 @@ export interface Scheduler {
   /** Resolves when no scan is running (for tests and shutdown). */
   idle(): Promise<void>
   /**
-   * Stops the timer, refuses new scans and waits up to `timeoutMs` for the
-   * running one. On timeout the run is marked interrupted so storage can
+   * Stops the timer, refuses new scans and waits up to `timeoutMs` (default: the
+   * `shutdownTimeoutMs` option) for the running one. On timeout the run is marked interrupted so storage can
    * close. Resolves `drained` when no scan was left running.
    */
   shutdown(timeoutMs?: number): Promise<{ drained: boolean }>
@@ -89,6 +90,8 @@ export interface Scheduler {
 export interface SchedulerOptions {
   repositories: Repositories
   log?: Logger
+  /** How long `shutdown()` waits for a running scan. Defaults to DEFAULT_SHUTDOWN_TIMEOUT_MS. */
+  shutdownTimeoutMs?: number
   now?: () => Date
   /** Builds the sources for one scan. Defaults to buildScanSources over storage. */
   buildSources?: (repositories: Repositories) => ScanSources
@@ -135,6 +138,7 @@ export function isConfigured(repositories: Repositories): boolean {
 export function createScheduler(options: SchedulerOptions): Scheduler {
   const { repositories } = options
   const log = options.log ?? silentLogger
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
   const now = options.now ?? (() => new Date())
   const build = options.buildSources ?? ((repos: Repositories) => buildScanSources(repos))
   const scan = options.runScan ?? runScan
@@ -332,7 +336,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
     idle,
 
-    async shutdown(timeoutMs = SHUTDOWN_TIMEOUT_MS) {
+    async shutdown(timeoutMs = shutdownTimeoutMs) {
       closed = true
       stop()
       const state = active
