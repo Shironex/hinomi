@@ -72,6 +72,39 @@ function sourceHealth(source: Source): SourceHealth {
   }
 }
 
+/**
+ * OSV.dev needs no connection, so most installs have no source row for it.
+ * Its health then comes from the scan setting and the latest scans that ran it.
+ */
+function osvHealth(repositories: Repositories): SourceHealth {
+  const base = { id: null, kind: 'osv' as const, name: 'osv' }
+  if (!readScanSettings(repositories.settings).osvEnabled) {
+    return { ...base, status: 'disabled', lastOkAt: null, lastErrorAt: null, lastError: null }
+  }
+  const runs = repositories.scanRuns.list(50).filter((r) => r.finishedAt !== null)
+  const ran = runs.filter((r) => {
+    const status = r.sourceResults.osv?.status
+    return status === 'ok' || status === 'error'
+  })
+  const lastOk = ran.find((r) => r.sourceResults.osv?.status === 'ok')
+  const latest = ran[0]
+  const failed = latest?.sourceResults.osv?.status === 'error' ? latest : undefined
+  return {
+    ...base,
+    status: failed ? 'error' : lastOk ? 'ok' : 'never',
+    lastOkAt: lastOk?.finishedAt?.toISOString() ?? null,
+    lastErrorAt: failed?.finishedAt?.toISOString() ?? null,
+    lastError: failed ? (failed.sourceResults.osv?.error ?? 'The last OSV scan failed') : null,
+  }
+}
+
+/** Every source row, plus OSV.dev when it has no row of its own. */
+function allSourceHealth(repositories: Repositories): SourceHealth[] {
+  const rows = repositories.sources.list()
+  const health = rows.map(sourceHealth)
+  return rows.some((s) => s.kind === 'osv') ? health : [...health, osvHealth(repositories)]
+}
+
 function findingTitle(r: RankedFinding): string {
   if (r.advisory) return `${r.advisory.packageName} ${r.advisory.advisoryKey}`
   if (r.kind === 'coverage_note') return 'image only'
@@ -188,7 +221,7 @@ export function overviewRoutes(deps: ApiDeps) {
       tierSeverity: tierSeverity(ranked),
       lastScan: lastScan ? toScanRun(lastScan) : null,
       nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null,
-      sources: repositories.sources.list().map(sourceHealth),
+      sources: allSourceHealth(repositories),
       recentActivity: recentActivity(repositories, ranked),
     })
   })

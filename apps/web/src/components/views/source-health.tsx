@@ -76,7 +76,7 @@ export function SourceHealthPanel({ sources }: { sources: readonly SourceHealth[
               const kind = KIND[source.kind]
               return (
                 <li
-                  key={source.id}
+                  key={source.id ?? source.kind}
                   className="flex items-center gap-2.5 border-t border-border py-2.5 text-sm first:border-t-0 first:pt-0 last:pb-0"
                 >
                   <span className="grid size-[30px] shrink-0 place-items-center rounded-md bg-muted text-foreground-2">

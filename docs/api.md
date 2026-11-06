@@ -38,7 +38,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 |---|---|
 | `GET /api/health` | `{ status: "ok" }` |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
-| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source, the 20 latest finding events |
+| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
 | `GET /api/shell/scan-status` | One of the states below |
 
