@@ -1,0 +1,1 @@
+ALTER TABLE `findings` ADD `patched_in_lockfile` integer DEFAULT false NOT NULL;

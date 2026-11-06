@@ -60,6 +60,11 @@ export const TIER_INFO: Record<FindingTier, { name: string; hint: string; number
     hint: 'Repos with no matching deployment. Lowest rank, still listed.',
     number: 5,
   },
+  patched: {
+    name: 'Patched in the lockfile',
+    hint: 'GitHub still lists the alert, but every version in the lockfile is already patched. Dismiss it on GitHub or wait for GitHub to close it.',
+    number: 0,
+  },
   coverage: {
     name: 'Image only',
     hint: 'Services and apps deployed from an image, with no git source. Not a blind spot: the image scan (phase 2) will cover them.',

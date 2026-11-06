@@ -1,12 +1,19 @@
 import type { AdvisorySeverity, FindingScope } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
-import { countFindings, isDeferred, isExposed, type CountableFinding } from './counts.js'
+import {
+  countFindings,
+  funnelSteps,
+  isDeferred,
+  isExposed,
+  type CountableFinding,
+} from './counts.js'
 import {
   allStopped,
   compareByRank,
   isStoppedStatus,
   rankExposure,
   reachOf,
+  tierOf,
   type ExposureReach,
 } from './rank.js'
 
@@ -126,6 +133,23 @@ describe('rankExposure', () => {
       deployed: true,
       public: true,
     })
+  })
+
+  it('ranks an advisory patched in the lockfile below every open advisory, above coverage notes', () => {
+    const base = { kind: 'advisory' as const, severity: 'low' as const, scope: 'dev' as const }
+    const weakest = rankExposure({ ...base, reach: 'none' }).rank
+    const stale = rankExposure({
+      ...base,
+      severity: 'critical',
+      scope: 'runtime',
+      reach: 'public',
+      patchedInLockfile: true,
+    })
+    expect(stale.rank).toBeLessThan(weakest)
+    expect(stale.rank).toBeGreaterThan(
+      rankExposure({ kind: 'coverage_note', scope: 'unknown', reach: 'public' }).rank,
+    )
+    expect(stale.factors).toMatchObject({ severity: 'critical', public: true, deployed: true })
   })
 
   it('sorts most urgent first', () => {
@@ -250,6 +274,15 @@ describe('countFindings', () => {
     )
     expect(counts.advisories.total).toBe(0)
     expect(counts.blindSpots.total).toBe(0)
+  })
+
+  it('leaves stale alerts that the lockfile already patched out of every count', () => {
+    const stale = { ...item('critical', 'runtime', 'public'), patchedInLockfile: true }
+    const counts = countFindings([stale], now)
+    expect(counts.advisories).toMatchObject({ total: 0, exposed: 0, needsAction: 0 })
+    expect(isExposed(stale)).toBe(false)
+    expect(funnelSteps(stale)).toEqual([])
+    expect(tierOf({ ...stale, kind: 'advisory' })).toBe('patched')
   })
 
   it('counts blind spots separately', () => {

@@ -49,6 +49,7 @@ export function findingItem(over: Partial<FindingListItem> = {}): FindingListIte
     factors: { severity: 'critical', runtime: true, deployed: true, public: true },
     unscored: false,
     stopped: false,
+    patchedInLockfile: false,
     state: 'open',
     stateReason: null,
     stateUntil: null,
@@ -160,6 +161,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       public_low: { critical: 0, high: 0, moderate: 200, low: 65 },
       dev: { critical: 40, high: 210, moderate: 400, low: 134 },
       not_deployed: { critical: 300, high: 1200, moderate: 1800, low: 431 },
+      patched: { critical: 0, high: 0, moderate: 0, low: 0 },
       coverage: { critical: 0, high: 0, moderate: 0, low: 3 },
     },
     tiers: {
@@ -169,6 +171,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       public_low: 265,
       dev: 784,
       not_deployed: 3731,
+      patched: 0,
       coverage: 3,
     },
     lastScan: {

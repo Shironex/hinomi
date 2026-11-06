@@ -26,6 +26,8 @@ export interface RankedFinding extends ExposureRank {
   reach: ExposureReach
   /** Every deployment it runs in is stopped: ranked as not deployed, kept visible with a badge. */
   stopped: boolean
+  /** GitHub's alert is stale: every resolved version in the lockfile is patched. */
+  patchedInLockfile: boolean
   finding: FindingRow
   advisory: AdvisoryRow | null
   repo: RepoRow | null
@@ -54,6 +56,7 @@ export function rankFinding(
     scope: finding.scope,
     reach,
     cvssScore: advisory?.cvssScore ?? null,
+    patchedInLockfile: finding.patchedInLockfile,
   })
   return {
     ...rank,
@@ -62,6 +65,7 @@ export function rankFinding(
     stateUntil: finding.stateUntil,
     reach,
     stopped: allStopped(deployments),
+    patchedInLockfile: finding.kind === 'advisory' && finding.patchedInLockfile,
     finding,
     advisory,
     repo,

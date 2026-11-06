@@ -87,6 +87,8 @@ const isAnnouncement = (type: string) => type === 'opened' || type === 'reopened
  */
 function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
   if (!isMessageFinding(ranked)) return false
+  // The lockfile is already patched: GitHub's alert is stale, nothing to announce.
+  if (ranked.patchedInLockfile) return false
   if (ranked.state !== 'open' && ranked.state !== 'fixing') return false
   if (ranked.deployments.length === 0) return false
   if (ranked.kind === 'blind_spot') return true
@@ -322,6 +324,7 @@ export function createNotifier(options: NotifierOptions) {
       const found = ranked.get(finding.id)
       // Coverage notes are not news: they show in the app, never in a message.
       if (!first || !last || !found || !isMessageFinding(found)) continue
+      if (found.patchedInLockfile) continue
       if (last.type === SILENCING_EVENT) continue
       const event = DIGEST_EVENTS[last.type] as ItemEvent
       // Opened and gone again within the window: nothing changed on net.

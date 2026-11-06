@@ -7,6 +7,8 @@ export interface CountableFinding {
   state: FindingState
   stateUntil: Date | null
   factors: ExposureFactors
+  /** GitHub's alert is stale: the lockfile is already patched. Left out of every count. */
+  patchedInLockfile?: boolean
 }
 
 /**
@@ -56,6 +58,7 @@ export function isExposed(finding: CountableFinding): boolean {
   const { factors } = finding
   return (
     finding.kind === 'advisory' &&
+    !finding.patchedInLockfile &&
     finding.state !== 'fixed' &&
     finding.state !== 'dismissed_upstream' &&
     factors.deployed &&
@@ -70,7 +73,8 @@ export function isExposed(finding: CountableFinding): boolean {
  * Empty for blind spots and fixed findings.
  */
 export function funnelSteps(finding: CountableFinding): FunnelStep[] {
-  if (finding.kind !== 'advisory' || finding.state === 'fixed') return []
+  if (finding.kind !== 'advisory' || finding.state === 'fixed' || finding.patchedInLockfile)
+    return []
   const { factors } = finding
   const steps: FunnelStep[] = ['total']
   if (!factors.deployed) return steps
@@ -100,7 +104,9 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
 
   for (const finding of findings) {
     // Coverage notes are neither advisories nor blind spots: counted nowhere here.
+    // Stale alerts (patched in the lockfile) are not exposure either.
     if (finding.state === 'fixed' || finding.kind === 'coverage_note') continue
+    if (finding.patchedInLockfile) continue
     const { factors } = finding
     if (finding.kind === 'blind_spot') {
       blindSpots.total++

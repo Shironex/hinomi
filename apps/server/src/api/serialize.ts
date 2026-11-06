@@ -75,6 +75,7 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     factors: ranked.factors,
     unscored: ranked.unscored,
     stopped: ranked.stopped,
+    patchedInLockfile: ranked.patchedInLockfile,
     state: finding.state,
     stateReason: finding.stateReason,
     stateUntil: isoOrNull(finding.stateUntil),

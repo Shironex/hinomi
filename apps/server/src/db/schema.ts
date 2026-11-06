@@ -205,6 +205,11 @@ export const findings = sqliteTable(
     reportedBy: text('reported_by', { mode: 'json' }).$type<Reporter[]>().notNull().default([]),
     manifestPaths: text('manifest_paths', { mode: 'json' }).$type<string[]>().notNull().default([]),
     installedVersion: text('installed_version'),
+    /**
+     * GitHub still has an open alert, but every version the lockfile resolves is patched (an
+     * override or resolution fixed it). Ranked below open advisories and never notified.
+     */
+    patchedInLockfile: integer('patched_in_lockfile', { mode: 'boolean' }).notNull().default(false),
     /** Package names from a direct dependency down to the vulnerable one, from a parsed lockfile. */
     dependencyPath: text('dependency_path', { mode: 'json' }).$type<string[]>(),
     state: text('state', { enum: FINDING_STATES }).notNull().default('open'),

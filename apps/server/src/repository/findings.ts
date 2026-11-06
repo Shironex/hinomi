@@ -45,6 +45,8 @@ export type ObserveFindingInput =
       reportedBy: Reporter[]
       manifestPaths?: string[]
       installedVersion?: string | null
+      /** The lockfile already resolves only patched versions; left alone when undefined. */
+      patchedInLockfile?: boolean
       /** Chain from a lockfile; left alone when undefined. */
       dependencyPath?: string[] | null
     }
@@ -164,6 +166,7 @@ export function createFindingsRepository(db: Db) {
                     reportedBy: union([], input.reportedBy),
                     manifestPaths: input.manifestPaths ?? [],
                     installedVersion: input.installedVersion ?? null,
+                    patchedInLockfile: input.patchedInLockfile ?? false,
                     dependencyPath: input.dependencyPath ?? null,
                   }
                 : input.kind === 'coverage_note'
@@ -192,6 +195,9 @@ export function createFindingsRepository(db: Db) {
                 installedVersion: input.installedVersion,
               }),
               ...(input.dependencyPath !== undefined && { dependencyPath: input.dependencyPath }),
+              ...(input.patchedInLockfile !== undefined && {
+                patchedInLockfile: input.patchedInLockfile,
+              }),
             }),
           })
           .where(eq(findings.id, existing.id))

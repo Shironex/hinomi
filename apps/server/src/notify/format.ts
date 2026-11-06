@@ -171,6 +171,7 @@ const TIER_LABELS: Record<FindingTier, string> = {
   public_low: 'Deployed and public, moderate or low',
   dev: 'Deployed, dev dependencies only',
   not_deployed: 'Not deployed',
+  patched: 'Patched in the lockfile',
   coverage: 'Image only',
 }
 const TIER_ORDER = Object.keys(TIER_LABELS) as FindingTier[]
