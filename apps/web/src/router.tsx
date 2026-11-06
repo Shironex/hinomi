@@ -7,6 +7,7 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { AppShell } from '@/components/shell/app-shell'
+import { alertsSearchSchema } from '@/lib/alerts-search'
 import { AlertsPage } from '@/routes/alerts'
 import { DeploymentDetailPage } from '@/routes/deployment-detail'
 import { DeploymentsPage } from '@/routes/deployments'
@@ -53,6 +54,7 @@ const alertsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/alerts',
   component: AlertsPage,
+  validateSearch: alertsSearchSchema,
   staticData: { nav: 'alerts', crumb: 'All alerts' },
 })
 
