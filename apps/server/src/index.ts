@@ -49,10 +49,22 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
 })
 
-function shutdown(signal: NodeJS.Signals) {
+let shuttingDown = false
+
+/**
+ * Stops new work, waits for a running scan (see SHUTDOWN_TIMEOUT_MS), then
+ * closes the HTTP server and storage. A second signal exits at once.
+ */
+async function shutdown(signal: NodeJS.Signals) {
+  if (shuttingDown) {
+    log.warn(`received ${signal} again, exiting now`)
+    process.exit(1)
+  }
+  shuttingDown = true
   log.info(`received ${signal}, shutting down`)
-  scheduler.stop()
   digest?.stop()
+  const { drained } = await scheduler.shutdown()
+  if (drained) log.info('scheduler: no scan running, closing')
   server.close((error) => {
     storage.close()
     if (error) {
@@ -63,5 +75,5 @@ function shutdown(signal: NodeJS.Signals) {
   })
 }
 
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+process.on('SIGINT', (signal) => void shutdown(signal))
+process.on('SIGTERM', (signal) => void shutdown(signal))

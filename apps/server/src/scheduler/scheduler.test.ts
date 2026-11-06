@@ -6,6 +6,7 @@ import {
   createScheduler,
   INTERRUPTED_SCAN_MESSAGE,
   SCAN_INTERVAL_KEY,
+  SchedulerClosedError,
   type SchedulerOptions,
 } from './scheduler.js'
 
@@ -208,5 +209,52 @@ describe('scheduler', () => {
     scheduler.stop()
     expect(timers.pendingAt()).toBeNull()
     expect(scheduler.nextScanAt()).toBeNull()
+  })
+
+  describe('shutdown', () => {
+    it('resolves at once when no scan runs, and refuses new scans after', async () => {
+      const { repos, timers, scheduler } = setup()
+      connect(repos)
+      scheduler.start()
+      expect(await scheduler.shutdown(1_000)).toEqual({ drained: true })
+      expect(timers.pendingAt()).toBeNull()
+      expect(() => scheduler.scanNow()).toThrow(SchedulerClosedError)
+    })
+
+    it('waits for the running scan to finish before resolving', async () => {
+      const { repos, scan, scheduler } = setup()
+      const { run } = scheduler.scanNow()
+      let resolved = false
+      const done = scheduler.shutdown(5_000).then((r) => {
+        resolved = true
+        return r
+      })
+      await Promise.resolve()
+      expect(resolved).toBe(false)
+      scan.finish()
+      expect(await done).toEqual({ drained: true })
+      expect(repos.scanRuns.get(run.id)?.status).toBe('succeeded')
+    })
+
+    it('marks the scan interrupted when it does not finish in time', async () => {
+      vi.useFakeTimers()
+      try {
+        const { repos, scan, scheduler, logger } = setup()
+        const { run } = scheduler.scanNow()
+        const done = scheduler.shutdown(2_000)
+        await vi.advanceTimersByTimeAsync(2_000)
+        expect(await done).toEqual({ drained: false })
+        expect(repos.scanRuns.get(run.id)).toMatchObject({
+          status: 'failed',
+          error: INTERRUPTED_SCAN_MESSAGE,
+        })
+        expect(logger.lines.some((l) => l.message.includes('marked interrupted'))).toBe(true)
+        // A scan that ends late afterwards does not crash the scheduler.
+        scan.finish()
+        await scheduler.idle()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

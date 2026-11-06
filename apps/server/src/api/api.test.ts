@@ -430,6 +430,15 @@ describe('scans, overview and shell', () => {
     })
   })
 
+  it('refuses to start a scan while the server shuts down', async () => {
+    const { call, repos, scheduler } = createTestApi()
+    seedWorld(repos)
+    await scheduler.shutdown(100)
+    const res = await call('POST', '/scans')
+    expect(res.status).toBe(503)
+    expect(errorOf(res.json).code).toBe('unavailable')
+  })
+
   it('reports a failed last scan with its message', async () => {
     const { call, repos } = createTestApi()
     seedWorld(repos)
