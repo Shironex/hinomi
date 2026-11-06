@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { createIpMatcher, InvalidCidrError, normalizeTeamDomain } from './access/index.js'
 
 export interface Config {
   host: string
@@ -19,6 +20,13 @@ export interface Config {
   secretKey: string | undefined
   /** How long shutdown waits for a running scan before it is marked interrupted. */
   shutdownTimeoutMs: number
+  /**
+   * Proxies (IPs or CIDR ranges) whose forwarded headers are believed when the access
+   * state is worked out. Empty: every forwarded header is ignored.
+   */
+  trustedProxies: string[]
+  /** Team domain (https origin) and audience to verify Cloudflare Access tokens; null when unset. */
+  cfAccess: { teamDomain: string; audience: string } | null
 }
 
 const DEFAULT_PORT = 3000
@@ -72,6 +80,33 @@ const envSchema = z.object({
     }
     return seconds
   }),
+  HINOMI_TRUSTED_PROXIES: optionalString.transform((value, ctx) => {
+    const entries = (value ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    try {
+      createIpMatcher(entries)
+    } catch (error) {
+      if (!(error instanceof InvalidCidrError)) throw error
+      ctx.addIssue({ code: 'custom', message: `HINOMI_TRUSTED_PROXIES: ${error.message}` })
+      return z.NEVER
+    }
+    return entries
+  }),
+  HINOMI_CF_ACCESS_TEAM_DOMAIN: optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
+    const origin = normalizeTeamDomain(value)
+    if (!origin) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_CF_ACCESS_TEAM_DOMAIN must be a team name or an https team domain like https://<team>.cloudflareaccess.com, got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return origin
+  }),
+  HINOMI_CF_ACCESS_AUD: optionalString,
   HINOMI_SECRET_KEY: optionalString.pipe(
     z
       .string()
@@ -99,6 +134,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid configuration: ${details}`)
   }
   const parsed = result.data
+  if (
+    (parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN === undefined) !==
+    (parsed.HINOMI_CF_ACCESS_AUD === undefined)
+  ) {
+    throw new Error(
+      'Invalid configuration: set both HINOMI_CF_ACCESS_TEAM_DOMAIN and HINOMI_CF_ACCESS_AUD to verify Cloudflare Access tokens, or neither',
+    )
+  }
   const dataDir = resolve(parsed.HINOMI_DATA_DIR ?? defaultDataDir(parsed.NODE_ENV))
 
   return {
@@ -110,5 +153,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     migrationsDir: defaultMigrationsDir,
     secretKey: parsed.HINOMI_SECRET_KEY,
     shutdownTimeoutMs: parsed.HINOMI_SHUTDOWN_TIMEOUT_SECONDS * 1000,
+    trustedProxies: parsed.HINOMI_TRUSTED_PROXIES,
+    cfAccess:
+      parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN && parsed.HINOMI_CF_ACCESS_AUD
+        ? { teamDomain: parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN, audience: parsed.HINOMI_CF_ACCESS_AUD }
+        : null,
   }
 }
