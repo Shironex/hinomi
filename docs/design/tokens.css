@@ -1,0 +1,91 @@
+/* app.css (Tailwind v4). shadcn names where they exist. */
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(0.982 0.004 265);
+  --card: oklch(0.996 0.002 265);
+  --sidebar: oklch(0.962 0.007 265);
+  --muted: oklch(0.935 0.009 265);
+  --foreground: oklch(0.235 0.02 265);
+  --muted-foreground: oklch(0.50 0.018 265);
+  --border: oklch(0.900 0.009 265);
+  --input: oklch(0.82 0.012 265);
+  --primary: oklch(0.47 0.135 268);
+  --primary-foreground: oklch(0.985 0.008 268);
+  --accent: oklch(0.945 0.028 268);
+  --ring: oklch(0.58 0.15 268);
+  --sev-critical: oklch(0.53 0.185 30);
+  --sev-high: oklch(0.52 0.13 58);
+  --sev-moderate: oklch(0.50 0.085 100);
+  --sev-low: oklch(0.52 0.03 250);
+  --success: oklch(0.50 0.11 158);
+  /* soft fills for severity chips: same hue, L 0.955, C 0.025 */
+  --sev-critical-soft: oklch(0.955 0.025 30);
+  --sev-high-soft: oklch(0.96 0.03 70);
+  --sev-moderate-soft: oklch(0.96 0.03 100);
+  --sev-low-soft: oklch(0.955 0.008 250);
+  --radius: 10px;
+}
+.dark {
+  --background: oklch(0.172 0.012 265);
+  --card: oklch(0.205 0.014 265);
+  --sidebar: oklch(0.155 0.012 265);
+  --muted: oklch(0.255 0.016 265);
+  --foreground: oklch(0.935 0.008 265);
+  --muted-foreground: oklch(0.69 0.016 265);
+  --border: oklch(0.295 0.016 265);
+  --input: oklch(0.38 0.018 265);
+  --primary: oklch(0.72 0.115 268);
+  --primary-foreground: oklch(0.17 0.03 268);
+  --accent: oklch(0.29 0.05 268);
+  --ring: oklch(0.72 0.13 268);
+  --sev-critical: oklch(0.72 0.15 30);
+  --sev-high: oklch(0.79 0.12 70);
+  --sev-moderate: oklch(0.80 0.08 102);
+  --sev-low: oklch(0.74 0.03 250);
+  --success: oklch(0.76 0.12 158);
+  --sev-critical-soft: oklch(0.29 0.06 30);
+  --sev-high-soft: oklch(0.29 0.045 70);
+  --sev-moderate-soft: oklch(0.28 0.035 102);
+  --sev-low-soft: oklch(0.27 0.012 250);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-sidebar: var(--sidebar);
+  --color-muted: var(--muted);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-ring: var(--ring);
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-high: var(--sev-high);
+  --color-sev-moderate: var(--sev-moderate);
+  --color-sev-low: var(--sev-low);
+  --color-success: var(--success);
+  --color-sev-critical-soft: var(--sev-critical-soft);
+  --color-sev-high-soft: var(--sev-high-soft);
+  --color-sev-moderate-soft: var(--sev-moderate-soft);
+  --color-sev-low-soft: var(--sev-low-soft);
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --text-xs: 0.75rem;    --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem; --text-base--line-height: 1.375rem;
+  --text-md: 1rem;       --text-md--line-height: 1.5rem;
+  --text-lg: 1.25rem;    --text-lg--line-height: 1.75rem;
+  --text-xl: 1.625rem;   --text-xl--line-height: 2rem;
+
+  --radius-sm: 4px;   /* badges, kbd, factor cells */
+  --radius-md: 6px;   /* buttons, inputs, menus */
+  --radius-lg: 10px;  /* panels, tables, callouts */
+  --spacing: 0.25rem; /* 4px grid: p-3 = 12px, gap-4 = 16px */
+}
