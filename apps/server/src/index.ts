@@ -1,4 +1,5 @@
 import { serve } from '@hono/node-server'
+import { createCfAccessVerifier, createIpMatcher } from './access/index.js'
 import { createApp } from './app.js'
 import { loadConfig } from './config.js'
 import { createConsoleLogger } from './log.js'
@@ -21,6 +22,11 @@ if (!storage.secretBox) {
 log.warn(
   'Hinomi has no login yet: run it behind Tailscale or Cloudflare Access and never expose the port to the internet',
 )
+if (config.trustedProxies.length > 0) {
+  log.info(`access: trusting forwarded headers from ${config.trustedProxies.join(', ')}`)
+}
+if (config.cfAccess)
+  log.info(`access: verifying Cloudflare Access tokens for ${config.cfAccess.teamDomain}`)
 
 const scheduler = createScheduler({
   repositories: storage.repositories,
@@ -42,6 +48,12 @@ const app = createApp({
     scheduler,
     log,
     notifications: { notifier, onDigestHourChanged: () => digest?.rearm() },
+  },
+  access: {
+    ...(config.trustedProxies.length > 0 && {
+      isTrustedProxy: createIpMatcher(config.trustedProxies),
+    }),
+    ...(config.cfAccess && { cfAccess: createCfAccessVerifier(config.cfAccess) }),
   },
   log,
 })

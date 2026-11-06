@@ -67,4 +67,34 @@ describe('loadConfig', () => {
       )
     }
   })
+
+  it('trusts no proxy and verifies no Cloudflare Access token by default', () => {
+    const config = loadConfig({})
+    expect(config.trustedProxies).toEqual([])
+    expect(config.cfAccess).toBeNull()
+  })
+
+  it('reads HINOMI_TRUSTED_PROXIES as a comma separated list', () => {
+    expect(
+      loadConfig({ HINOMI_TRUSTED_PROXIES: '172.20.0.0/16, 10.0.0.7,,fd00::/8' }).trustedProxies,
+    ).toEqual(['172.20.0.0/16', '10.0.0.7', 'fd00::/8'])
+    expect(() => loadConfig({ HINOMI_TRUSTED_PROXIES: '10.0.0.0/8,proxy.example.dev' })).toThrow(
+      /HINOMI_TRUSTED_PROXIES: "proxy.example.dev" is not an IP address/,
+    )
+  })
+
+  it('reads the Cloudflare Access team domain and audience together', () => {
+    expect(
+      loadConfig({ HINOMI_CF_ACCESS_TEAM_DOMAIN: 'kestrel-co', HINOMI_CF_ACCESS_AUD: 'aud-tag' })
+        .cfAccess,
+    ).toEqual({ teamDomain: 'https://kestrel-co.cloudflareaccess.com', audience: 'aud-tag' })
+    expect(() => loadConfig({ HINOMI_CF_ACCESS_TEAM_DOMAIN: 'kestrel-co' })).toThrow(/set both/)
+    expect(() => loadConfig({ HINOMI_CF_ACCESS_AUD: 'aud-tag' })).toThrow(/set both/)
+    expect(() =>
+      loadConfig({
+        HINOMI_CF_ACCESS_TEAM_DOMAIN: 'http://kestrel-co.example.dev',
+        HINOMI_CF_ACCESS_AUD: 'a',
+      }),
+    ).toThrow(/HINOMI_CF_ACCESS_TEAM_DOMAIN must be/)
+  })
 })
