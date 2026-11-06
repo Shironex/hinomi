@@ -3,23 +3,15 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
   type RouterHistory,
 } from '@tanstack/react-router'
 import { AppShell } from '@/components/shell/app-shell'
 import { alertsSearchSchema } from '@/lib/alerts-search'
-import { AlertsPage } from '@/routes/alerts'
-import { DeploymentDetailPage } from '@/routes/deployment-detail'
-import { DeploymentsPage } from '@/routes/deployments'
-import { DriftPage } from '@/routes/drift'
-import { FindingDetailPage } from '@/routes/finding-detail'
-import { FixRunsPage } from '@/routes/fix-runs'
 import { NotFoundPage } from '@/routes/not-found'
-import { OnboardingPage } from '@/routes/onboarding'
-import { OverviewPage } from '@/routes/overview'
 import { RouteError } from '@/routes/route-error'
 import { RoutePending } from '@/routes/route-pending'
-import { SettingsPage } from '@/routes/settings'
 import { scanStatusQuery } from '@/lib/queries'
 import '@/lib/route-meta'
 
@@ -46,14 +38,14 @@ const overviewRoute = createRoute({
     // eslint-disable-next-line @typescript-eslint/only-throw-error
     if (status?.state === 'unconfigured') throw redirect({ to: '/onboarding' })
   },
-  component: OverviewPage,
+  component: lazyRouteComponent(() => import('@/routes/overview'), 'OverviewPage'),
   staticData: { nav: 'overview', crumb: 'Exposure' },
 })
 
 const alertsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/alerts',
-  component: AlertsPage,
+  component: lazyRouteComponent(() => import('@/routes/alerts'), 'AlertsPage'),
   validateSearch: alertsSearchSchema,
   staticData: { nav: 'alerts', crumb: 'All alerts' },
 })
@@ -61,21 +53,21 @@ const alertsRoute = createRoute({
 const findingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/finding/$id',
-  component: FindingDetailPage,
+  component: lazyRouteComponent(() => import('@/routes/finding-detail'), 'FindingDetailPage'),
   staticData: { nav: 'overview', crumb: 'Finding', parent: { label: 'Exposure', to: '/' } },
 })
 
 const deploymentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments',
-  component: DeploymentsPage,
+  component: lazyRouteComponent(() => import('@/routes/deployments'), 'DeploymentsPage'),
   staticData: { nav: 'deployments', crumb: 'Deployments' },
 })
 
 const deploymentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments/$id',
-  component: DeploymentDetailPage,
+  component: lazyRouteComponent(() => import('@/routes/deployment-detail'), 'DeploymentDetailPage'),
   staticData: {
     nav: 'deployments',
     crumb: 'Deployment',
@@ -86,28 +78,28 @@ const deploymentRoute = createRoute({
 const fixRunsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/fix-runs',
-  component: FixRunsPage,
+  component: lazyRouteComponent(() => import('@/routes/fix-runs'), 'FixRunsPage'),
   staticData: { nav: 'fix-runs', crumb: 'Fix runs' },
 })
 
 const driftRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/drift',
-  component: DriftPage,
+  component: lazyRouteComponent(() => import('@/routes/drift'), 'DriftPage'),
   staticData: { nav: 'drift', crumb: 'Drift guards' },
 })
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
-  component: SettingsPage,
+  component: lazyRouteComponent(() => import('@/routes/settings'), 'SettingsPage'),
   staticData: { nav: 'settings', crumb: 'Settings' },
 })
 
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/onboarding',
-  component: OnboardingPage,
+  component: lazyRouteComponent(() => import('@/routes/onboarding'), 'OnboardingPage'),
   staticData: { nav: 'onboarding', crumb: 'Set up' },
 })
 
