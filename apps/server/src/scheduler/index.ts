@@ -1,6 +1,7 @@
 export {
   createScheduler,
   INTERRUPTED_SCAN_MESSAGE,
+  canAutoScan,
   isConfigured,
   readScanIntervalMinutes,
   SCAN_INTERVAL_KEY,
