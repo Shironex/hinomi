@@ -3,3 +3,7 @@ dist/
 coverage/
 # Prose is formatted by hand; prettier pads wide tables.
 *.md
+
+# design reference files, kept exactly as exported
+docs/design/prototype.html
+docs/design/tokens.css
