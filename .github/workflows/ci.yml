@@ -49,9 +49,19 @@ jobs:
       - name: Smoke test the image
         run: |
           docker run -d --name hinomi -p 3000:3000 hinomi:ci
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:3000/api/health; then exit 0; fi
+          healthy=false
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health; then healthy=true; break; fi
             sleep 1
           done
-          docker logs hinomi
-          exit 1
+          if [ "$healthy" != true ]; then
+            docker logs hinomi
+            exit 1
+          fi
+          echo
+          uid=$(docker exec hinomi id -u)
+          if [ "$uid" != 10001 ]; then
+            echo "expected the server to run as uid 10001, got $uid"
+            exit 1
+          fi
+          echo "running as uid $uid"
