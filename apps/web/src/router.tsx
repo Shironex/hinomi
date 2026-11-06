@@ -54,8 +54,8 @@ const alertsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/alerts',
   component: lazyRouteComponent(() => import('@/routes/alerts'), 'AlertsPage'),
-  validateSearch: alertsSearchSchema,
-  staticData: { nav: 'alerts', crumb: 'All alerts' },
+  validateSearch: alertsSearchSchema.extend(splitSearchSchema.shape),
+  staticData: { nav: 'alerts', crumb: 'All alerts', layout: 'split' },
 })
 
 const findingRoute = createRoute({
