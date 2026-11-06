@@ -103,6 +103,21 @@ describe('onboarding', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument()
   })
 
+  it('shows where to get a GitHub token above the GitHub token form', async () => {
+    mockApi(unconfigured({ 'GET /sources': { sources: [coolifySource], canStoreTokens: true } }))
+    await renderApp('/onboarding')
+    const help = await screen.findByRole('region', { name: 'Create a GitHub token' })
+    expect(within(help).getByRole('link', { name: 'Create a classic token' })).toHaveAttribute(
+      'href',
+      'https://github.com/settings/tokens/new?scopes=repo,security_events&description=Hinomi',
+    )
+    const token = screen.getByLabelText('Personal access token', {
+      selector: 'input:not([type=radio])',
+    })
+    // The help comes first in the step, so it is read before the field.
+    expect(help.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows the secret key fix when the server refuses to store a token', async () => {
     mockApi(
       unconfigured({

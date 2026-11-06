@@ -36,7 +36,7 @@ const COPY = {
     urlPlaceholder: 'https://github.example.dev/api/v3',
     tokenLabel: 'Personal access token',
     tokenHelp:
-      'Fine-grained: Dependabot alerts (read) and Metadata (read) on the repos to watch. Classic: repo and security_events.',
+      'Fine-grained: Metadata, Contents and Dependabot alerts (read) on the repos to watch. Classic: repo and security_events.',
     tokenEmpty: 'Paste a GitHub token.',
   },
 } as const
