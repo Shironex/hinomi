@@ -3,6 +3,7 @@ import type { FindingRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { advisoryFromGithub, advisoryFromOsv, saveAdvisory } from './advisories.js'
 import type { RepoScan } from './collect.js'
+import { installedFromLockfiles } from './installed.js'
 import {
   markDismissedUpstream,
   expireForNewAdvisory,
@@ -103,6 +104,7 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
   if (scan.alerts.status === 'ok') {
     const { advisories, alerts } = scan.alerts.value
     const byKey = new Map(advisories.map((a) => [`${a.ghsaId}|${a.ecosystem}|${a.package}`, a]))
+    const deps = scan.osv.status === 'ok' ? (scan.osv.value.dependencies ?? []) : []
     for (const alert of alerts) {
       if (alert.dismissedAt !== null) continue
       const record = byKey.get(`${alert.ghsaId}|${alert.ecosystem}|${alert.package}`)
@@ -112,6 +114,8 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
       obs.reporters.add('github')
       obs.scopes.add(alert.scope ?? 'unknown')
       if (alert.manifestPath) obs.manifestPaths.add(alert.manifestPath)
+      // An OSV match below sets the exact version; this covers alerts OSV did not match.
+      obs.installedVersion ??= installedFromLockfiles(deps, alert, record.vulnerableRange)
     }
   }
   if (scan.osv.status === 'ok') {

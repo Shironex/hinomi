@@ -62,6 +62,70 @@ function osvScan(matches: OsvAdvisoryMatch[]): RepoScan {
 }
 
 describe('applyRepoAdvisories', () => {
+  it('reads the installed version of a GitHub only alert from the lockfile', () => {
+    const scan: RepoScan = {
+      repo,
+      deployed: true,
+      health: { status: 'skipped', reason: 'test' },
+      alerts: {
+        status: 'ok',
+        value: {
+          advisories: [
+            {
+              ghsaId: 'GHSA-gh00-0000-0001',
+              cveIds: [],
+              package: 'plover-parse',
+              ecosystem: 'npm',
+              severity: 'high',
+              cvss: null,
+              summary: 'Issue in plover-parse',
+              vulnerableRange: '< 1.2.5',
+              firstPatched: '1.2.5',
+              publishedAt: null,
+            },
+          ],
+          alerts: [
+            {
+              owner: 'kestrel-co',
+              repo: 'harbor-web',
+              alertNumber: 1,
+              ghsaId: 'GHSA-gh00-0000-0001',
+              package: 'plover-parse',
+              ecosystem: 'npm',
+              scope: 'runtime',
+              manifestPath: 'pnpm-lock.yaml',
+              createdAt: '2026-10-01T00:00:00Z',
+              dismissedAt: null,
+            },
+          ],
+          dismissed: [],
+        },
+      },
+      // OSV read the lockfile but matched nothing for this advisory.
+      osv: {
+        status: 'ok',
+        value: {
+          matches: [],
+          lockfiles: ['pnpm-lock.yaml'],
+          unparseable: [],
+          dependencies: [
+            {
+              name: 'plover-parse',
+              version: '1.2.0',
+              ecosystem: 'npm',
+              scope: 'runtime',
+              direct: true,
+              lockfile: 'pnpm-lock.yaml',
+            },
+          ],
+        },
+      },
+    }
+    applyRepoAdvisories(repos, scan, t0)
+    const [finding] = repos.findings.list()
+    expect(finding).toMatchObject({ reportedBy: ['github'], installedVersion: '1.2.0' })
+  })
+
   it('stores the description, the lockfile and the dependency path of an OSV match', () => {
     applyRepoAdvisories(
       repos,

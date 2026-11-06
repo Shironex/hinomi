@@ -141,6 +141,48 @@ describe('pnpm-lock.yaml', () => {
     })
   })
 
+  it('resolves nested peer suffixes and patch hashes in a v9 workspace', () => {
+    const lock = `lockfileVersion: 9.0
+
+importers:
+
+  .: {}
+
+  apps/site:
+    dependencies:
+      kestrel-frame:
+        specifier: 15.1.0
+        version: 15.1.0(wren-dom@19.0.0(wren@19.0.0))(wren@19.0.0)
+      wren:
+        specifier: ^19.0.0
+        version: 19.0.0
+      plover-parse:
+        specifier: 1.2.0
+        version: 1.2.0(patch_hash=abc123)
+
+snapshots:
+
+  kestrel-frame@15.1.0(wren-dom@19.0.0(wren@19.0.0))(wren@19.0.0):
+    dependencies:
+      wren: 19.0.0
+      wren-dom: 19.0.0(wren@19.0.0)
+
+  wren@19.0.0: {}
+
+  wren-dom@19.0.0(wren@19.0.0):
+    dependencies:
+      wren: 19.0.0
+
+  plover-parse@1.2.0(patch_hash=abc123): {}
+`
+    expect(summary(parseLockfile(lock, 'pnpm-lock.yaml'))).toEqual({
+      'kestrel-frame@15.1.0': 'runtime direct',
+      'plover-parse@1.2.0': 'runtime direct',
+      'wren@19.0.0': 'runtime direct',
+      'wren-dom@19.0.0': 'runtime transitive',
+    })
+  })
+
   it('tags every dependency with the npm ecosystem', () => {
     expect(new Set(parseLockfile(PNPM_V6, 'pnpm-lock.yaml').map((d) => d.ecosystem))).toEqual(
       new Set(['npm']),

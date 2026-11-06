@@ -21,6 +21,8 @@ export interface OsvRepoResult {
   lockfiles: string[]
   /** Lockfiles found but not readable. */
   unparseable: { path: string; error: string }[]
+  /** Every package of every lockfile read, with its lockfile; fills versions for GitHub alerts. */
+  dependencies?: LockfileDependency[]
 }
 
 export interface RepoScan {
@@ -74,7 +76,7 @@ function parseAll(files: Awaited<ReturnType<ScanSources['fetchLockfiles']>>) {
       unparseable.push({ path: file.path, error: errorMessage(error) })
     }
   }
-  return { deps: dedupeDependencies(deps), lockfiles, unparseable }
+  return { all: deps, deps: dedupeDependencies(deps), lockfiles, unparseable }
 }
 
 /** Reads the lockfiles of one repo and checks them against OSV.dev. Never throws. */
@@ -94,9 +96,9 @@ export async function collectOsv(
   if (!ref) return { status: 'error', error: 'branch to read lockfiles from is unknown' }
   return attempt(async () => {
     const files = await sources.fetchLockfiles(repo.owner, repo.name, ref)
-    const { deps, lockfiles, unparseable } = parseAll(files)
+    const { all, deps, lockfiles, unparseable } = parseAll(files)
     const matches = await scanDependencies(deps, osv.client)
-    return { matches, lockfiles, unparseable }
+    return { matches, lockfiles, unparseable, dependencies: all }
   })
 }
 
