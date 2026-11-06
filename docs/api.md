@@ -107,7 +107,7 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 
 **Dependency path.** `dependency.path` is the chain of package names from a direct dependency down to the vulnerable package, taken from the lockfiles Hinomi parses for OSV (pnpm, npm v2 and v3, yarn, bun, Cargo; not npm v1). Chains longer than 12 links keep the first ten, `...` and the package. `pathSource` says what is known: `lockfile` (the path), `manifest` (only `manifestPaths`) or `package` (neither).
 
-**Notifications.** `notifications` lists the immediate messages that announced the finding, one per channel (the latest announcement), with the channel name and kind (null when the channel was removed) and when it went out. Daily digests are not recorded per finding.
+**Notifications.** `notifications` lists the immediate messages (or first scan and large batch summaries) that announced the finding, one per channel (the latest announcement), with the channel name and kind (null when the channel was removed) and when it went out. Daily digests are not recorded per finding.
 
 ### Deployments and repo mapping
 

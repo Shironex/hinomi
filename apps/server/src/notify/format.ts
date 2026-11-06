@@ -1,10 +1,19 @@
-import type { Severity } from '@hinomi/shared'
+import type { FindingTier, Severity } from '@hinomi/shared'
 import { compareItems, type ItemEvent, type NotificationItem } from './items.js'
 
-export type MessageType = 'immediate' | 'digest' | 'test'
+export type MessageType = 'immediate' | 'summary' | 'digest' | 'test'
 
 /** Items per Discord message: the API accepts at most 10 embeds. */
 export const DISCORD_EMBEDS_PER_MESSAGE = 10
+/**
+ * Discord refuses a message whose embeds hold more than 6000 characters in
+ * total. Messages are split well below that (the JSON size over counts).
+ */
+export const DISCORD_EMBED_CHARS_PER_MESSAGE = 5000
+/** More new items than this in one scan go out as one summary, not a message each. */
+export const SUMMARY_THRESHOLD = 10
+/** Items a summary shows in full, most urgent first. */
+export const SUMMARY_TOP = 5
 /** A digest carries at most this many items per channel; the rest is counted in the summary. */
 export const DIGEST_ITEM_LIMIT = 30
 
@@ -77,7 +86,11 @@ export function discordEmbed(
   }
 }
 
-/** Splits items into Discord messages. The first one carries `content`. */
+/**
+ * Splits items into Discord messages of at most ten embeds and
+ * DISCORD_EMBED_CHARS_PER_MESSAGE characters, items kept in order. The first
+ * one carries `content`.
+ */
 export function discordMessages(
   type: MessageType,
   items: NotificationItem[],
@@ -85,15 +98,28 @@ export function discordMessages(
 ): DiscordMessage[] {
   const labelEvent = type === 'digest'
   const embeds = items.map((item) => discordEmbed(item, { labelEvent }))
-  const messages: DiscordMessage[] = []
-  for (let i = 0; i < Math.max(embeds.length, 1); i += DISCORD_EMBEDS_PER_MESSAGE) {
-    messages.push({
-      ...(i === 0 && { content }),
-      embeds: embeds.slice(i, i + DISCORD_EMBEDS_PER_MESSAGE),
-      allowed_mentions: { parse: [] },
-    })
+  const batches: DiscordEmbed[][] = [[]]
+  let chars = 0
+  for (const embed of embeds) {
+    const size = JSON.stringify(embed).length
+    const current = batches.at(-1)!
+    if (
+      current.length > 0 &&
+      (current.length >= DISCORD_EMBEDS_PER_MESSAGE ||
+        chars + size > DISCORD_EMBED_CHARS_PER_MESSAGE)
+    ) {
+      batches.push([embed])
+      chars = size
+    } else {
+      current.push(embed)
+      chars += size
+    }
   }
-  return messages
+  return batches.map((batch, i) => ({
+    ...(i === 0 && { content: truncate(content, 2000) }),
+    embeds: batch,
+    allowed_mentions: { parse: [] },
+  }))
 }
 
 /** The body a generic webhook receives. Documented in docs/notifications.md: keep it stable. */
@@ -103,8 +129,12 @@ export interface WebhookPayload {
   sentAt: string
   summary: string
   items: NotificationItem[]
-  /** Items left out of a digest because of the per message limit. */
+  /** Items left out of a digest or a summary because of the per message limit. */
   omitted: number
+  /** Only on a summary: every item the summary stands for, counted. */
+  counts?: SummaryCounts
+  /** Only on a summary: the exposure view, null without a public base URL. */
+  link?: string | null
 }
 
 export function webhookPayload(
@@ -113,6 +143,7 @@ export function webhookPayload(
   summary: string,
   sentAt: Date,
   omitted = 0,
+  extra: Pick<WebhookPayload, 'counts' | 'link'> = {},
 ): WebhookPayload {
   return {
     schema: 'hinomi.notification.v1',
@@ -121,7 +152,75 @@ export function webhookPayload(
     summary,
     items,
     omitted,
+    ...extra,
   }
+}
+
+/** What a summary counts: every new item of the scan for that channel. */
+export interface SummaryCounts {
+  total: number
+  /** Per display tier, only the tiers that have items. */
+  byTier: Partial<Record<FindingTier, number>>
+  bySeverity: Record<Severity, number>
+}
+
+const TIER_LABELS: Record<FindingTier, string> = {
+  blind_spot: 'Blind spots',
+  exposed: 'Exposed on a public app',
+  internal: 'Deployed, internal only',
+  public_low: 'Deployed and public, moderate or low',
+  dev: 'Deployed, dev dependencies only',
+  not_deployed: 'Not deployed',
+  coverage: 'Image only',
+}
+const TIER_ORDER = Object.keys(TIER_LABELS) as FindingTier[]
+const SEVERITIES: Severity[] = ['critical', 'high', 'moderate', 'low']
+
+export function summaryCounts(items: readonly { tier: FindingTier; severity: Severity }[]) {
+  const counts: SummaryCounts = {
+    total: items.length,
+    byTier: {},
+    bySeverity: { critical: 0, high: 0, moderate: 0, low: 0 },
+  }
+  for (const { tier, severity } of items) {
+    counts.byTier[tier] = (counts.byTier[tier] ?? 0) + 1
+    counts.bySeverity[severity]++
+  }
+  return counts
+}
+
+/** The exposure view (the overview) of this Hinomi, null without a public base URL. */
+export function exposureUrl(baseUrl: string | null): string | null {
+  return baseUrl ? `${baseUrl}/` : null
+}
+
+/**
+ * The text of a summary: a headline (also the email subject) and the lines
+ * under it, counts per tier and severity, a pointer to the top items and the
+ * exposure view link.
+ */
+export function summaryText(
+  counts: SummaryCounts,
+  options: { firstScan: boolean; shown: number; link: string | null },
+): { headline: string; lines: string[] } {
+  const n = counts.total
+  const items = `${n} item${n === 1 ? '' : 's'}`
+  const headline = options.firstScan
+    ? `Hinomi first scan: ${items} need${n === 1 ? 's' : ''} attention`
+    : `Hinomi: ${n} new item${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} attention`
+  const tiers = TIER_ORDER.filter((t) => counts.byTier[t]).map(
+    (t) => `${TIER_LABELS[t]}: ${counts.byTier[t]}`,
+  )
+  const severities = SEVERITIES.filter((s) => counts.bySeverity[s] > 0).map(
+    (s) => `${counts.bySeverity[s]} ${s}`,
+  )
+  const lines = [
+    ...tiers,
+    ...(severities.length > 0 ? [`By severity: ${severities.join(', ')}`] : []),
+    ...(options.link ? [`Exposure view: ${options.link}`] : []),
+    options.shown < n ? `The ${options.shown} most urgent, by rank:` : 'Most urgent first:',
+  ]
+  return { headline, lines }
 }
 
 export function immediateSummary(items: NotificationItem[]): string {
