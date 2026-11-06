@@ -12,6 +12,10 @@ updates:
       prefix: 'chore(deps)'
     labels:
       - chore
+    ignore:
+      # Types follow the Node runtime (22 LTS); move both together by hand.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       minor-and-patch:
         update-types:
@@ -45,3 +49,7 @@ updates:
     labels:
       - chore
       - area:infra
+    ignore:
+      # Stay on a Node LTS line; odd releases are not LTS. Move to the next LTS by hand.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
