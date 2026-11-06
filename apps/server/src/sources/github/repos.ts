@@ -67,30 +67,65 @@ function nextLink(header: string | null): string | null {
   return null
 }
 
-/** Every repo the token can see through its user, collaborations and organizations. */
-export async function listAccountRepos(client: GithubClient): Promise<AccountRepo[]> {
+function toAccountRepo(repo: RestRepo): AccountRepo {
+  return {
+    owner: repo.owner.login,
+    name: repo.name,
+    archived: repo.archived,
+    fork: repo.fork ?? false,
+    defaultBranch: repo.default_branch ?? null,
+    visibility: visibilityOf(repo),
+    pushedAt: repo.pushed_at ?? null,
+  }
+}
+
+/** Follows the Link header from `first`, reading each page's repos with `read`. */
+async function listPaged(
+  client: GithubClient,
+  first: string,
+  read: (data: unknown) => RestRepo[],
+): Promise<AccountRepo[]> {
   const repos: AccountRepo[] = []
-  let path: string | null =
-    '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member'
+  let path: string | null = first
   for (let page = 0; path !== null && page < MAX_PAGES; page++) {
     const result = await client.rest(path)
-    const items = parsePayload(z.array(restRepoSchema), result.data, 'repository list')
-    for (const repo of items) {
-      repos.push({
-        owner: repo.owner.login,
-        name: repo.name,
-        archived: repo.archived,
-        fork: repo.fork ?? false,
-        defaultBranch: repo.default_branch ?? null,
-        visibility: visibilityOf(repo),
-        pushedAt: repo.pushed_at ?? null,
-      })
-    }
+    for (const repo of read(result.data)) repos.push(toAccountRepo(repo))
     const next = nextLink(result.headers.get('link'))
     // The Link header carries an absolute URL, the client wants a path.
     path = next === null ? null : toPath(next, client.baseUrl)
   }
   return repos
+}
+
+/** Every repo the token can see through its user, collaborations and organizations. */
+export function listAccountRepos(client: GithubClient): Promise<AccountRepo[]> {
+  return listPaged(
+    client,
+    '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+    (data) => parsePayload(z.array(restRepoSchema), data, 'repository list'),
+  )
+}
+
+const installationReposSchema = z.object({
+  total_count: z.number().int(),
+  repositories: z.array(restRepoSchema),
+})
+
+/** Every repo a GitHub App installation was granted. Needs an installation token. */
+export function listInstallationRepos(client: GithubClient): Promise<AccountRepo[]> {
+  return listPaged(
+    client,
+    '/installation/repositories?per_page=100',
+    (data) =>
+      parsePayload(installationReposSchema, data, 'installation repository list').repositories,
+  )
+}
+
+/** How many repos the installation can read, from one small page. */
+export async function countInstallationRepos(client: GithubClient): Promise<number> {
+  const result = await client.rest('/installation/repositories?per_page=1')
+  return parsePayload(installationReposSchema, result.data, 'installation repository list')
+    .total_count
 }
 
 /** The part after the API root, so a GitHub Enterprise `/api/v3` prefix is not doubled. */

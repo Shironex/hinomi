@@ -110,6 +110,17 @@ export function createTestApi({ withSecret = true } = {}) {
     github: vi.fn((): Promise<SourceTestResult> =>
       Promise.resolve({ ok: true, message: 'Connected as kestrel-bot', login: 'kestrel-bot' }),
     ),
+    githubApp: vi.fn((): Promise<SourceTestResult> =>
+      Promise.resolve({
+        ok: true,
+        message: 'Connected to kestrel-co with 3 selected repos',
+        login: 'kestrel-co',
+        account: 'kestrel-co',
+        repositorySelection: 'selected',
+        repoCount: 3,
+        missingPermissions: [],
+      }),
+    ),
   }
   // Webhook deliveries are recorded, never sent.
   const deliveries: { url: string; body: string }[] = []
