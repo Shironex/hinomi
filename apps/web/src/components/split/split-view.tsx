@@ -39,6 +39,11 @@ export interface SplitViewProps<T> {
   /** Accessible name of the list ("Findings that need action"). */
   listLabel: string
   renderRow: (item: T, state: SplitRowState) => ReactNode
+  /**
+   * A control in front of the row link, outside it (a bulk select checkbox): links cannot hold
+   * other interactive elements. The selection highlight then covers both.
+   */
+  renderRowLead?: (item: T, state: SplitRowState) => ReactNode
   renderDetail: (item: T, state: SplitDetailState) => ReactNode
   /** Group headings between rows: called per item, a heading is drawn when the key changes. */
   getGroup?: (item: T) => SplitGroup | undefined
@@ -59,6 +64,9 @@ export interface SplitViewProps<T> {
 }
 
 const PARAM = 'sel'
+
+const SELECTED_ROW =
+  'bg-[color-mix(in_oklab,var(--primary)_13%,var(--background))] shadow-[inset_3px_0_0_var(--primary)]'
 
 /**
  * The split triage layout: a ranked list pane (440 px) beside the live detail of the selected
@@ -231,6 +239,7 @@ export function SplitView<T>(props: SplitViewProps<T>) {
     )
   }
 
+  const lead = props.renderRowLead
   const list = (
     <div
       className={cn(
@@ -254,7 +263,19 @@ export function SplitView<T>(props: SplitViewProps<T>) {
                   key={String(key)}
                   group={group && group.key !== prevGroup?.key ? group : undefined}
                 >
-                  <li data-row="">
+                  <li
+                    data-row=""
+                    className={cn(
+                      lead && 'flex items-start',
+                      lead && selected && SELECTED_ROW,
+                      lead && 'border-b border-border',
+                    )}
+                  >
+                    {lead ? (
+                      <span className="shrink-0 py-[13px] pl-[18px]">
+                        {lead(entry, { selected, index: i })}
+                      </span>
+                    ) : null}
                     <Link
                       to="."
                       search={((p: Record<string, unknown>) => ({ ...p, [PARAM]: key })) as never}
@@ -267,9 +288,12 @@ export function SplitView<T>(props: SplitViewProps<T>) {
                       }}
                       onKeyDown={(event) => onRowKeyDown(event, key)}
                       className={cn(
-                        'block border-b border-border px-[18px] py-[13px] text-foreground-2 no-underline focus-visible:-outline-offset-2',
+                        'block py-[13px] text-foreground-2 no-underline focus-visible:-outline-offset-2',
+                        lead
+                          ? 'min-w-0 flex-1 pr-[18px] pl-2.5'
+                          : 'border-b border-border px-[18px]',
                         selected
-                          ? 'bg-[color-mix(in_oklab,var(--primary)_13%,var(--background))] shadow-[inset_3px_0_0_var(--primary)]'
+                          ? !lead && SELECTED_ROW
                           : 'hover:bg-[color-mix(in_oklab,var(--muted)_55%,transparent)]',
                       )}
                     >
