@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help
+    url: https://github.com/Shironex/hinomi/discussions/categories/q-a
+    about: Ask how to set something up or how Hinomi works in Discussions.
+  - name: Idea that is not fully formed yet
+    url: https://github.com/Shironex/hinomi/discussions/categories/ideas
+    about: Float a rough idea in Discussions first. It can become a feature request once it is clear.
+  - name: Report a security vulnerability
+    url: https://github.com/Shironex/hinomi/security/advisories/new
+    about: Use private vulnerability reporting. Please do not open a public issue for security problems.

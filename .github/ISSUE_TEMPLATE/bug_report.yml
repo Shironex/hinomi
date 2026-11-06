@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Hinomi does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Questions and setup help belong in [Discussions](https://github.com/Shironex/hinomi/discussions), and security problems go through [private reporting](https://github.com/Shironex/hinomi/security/advisories/new).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues and discussions.
+          required: true
+        - label: I removed tokens, hostnames and other secrets from everything I paste below.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hinomi version
+      description: The release tag, or the commit hash if you build from source.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How do you run Hinomi?
+      options:
+        - Docker Compose (bundled docker-compose.yml)
+        - Coolify
+        - Other Docker setup
+        - From source (pnpm dev or pnpm start)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected to see instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server logs (`docker compose logs hinomi`) or browser console output. Secrets removed, please.
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Browser, OS, screenshots, or what you already tried.

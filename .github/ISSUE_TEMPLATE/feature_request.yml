@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a change or an addition to Hinomi.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hinomi is intentionally small, so I check each idea against [docs/spec.md](https://github.com/Shironex/hinomi/blob/main/docs/spec.md). A clear problem statement helps more than a detailed solution. If the idea is still rough, start in [Discussions](https://github.com/Shironex/hinomi/discussions/categories/ideas).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues and discussions.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Hinomi to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Workarounds, other tools, or other shapes this feature could take.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to implement it?
+      description: A pull request is welcome once this issue agrees on the change.
+      options:
+        - 'No, I am only suggesting it'
+        - 'Yes, once we agree on the approach'
+    validations:
+      required: true
