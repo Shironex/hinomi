@@ -16,7 +16,7 @@
   --card: oklch(0.995 0.003 305); /* panel */
   --muted: oklch(0.94 0.016 305); /* raised: hover, active rail item, group rows */
   --border: oklch(0.885 0.016 305);
-  --input: oklch(0.76 0.024 305); /* border strong: controls */
+  --input: oklch(0.62 0.024 305); /* border strong: controls, 3:1 on every surface */
   --foreground: oklch(0.22 0.035 305); /* text: titles, values, packages */
   --foreground-2: oklch(0.37 0.04 305); /* text 2: body, labels */
   --muted-foreground: oklch(0.46 0.04 305); /* text 3: meta, hints, column heads */
@@ -47,7 +47,7 @@
   --card: oklch(0.225 0.038 305);
   --muted: oklch(0.27 0.045 305);
   --border: oklch(0.32 0.045 305);
-  --input: oklch(0.42 0.05 305);
+  --input: oklch(0.56 0.05 305);
   --foreground: oklch(0.965 0.012 310);
   --foreground-2: oklch(0.85 0.03 310);
   --muted-foreground: oklch(0.75 0.04 310);

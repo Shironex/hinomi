@@ -54,4 +54,4 @@ WCAG 2 contrast ratios of the final tokens, on the panel surface unless noted.
 | Success | 10.04 | 5.78 |
 | Waiting | 10.47 | 5.81 |
 
-Border strong (control outlines) is 1.99 (dark) and 2.13 (light) against the panel, under the 3:1 non-text target; controls also differ from the page by fill and label, but this is the one pair below its target.
+Border strong (control outlines, WCAG 1.4.11 non-text, target 3:1) measures 3.64 (dark) and 3.62 (light) against the panel, 3.95 and 3.41 against the page, and 3.22 and 3.07 against raised.
