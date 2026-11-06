@@ -13,6 +13,13 @@ export async function renderApp(path = '/') {
     history: createMemoryHistory({ initialEntries: [path] }),
   })
   await router.load()
+  // Route views are lazy chunks. Load the matched ones here so the cold import (slow on a busy
+  // machine) is not counted inside the first findBy of the test, which only waits one second.
+  for (const match of router.state.matches) {
+    const component = router.routesById[match.routeId]?.options.component as
+      { preload?: () => Promise<void> } | undefined
+    await component?.preload?.()
+  }
   const utils = render(<App queryClient={queryClient} router={router} />)
   return { ...utils, router, queryClient }
 }
