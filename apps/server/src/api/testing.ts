@@ -4,7 +4,7 @@ import { createApp } from '../app.js'
 import { createSecretBox } from '../crypto/secret-box.js'
 import { createTestRepositories, TEST_SECRET } from '../db/test-db.js'
 import type { Logger } from '../log.js'
-import { createNotifier } from '../notify/index.js'
+import { createNotifier, SmtpError, type MailMessage, type ResolvedEmail } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, RunScanOptions, ScanSources, ScanSummary } from '../scan/index.js'
 import { createScheduler } from '../scheduler/index.js'
@@ -114,12 +114,21 @@ export function createTestApi({ withSecret = true } = {}) {
   // Webhook deliveries are recorded, never sent.
   const deliveries: { url: string; body: string }[] = []
   const deliveryStatus = { code: 204 }
+  // Emails are recorded, never sent. Set `mailFailure.message` to make the next sends fail.
+  const mails: { config: ResolvedEmail; message: MailMessage }[] = []
+  const mailFailure: { message: string | null } = { message: null }
   const notifier = createNotifier({
     repositories: repos,
     secretBox: withSecret ? createSecretBox(TEST_SECRET) : null,
     log: logger.log,
     sleep: () => Promise.resolve(),
     delivery: { maxAttempts: 1 },
+    mailSender: (config, message) => {
+      if (mailFailure.message !== null)
+        return Promise.reject(new SmtpError(mailFailure.message, 535))
+      mails.push({ config, message })
+      return Promise.resolve()
+    },
     fetch: ((url: string | URL, init?: RequestInit) => {
       deliveries.push({ url: String(url), body: typeof init?.body === 'string' ? init.body : '' })
       return Promise.resolve(new Response(null, { status: deliveryStatus.code }))
@@ -162,6 +171,8 @@ export function createTestApi({ withSecret = true } = {}) {
     call,
     notifier,
     deliveries,
+    mails,
+    mailFailure,
     deliveryStatus,
     onDigestHourChanged,
   }

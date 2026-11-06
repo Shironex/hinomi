@@ -592,9 +592,29 @@ export type ScanStatusDto = z.infer<typeof scanStatusSchema>
 // ---------------------------------------------------------------------------
 // Notifications
 
-export const NOTIFY_CHANNEL_KINDS = ['discord', 'webhook'] as const
+export const NOTIFY_CHANNEL_KINDS = ['discord', 'webhook', 'email'] as const
 
-/** A notification channel. The webhook URL is always masked (origin and last four characters). */
+/** How the SMTP connection is secured: implicit TLS, STARTTLS (required), or whatever the server offers. */
+export const SMTP_SECURITY_MODES = ['tls', 'starttls', 'none'] as const
+export type SmtpSecurity = (typeof SMTP_SECURITY_MODES)[number]
+
+/** SMTP settings of an email channel as the API shows them: the password is never included. */
+export const emailChannelViewSchema = z.object({
+  host: z.string(),
+  port: z.number().int(),
+  security: z.enum(SMTP_SECURITY_MODES),
+  user: z.string().nullable(),
+  from: z.string(),
+  to: z.array(z.string()),
+  /** True when a password is stored. The password itself is never returned. */
+  passwordSet: z.boolean(),
+})
+export type EmailChannelView = z.infer<typeof emailChannelViewSchema>
+
+/**
+ * A notification channel. The webhook URL is always masked (origin and last four characters).
+ * An email channel has no URL: `url` is `host:port` and `email` carries the settings.
+ */
 export const notifyChannelSchema = z.object({
   id: z.string(),
   kind: z.enum(NOTIFY_CHANNEL_KINDS),
@@ -603,8 +623,10 @@ export const notifyChannelSchema = z.object({
   /** Least severe finding the channel hears about. */
   minSeverity: severitySchema,
   url: z.string(),
-  /** False when the URL is stored in clear text because HINOMI_SECRET_KEY is not set. */
+  /** False when the URL (or the SMTP password) is stored in clear text because HINOMI_SECRET_KEY is not set. */
   urlEncrypted: z.boolean(),
+  /** Present on email channels only. */
+  email: emailChannelViewSchema.optional(),
 })
 export type NotifyChannel = z.infer<typeof notifyChannelSchema>
 
@@ -614,19 +636,85 @@ export const channelParamSchema = z.object({ id: z.uuid() })
 
 const webhookUrl = z.string().trim().min(1).max(1000)
 
-export const createNotifyChannelRequestSchema = z.strictObject({
-  kind: z.enum(NOTIFY_CHANNEL_KINDS),
-  name: z.string().trim().min(1).max(80),
-  url: webhookUrl,
-  enabled: z.boolean().optional(),
-  minSeverity: severitySchema.optional(),
+const smtpHost = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9.:-]+$/, 'The SMTP host is a host name or an IP address')
+const emailAddress = z.string().trim().max(254).pipe(z.email())
+const smtpFields = {
+  host: smtpHost,
+  port: z.number().int().min(1).max(65535),
+  security: z.enum(SMTP_SECURITY_MODES),
+  user: z.string().trim().max(255),
+  /** Empty or omitted: no authentication. */
+  password: z.string().max(1000),
+  from: emailAddress,
+  to: z.array(emailAddress).min(1).max(20),
+}
+
+/** SMTP settings to create an email channel. */
+export const emailChannelInputSchema = z.strictObject({
+  host: smtpFields.host,
+  port: smtpFields.port,
+  security: smtpFields.security,
+  user: smtpFields.user.optional(),
+  password: smtpFields.password.optional(),
+  from: smtpFields.from,
+  to: smtpFields.to,
 })
+export type EmailChannelInput = z.infer<typeof emailChannelInputSchema>
+
+/** A change to the SMTP settings. An omitted password stays; an empty one removes it. */
+export const emailChannelPatchSchema = z
+  .strictObject({
+    host: smtpFields.host,
+    port: smtpFields.port,
+    security: smtpFields.security,
+    user: smtpFields.user,
+    password: smtpFields.password,
+    from: smtpFields.from,
+    to: smtpFields.to,
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
+export type EmailChannelPatch = z.infer<typeof emailChannelPatchSchema>
+
+/** Discord and webhook channels need `url`; an email channel needs `email` and has no `url`. */
+export const createNotifyChannelRequestSchema = z
+  .strictObject({
+    kind: z.enum(NOTIFY_CHANNEL_KINDS),
+    name: z.string().trim().min(1).max(80),
+    url: webhookUrl.optional(),
+    email: emailChannelInputSchema.optional(),
+    enabled: z.boolean().optional(),
+    minSeverity: severitySchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind === 'email') {
+      if (!value.email)
+        ctx.addIssue({ code: 'custom', path: ['email'], message: 'The SMTP settings are required' })
+      if (value.url !== undefined)
+        ctx.addIssue({ code: 'custom', path: ['url'], message: 'An email channel has no URL' })
+      return
+    }
+    if (value.url === undefined)
+      ctx.addIssue({ code: 'custom', path: ['url'], message: 'The webhook URL is required' })
+    if (value.email !== undefined)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['email'],
+        message: 'Only an email channel has SMTP settings',
+      })
+  })
 export type CreateNotifyChannelRequest = z.infer<typeof createNotifyChannelRequestSchema>
 
 export const updateNotifyChannelRequestSchema = z
   .strictObject({
     name: z.string().trim().min(1).max(80).optional(),
     url: webhookUrl.optional(),
+    email: emailChannelPatchSchema.optional(),
     enabled: z.boolean().optional(),
     minSeverity: severitySchema.optional(),
   })
@@ -635,7 +723,7 @@ export type UpdateNotifyChannelRequest = z.infer<typeof updateNotifyChannelReque
 
 export const notifyChannelTestResultSchema = z.object({
   ok: z.boolean(),
-  /** Why the test message failed. Never contains the webhook URL. */
+  /** Why the test message failed. Never contains the webhook URL or the SMTP password. */
   error: z.string().optional(),
 })
 export type NotifyChannelTestResult = z.infer<typeof notifyChannelTestResultSchema>

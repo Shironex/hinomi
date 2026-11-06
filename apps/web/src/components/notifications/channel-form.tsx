@@ -6,15 +6,18 @@ import {
   type Severity,
   type UpdateNotifyChannelRequest,
 } from '@hinomi/shared'
+import { z } from 'zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconBrandDiscord, IconLoader2, IconWebhook } from '@tabler/icons-react'
+import { IconBrandDiscord, IconLoader2, IconMail, IconWebhook } from '@tabler/icons-react'
 import { Field, FieldError } from '@/components/form/field'
 import { Button } from '@/components/ui/button'
 import { Input, NativeSelect } from '@/components/ui/input'
 import { checkField, isInputError, mutationMessage } from '@/lib/form'
 import { createChannel, settingsKeys, updateChannel } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
+import { EmailFields } from './email-fields'
 import { SEVERITY_OPTIONS } from './severity-options'
+import { useEmailFields } from './use-email-fields'
 
 type ChannelKind = NotifyChannel['kind']
 
@@ -36,10 +39,23 @@ const KIND_COPY: Record<
     help: 'Hinomi sends a JSON POST. See docs/notifications.md for the payload.',
     name: 'Webhook',
   },
+  email: {
+    label: 'Email',
+    icon: IconMail,
+    placeholder: '',
+    help: '',
+    name: 'Email',
+  },
+}
+
+const NAME_PLACEHOLDERS: Record<ChannelKind, string> = {
+  discord: 'Discord #ops',
+  webhook: 'Incident bot',
+  email: 'Ops mailbox',
 }
 
 const nameSchema = createNotifyChannelRequestSchema.shape.name
-const urlSchema = createNotifyChannelRequestSchema.shape.url
+const urlSchema = z.string().trim().min(1).max(1000)
 
 interface ChannelFormProps {
   /** Edit this channel; omit to add one. */
@@ -50,8 +66,8 @@ interface ChannelFormProps {
 }
 
 /**
- * Add or edit a Discord or generic webhook channel. The stored URL is never
- * sent back, so editing leaves the URL empty to keep it.
+ * Add or edit a Discord, webhook or email channel. The stored URL and SMTP
+ * password are never sent back, so editing leaves them empty to keep them.
  */
 export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelFormProps) {
   const queryClient = useQueryClient()
@@ -64,6 +80,13 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
   const [urlError, setUrlError] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const urlRef = useRef<HTMLInputElement>(null)
+  const emailRefs = {
+    host: useRef<HTMLInputElement>(null),
+    port: useRef<HTMLInputElement>(null),
+    from: useRef<HTMLInputElement>(null),
+    to: useRef<HTMLInputElement>(null),
+  }
+  const emailFields = useEmailFields(channel?.email)
   const copy = KIND_COPY[kind]
 
   const mutation = useMutation({
@@ -72,12 +95,18 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
       if (channel) {
         const patch: UpdateNotifyChannelRequest = {}
         if (trimmedName !== channel.name) patch.name = trimmedName
-        if (url.trim()) patch.url = url.trim()
+        if (channel.kind === 'email') {
+          const emailPatch = channel.email && emailFields.toPatch(channel.email)
+          if (emailPatch) patch.email = emailPatch
+        } else if (url.trim()) patch.url = url.trim()
         // PATCH needs at least one field, so an unchanged save resends the severity.
         if (minSeverity !== channel.minSeverity || Object.keys(patch).length === 0) {
           patch.minSeverity = minSeverity
         }
         return updateChannel(channel.id, patch)
+      }
+      if (kind === 'email') {
+        return createChannel({ kind, name: trimmedName, email: emailFields.toInput(), minSeverity })
       }
       return createChannel({ kind, name: trimmedName, url: url.trim(), minSeverity })
     },
@@ -87,7 +116,7 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
     },
     onError: (error) => {
       // The server checks the URL shape (Discord host, http or https); put that by the URL field.
-      if (isInputError(error) && /url/i.test(error.message)) {
+      if (kind !== 'email' && isInputError(error) && /url/i.test(error.message)) {
         setUrlError(mutationMessage(error))
         urlRef.current?.focus()
       }
@@ -95,13 +124,24 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
   })
 
   const generalError =
-    mutation.error && !(isInputError(mutation.error) && /url/i.test(mutation.error.message))
+    mutation.error &&
+    !(kind !== 'email' && isInputError(mutation.error) && /url/i.test(mutation.error.message))
       ? mutation.error
       : null
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
     if (mutation.isPending) return
+    if (kind === 'email') {
+      const nextNameError = name.trim() ? checkField(nameSchema, name) : null
+      setNameError(nextNameError)
+      const firstBad = emailFields.validate()
+      if (nextNameError) return nameRef.current?.focus()
+      if (firstBad && firstBad !== 'user' && firstBad !== 'password') {
+        return emailRefs[firstBad].current?.focus()
+      }
+      return mutation.mutate()
+    }
     const nextNameError = name.trim() ? checkField(nameSchema, name) : null
     const nextUrlError =
       editing && !url.trim()
@@ -166,7 +206,7 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
             <Input
               {...control}
               ref={nameRef}
-              placeholder={copy.name === 'Discord' ? 'Discord #ops' : 'Incident bot'}
+              placeholder={NAME_PLACEHOLDERS[kind]}
               value={name}
               maxLength={80}
               onChange={(e) => {
@@ -192,29 +232,33 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
           )}
         </Field>
       </div>
-      <Field
-        label={`${copy.label} webhook URL`}
-        help={editing ? `Stored as ${channel.url}. Leave empty to keep it.` : copy.help}
-        error={urlError}
-      >
-        {(control) => (
-          <Input
-            {...control}
-            ref={urlRef}
-            type="url"
-            inputMode="url"
-            autoComplete="off"
-            spellCheck={false}
-            className="font-mono"
-            placeholder={copy.placeholder}
-            value={url}
-            onChange={(e) => {
-              setUrl(e.target.value)
-              if (urlError) setUrlError(null)
-            }}
-          />
-        )}
-      </Field>
+      {kind === 'email' ? (
+        <EmailFields controller={emailFields} stored={channel?.email} fieldRefs={emailRefs} />
+      ) : (
+        <Field
+          label={`${copy.label} webhook URL`}
+          help={editing ? `Stored as ${channel.url}. Leave empty to keep it.` : copy.help}
+          error={urlError}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              ref={urlRef}
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono"
+              placeholder={copy.placeholder}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value)
+                if (urlError) setUrlError(null)
+              }}
+            />
+          )}
+        </Field>
+      )}
       {generalError ? (
         <div role="alert">
           <FieldError>{mutationMessage(generalError)}</FieldError>

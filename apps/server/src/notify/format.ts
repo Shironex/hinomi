@@ -15,7 +15,7 @@ const COLORS: Record<Severity, number> = {
   low: 0x6b7a90,
 }
 
-const EVENT_LABELS: Record<ItemEvent, string> = {
+export const EVENT_LABELS: Record<ItemEvent, string> = {
   opened: 'New',
   reopened: 'Reopened',
   fixed: 'Fixed',

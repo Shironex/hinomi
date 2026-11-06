@@ -10,6 +10,7 @@ import {
 } from '../scan/index.js'
 import { ChannelNotFoundError, createChannelStore, type ResolvedChannel } from './channels.js'
 import { defaultSleep, deliver, type DeliverOptions } from './deliver.js'
+import { createSmtpSender, emailContent, type MailSender } from './email.js'
 import {
   DISCORD_EMBEDS_PER_MESSAGE,
   digestSummary,
@@ -33,6 +34,8 @@ export interface NotifierOptions {
   log?: ScanLogger
   /** Waits between delivery retries. Tests replace it. */
   sleep?: (ms: number) => Promise<void>
+  /** Sends email channels. Defaults to SMTP through nodemailer; tests inject a recorder. */
+  mailSender?: MailSender
   /** Overrides for the retry policy (tests). */
   delivery?: Pick<
     DeliverOptions,
@@ -76,7 +79,7 @@ function isImmediate(ranked: RankedFinding): boolean {
 }
 
 /**
- * Sends Discord and generic webhook notifications about findings. Self
+ * Sends Discord, generic webhook and email notifications about findings. Self
  * contained: the scheduler calls `handleScanFinished` after every scan and
  * `sendDigest` once a day (see `msUntilNextDigest`).
  */
@@ -91,6 +94,14 @@ export function createNotifier(options: NotifierOptions) {
     log,
     ...options.delivery,
   }
+  const sendMail =
+    options.mailSender ??
+    createSmtpSender({
+      log,
+      sleep: delivery.sleep,
+      ...(delivery.maxAttempts !== undefined && { maxAttempts: delivery.maxAttempts }),
+      ...(delivery.baseDelayMs !== undefined && { baseDelayMs: delivery.baseDelayMs }),
+    })
 
   // One send at a time: the sent-state is read, then written after the awaits.
   let queue: Promise<unknown> = Promise.resolve()
@@ -113,6 +124,15 @@ export function createNotifier(options: NotifierOptions) {
     onSent: (batch: NotificationItem[]) => void = () => {},
     omitted = 0,
   ): Promise<void> {
+    if (channel.kind === 'email' && channel.email) {
+      await sendMail(channel.email, {
+        from: channel.email.from,
+        to: channel.email.to,
+        ...emailContent(type, items, summary, omitted),
+      })
+      onSent(items)
+      return
+    }
     if (channel.kind === 'webhook') {
       await deliver(channel.url, webhookPayload(type, items, summary, now(), omitted), delivery)
       onSent(items)
