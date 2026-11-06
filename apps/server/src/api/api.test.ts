@@ -4,6 +4,7 @@ import {
   findingDetailSchema,
   findingsResponseSchema,
   navCountsSchema,
+  onboardingStateSchema,
   overviewResponseSchema,
   scanStatusSchema,
   sourcesResponseSchema,
@@ -469,5 +470,39 @@ describe('scans, overview and shell', () => {
 
     const counts = navCountsSchema.parse((await call('GET', '/shell/nav-counts')).json)
     expect(counts).toEqual({ needsAction: 1, deployments: 2, alerts: 4, activeFixRuns: null })
+  })
+})
+
+describe('onboarding', () => {
+  it('starts unfinished and keeps both flags on the server', async () => {
+    const { call } = createTestApi()
+    expect(onboardingStateSchema.parse((await call('GET', '/onboarding')).json)).toEqual({
+      finished: false,
+      alertsSkipped: false,
+    })
+    const skipped = await call('PATCH', '/onboarding', { alertsSkipped: true })
+    expect(skipped.json).toEqual({ finished: false, alertsSkipped: true })
+    await call('PATCH', '/onboarding', { finished: true })
+    expect((await call('GET', '/onboarding')).json).toEqual({ finished: true, alertsSkipped: true })
+  })
+
+  it('counts an install with a completed scan as finished until told otherwise', async () => {
+    const { call, repos } = createTestApi()
+    const failed = repos.scanRuns.start('boot')
+    repos.scanRuns.finish(failed.id, { status: 'failed', sourceResults: {} })
+    expect((await call('GET', '/onboarding')).json).toMatchObject({ finished: false })
+    const ok = repos.scanRuns.start('schedule')
+    repos.scanRuns.finish(ok.id, { status: 'partial', sourceResults: {} })
+    expect((await call('GET', '/onboarding')).json).toMatchObject({ finished: true })
+    await call('PATCH', '/onboarding', { finished: false })
+    expect((await call('GET', '/onboarding')).json).toMatchObject({ finished: false })
+  })
+
+  it('rejects empty and unknown updates', async () => {
+    const { call } = createTestApi()
+    expect((await call('PATCH', '/onboarding', {})).status).toBe(400)
+    const unknown = await call('PATCH', '/onboarding', { finished: true, step: 3 })
+    expect(unknown.status).toBe(400)
+    expect(errorOf(unknown.json).code).toBe('validation_failed')
   })
 })
