@@ -3,6 +3,9 @@ import { useCallback, useSyncExternalStore } from 'react'
 /** Wide enough for the list and the detail side by side (the `split:` breakpoint, 1100 px). */
 export const SPLIT_QUERY = '(min-width: 68.75rem)'
 
+/** Past the phone: the icon rail instead of bottom tabs (the `tab:` breakpoint, 761 px). */
+export const TAB_QUERY = '(min-width: 47.5625rem)'
+
 /**
  * Whether `query` matches, kept live. Where matchMedia does not exist (jsdom in tests) it
  * returns `fallback`.

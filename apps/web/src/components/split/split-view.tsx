@@ -54,6 +54,8 @@ export interface SplitViewProps<T> {
   actions?: Partial<Record<ListAction, (item: T) => void>>
   /** The list header has a search field marked data-search-input; adds "/ search" to the hints. */
   searchable?: boolean
+  /** Esc when the split has nothing of its own to leave (wide, not in the focus view). True when handled. */
+  onEscape?: () => boolean
 }
 
 const PARAM = 'sel'
@@ -131,7 +133,7 @@ export function SplitView<T>(props: SplitViewProps<T>) {
         void select(undefined)
         return true
       }
-      return false
+      return props.onEscape?.() ?? false
     },
   }
   const latest = useRef(controller)
