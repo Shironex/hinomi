@@ -1,7 +1,10 @@
 services:
   hinomi:
-    build: .
-    image: hinomi:local
+    # Pull the published image. HINOMI_VERSION pins a release (for example 0.1.0); the default follows latest.
+    image: ghcr.io/shironex/hinomi:${HINOMI_VERSION:-latest}
+    # To build from source instead, comment out the image line above and uncomment these two:
+    # build: .
+    # image: hinomi:local
     ports:
       - '3000:3000'
     env_file:
