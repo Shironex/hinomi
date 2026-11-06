@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { channel, configuredRoutes, mockApi, reply } from '@/test/mock-api'
@@ -20,6 +20,12 @@ const emailChannel = {
     to: ['ops@example.dev'],
     passwordSet: true,
   },
+}
+
+/** Fills a long value in one paste: typing it key by key costs seconds under a busy machine. */
+async function fill(user: ReturnType<typeof userEvent.setup>, field: HTMLElement, text: string) {
+  await user.click(field)
+  await user.paste(text)
 }
 
 async function notificationsRegion() {
@@ -51,11 +57,11 @@ describe('email channels in settings', () => {
     expect(region.getByLabelText('Send to')).toHaveAccessibleDescription(/at least one address/)
     expect(api.called('POST', '/notifications/channels')).toHaveLength(0)
 
-    await user.type(region.getByLabelText('SMTP host'), 'smtp.example.dev')
-    await user.type(region.getByLabelText('User'), 'hinomi@example.dev')
-    await user.type(region.getByLabelText('Password'), 'smtp-pass')
-    await user.type(region.getByLabelText('From'), 'hinomi@example.dev')
-    await user.type(region.getByLabelText('Send to'), 'ops@example.dev, oncall@example.dev')
+    await fill(user, region.getByLabelText('SMTP host'), 'smtp.example.dev')
+    await fill(user, region.getByLabelText('User'), 'hinomi@example.dev')
+    await fill(user, region.getByLabelText('Password'), 'smtp-pass')
+    await fill(user, region.getByLabelText('From'), 'hinomi@example.dev')
+    await fill(user, region.getByLabelText('Send to'), 'ops@example.dev, oncall@example.dev')
     await user.click(region.getByRole('button', { name: 'Add channel' }))
 
     expect(await region.findByRole('heading', { name: 'Ops mailbox' })).toBeInTheDocument()
@@ -106,7 +112,7 @@ describe('email channels in settings', () => {
     await user.clear(region.getByLabelText('Send to'))
     await user.type(region.getByLabelText('Send to'), 'ops@example.dev, oncall@example.dev')
     await user.click(region.getByRole('button', { name: 'Save changes' }))
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(api.called('PATCH', `/notifications/channels/${emailChannel.id}`)).toHaveLength(1),
     )
     expect(api.called('PATCH', `/notifications/channels/${emailChannel.id}`)[0]?.body).toEqual({
