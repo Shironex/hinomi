@@ -10,6 +10,8 @@ export interface RecordedRequest {
   url: string
   method: string
   body: unknown
+  /** The authorization header sent, or null. */
+  authorization: string | null
 }
 
 export function scriptedFetch(responses: (CannedResponse | Error)[]) {
@@ -22,6 +24,7 @@ export function scriptedFetch(responses: (CannedResponse | Error)[]) {
       url,
       method: init?.method ?? 'GET',
       body: typeof rawBody === 'string' ? (JSON.parse(rawBody) as unknown) : null,
+      authorization: new Headers(init?.headers).get('authorization'),
     })
     const next = queue.shift()
     if (next === undefined) return Promise.reject(new Error('no canned response left'))

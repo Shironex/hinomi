@@ -5,17 +5,47 @@ import type {
   RepoHealth,
 } from '@hinomi/shared'
 import { fetchDependabotAlerts } from './alerts.js'
+import { createGithubAppAuth, type GithubAppAuth, type GithubAppCredentials } from './app-auth.js'
 import { createGithubClient, type GithubClient, type GithubClientOptions } from './client.js'
-import { testGithubConnection } from './connection.js'
-import { fetchRepoHealth, listAccountRepos } from './repos.js'
+import {
+  testGithubAppConnection,
+  testGithubConnection,
+  type GithubAppConnection,
+} from './connection.js'
+import { fetchRepoHealth, listAccountRepos, listInstallationRepos } from './repos.js'
 
 export { createGithubClient } from './client.js'
-export type { GithubClient, GithubClientOptions, RestOptions, RestResult } from './client.js'
+export type {
+  GithubClient,
+  GithubClientOptions,
+  GithubTokenProvider,
+  RestOptions,
+  RestResult,
+} from './client.js'
 export { GithubError, GithubRateLimitError, isGithubError } from './errors.js'
 export type { GithubErrorKind } from './errors.js'
 export { fetchDependabotAlerts } from './alerts.js'
-export { fetchRepoHealth, listAccountRepos } from './repos.js'
-export { testGithubConnection } from './connection.js'
+export {
+  countInstallationRepos,
+  fetchRepoHealth,
+  listAccountRepos,
+  listInstallationRepos,
+} from './repos.js'
+export { testGithubAppConnection, testGithubConnection } from './connection.js'
+export type { GithubAppConnection } from './connection.js'
+export {
+  createAppJwt,
+  createGithubAppAuth,
+  missingAppPermissions,
+  readAppPrivateKey,
+  REQUIRED_APP_PERMISSIONS,
+} from './app-auth.js'
+export type {
+  GithubAppAuth,
+  GithubAppAuthOptions,
+  GithubAppCredentials,
+  GithubInstallation,
+} from './app-auth.js'
 
 /** The functions bound to one client, which is what the scheduler and the settings API hold. */
 export interface GithubSource {
@@ -23,16 +53,55 @@ export interface GithubSource {
   testConnection(): Promise<GithubConnection>
   fetchRepoHealth(owner: string, name: string): Promise<RepoHealth>
   fetchDependabotAlerts(owner: string, name: string): Promise<DependabotAlertsResult>
+  /** Token: the repos of the user and their orgs. GitHub App: the repos of the installation. */
   listAccountRepos(): Promise<AccountRepo[]>
+  /** A bearer token for other GitHub calls (lockfile downloads). Minted on demand for an app. */
+  getToken(): Promise<string>
+}
+
+export interface GithubAppSource extends GithubSource {
+  app: GithubAppAuth
+  testAppConnection(): Promise<GithubAppConnection>
 }
 
 export function createGithubSource(options: GithubClientOptions): GithubSource {
   const client = createGithubClient(options)
+  const { token, auth } = options
   return {
     client,
     testConnection: () => testGithubConnection(client),
     fetchRepoHealth: (owner, name) => fetchRepoHealth(client, owner, name),
     fetchDependabotAlerts: (owner, name) => fetchDependabotAlerts(client, owner, name),
     listAccountRepos: () => listAccountRepos(client),
+    getToken: () => (auth ? auth.getToken() : Promise.resolve(token ?? '')),
+  }
+}
+
+export type GithubAppSourceOptions = GithubAppCredentials &
+  Omit<GithubClientOptions, 'token' | 'auth'>
+
+/** A source signed in as a GitHub App installation. `/user` endpoints do not apply to it. */
+export function createGithubAppSource(options: GithubAppSourceOptions): GithubAppSource {
+  const { appId, installationId, privateKey, ...clientOptions } = options
+  const app = createGithubAppAuth({
+    appId,
+    installationId,
+    privateKey,
+    ...(clientOptions.baseUrl !== undefined && { baseUrl: clientOptions.baseUrl }),
+    ...(clientOptions.fetch !== undefined && { fetch: clientOptions.fetch }),
+    ...(clientOptions.timeoutMs !== undefined && { timeoutMs: clientOptions.timeoutMs }),
+    ...(clientOptions.now !== undefined && { now: clientOptions.now }),
+  })
+  const source = createGithubSource({ ...clientOptions, auth: app })
+  return {
+    ...source,
+    app,
+    // An installation has no user: report the account it is installed on instead.
+    testConnection: async () => {
+      const connection = await testGithubAppConnection(source.client, app)
+      return { login: connection.account, scopes: null }
+    },
+    testAppConnection: () => testGithubAppConnection(source.client, app),
+    listAccountRepos: () => listInstallationRepos(source.client),
   }
 }

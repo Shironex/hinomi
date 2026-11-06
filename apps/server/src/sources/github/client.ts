@@ -1,11 +1,21 @@
 import { GithubError, GithubRateLimitError } from './errors.js'
 
-const DEFAULT_BASE_URL = 'https://api.github.com'
-const API_VERSION = '2022-11-28'
-const USER_AGENT = 'hinomi'
+export const DEFAULT_BASE_URL = 'https://api.github.com'
+export const API_VERSION = '2022-11-28'
+export const USER_AGENT = 'hinomi'
+
+/** Hands out the bearer token per request, for credentials that expire (a GitHub App). */
+export interface GithubTokenProvider {
+  getToken(): Promise<string>
+  /** GitHub answered 401 to this token: drop it so the next `getToken` mints a fresh one. */
+  invalidate(token: string): void
+}
 
 export interface GithubClientOptions {
-  token: string
+  /** A fixed token (personal access token). Give this or `auth`. */
+  token?: string
+  /** Tokens that are minted and refreshed (GitHub App). A 401 refreshes once and retries. */
+  auth?: GithubTokenProvider
   /** Override for GitHub Enterprise or tests. */
   baseUrl?: string
   fetch?: typeof fetch
@@ -60,6 +70,7 @@ function messageOf(data: unknown): string {
 export function createGithubClient(options: GithubClientOptions): GithubClient {
   const {
     token,
+    auth,
     baseUrl = DEFAULT_BASE_URL,
     fetch: fetchImpl = fetch,
     timeoutMs = 15_000,
@@ -73,6 +84,11 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
   // Epoch ms before which nothing is sent: set from retry-after or an exhausted rate limit and
   // shared by every request on this client, so parallel callers never retry faster than the backoff.
   let blockedUntil = 0
+
+  if (token === undefined && auth === undefined) {
+    throw new Error('createGithubClient needs a token or an auth provider')
+  }
+  const bearer = (): Promise<string> => (auth ? auth.getToken() : Promise.resolve(token ?? ''))
 
   async function waitForBlock(): Promise<void> {
     const wait = blockedUntil - now()
@@ -99,7 +115,7 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
     return 60_000
   }
 
-  async function send(path: string, init: RequestInit): Promise<RestResult> {
+  async function send(path: string, init: RequestInit, token: string): Promise<RestResult> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     let response: Response
@@ -158,13 +174,16 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
     init: RequestInit,
     acceptStatus: readonly number[],
   ): Promise<RestResult> {
+    let refreshed = false
     for (let attempt = 0; ; attempt++) {
       await waitForBlock()
       const final = attempt >= maxRetries
 
       let result: RestResult
+      let used: string | undefined
       try {
-        result = await send(path, init)
+        used = await bearer()
+        result = await send(path, init, used)
       } catch (error) {
         if (
           error instanceof GithubError &&
@@ -207,6 +226,13 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
       if (remaining === 0 && reset !== null) block(reset * 1000 + 1000)
 
       if (status >= 200 && status < 300) return result
+      // An installation token can be revoked before it expires: mint a fresh one, once.
+      if (status === 401 && auth && !refreshed) {
+        refreshed = true
+        if (used !== undefined) auth.invalidate(used)
+        attempt--
+        continue
+      }
       if (acceptStatus.includes(status)) return result
       const detail = messageOf(data)
       const suffix = detail === '' ? '' : `: ${detail}`
