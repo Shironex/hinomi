@@ -775,3 +775,20 @@ export const updateNotifySettingsRequestSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateNotifySettingsRequest = z.infer<typeof updateNotifySettingsRequestSchema>
+
+// ---------------------------------------------------------------------------
+// Onboarding
+
+/** First run progress, kept on the server so every tab and browser agrees. */
+export const onboardingStateSchema = z.object({
+  /** The first scan finished. The / redirect stops sending people to setup. */
+  finished: z.boolean(),
+  /** The alerts step was skipped, so setup goes straight to the scan step. */
+  alertsSkipped: z.boolean(),
+})
+export type OnboardingStateDto = z.infer<typeof onboardingStateSchema>
+
+export const updateOnboardingRequestSchema = z
+  .strictObject(onboardingStateSchema.partial().shape)
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
+export type UpdateOnboardingRequest = z.infer<typeof updateOnboardingRequestSchema>
