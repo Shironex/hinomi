@@ -5,6 +5,7 @@ import {
   type ScanTrigger,
 } from '@hinomi/shared'
 import { z } from 'zod'
+import { readOnboarding } from '../api/routes/onboarding.js'
 import type { ScanRunRow } from '../db/schema.js'
 import { DEFAULT_SHUTDOWN_TIMEOUT_SECONDS } from '../config.js'
 import { silentLogger, type Logger } from '../log.js'
@@ -130,6 +131,18 @@ export function isConfigured(repositories: Repositories): boolean {
 }
 
 /**
+ * True when a scan may start on its own (first boot or schedule): something is
+ * connected, and either GitHub is connected or setup is finished. A scan with
+ * only Coolify, halfway through setup, would report every repo as unchecked.
+ * Manual scans are never held back.
+ */
+export function canAutoScan(repositories: Repositories): boolean {
+  if (!isConfigured(repositories)) return false
+  const github = repositories.sources.listByKind('github').some((s) => s.enabled && s.hasToken)
+  return github || readOnboarding(repositories).finished
+}
+
+/**
  * Runs scans on the configured interval (default every 6 h, at least every
  * 15 min) and on demand, one at a time. Single process: the in-memory lock is
  * the source of truth, and runs left `running` in the database by a crash are
@@ -193,8 +206,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
         return
       }
       nextAt = null
-      if (!isConfigured(repositories)) {
-        log.info('scheduler: no source connected, skipping the scheduled scan')
+      if (!canAutoScan(repositories)) {
+        log.info('scheduler: setup is not finished, skipping the scheduled scan')
         planNext()
         return
       }
@@ -213,8 +226,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     const intervalMs = readScanIntervalMinutes(repositories.settings) * 60_000
     const latest = repositories.scanRuns.latest()
     if (!latest) {
-      // First scan right away once something is connected.
-      if (isConfigured(repositories)) plan(now(), 'boot')
+      // First scan right away once GitHub is connected or setup is finished.
+      if (canAutoScan(repositories)) plan(now(), 'boot')
       else plan(new Date(now().getTime() + intervalMs), 'schedule')
       return
     }

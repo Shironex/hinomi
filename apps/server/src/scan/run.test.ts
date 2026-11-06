@@ -457,6 +457,25 @@ describe('runScan', () => {
     expect(blindSpots()).not.toContain('lockfile_missing:open')
   })
 
+  it('opens no lockfile or alert blind spots while GitHub is not connected', async () => {
+    repos.sources.remove(repos.sources.listByKind('github')[0]!.id)
+    const summary = await scan(0)
+    expect(summary.sourceResults.github).toEqual({ status: 'skipped', counts: {} })
+    const types = repos.findings.list({ kind: 'blind_spot' }).map((f) => f.blindSpotType)
+    expect(types).not.toContain('lockfile_missing')
+    expect(types).not.toContain('alerts_unknown')
+    expect(types).not.toContain('alerts_disabled')
+
+    // An open one from an earlier scan is left alone, not resolved.
+    repos.sources.create({ kind: 'github', name: 'kestrel-co', token: 'github-token' })
+    await scan(1)
+    const key = `blind:lockfile_missing:repo:${repoId('dock-worker')}`
+    expect(repos.findings.getByKey(key)?.state).toBe('open')
+    repos.sources.remove(repos.sources.listByKind('github')[0]!.id)
+    await scan(2)
+    expect(repos.findings.getByKey(key)?.state).toBe('open')
+  })
+
   it('reopens expired snoozes and lists what changed since the previous scan', async () => {
     const first = await scan(0)
     const id = advisoryFinding('lantern-api', 'GHSA-la00-0000-0002')!.id

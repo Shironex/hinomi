@@ -32,7 +32,9 @@ const NOT_CHECKED = { checked: false, reason: 'osv_disabled' }
 
 /**
  * Blind spot checks for one repo. Only deployed repos have blind spots, so a
- * repo that is not deployed (anymore) clears all of them.
+ * repo that is not deployed (anymore) clears all of them. Without a GitHub
+ * source nothing can say whether alerts are on or a lockfile exists (private
+ * repos read as empty), so those checks are left alone until GitHub is connected.
  */
 export function repoBlindSpotChecks(
   repoId: number,
@@ -45,10 +47,12 @@ export function repoBlindSpotChecks(
   const osv = scan?.osv.status === 'ok' ? scan.osv.value : null
   // OSV switched off: nothing reads lockfiles, so these resolve as "not checked" instead of going stale.
   const osvOff = scan?.osv.status === 'skipped'
+  // Health is only skipped when no GitHub source is connected (see collectGithub).
+  const githubMissing = scan?.health.status === 'skipped'
   const lockfile = (type: BlindSpotType, present: boolean | null): BlindSpotCheck => ({
     type,
     subject,
-    present: osvOff ? false : present,
+    present: osvOff ? false : githubMissing ? null : present,
     ...(osvOff && { resolvedData: NOT_CHECKED }),
   })
   return [

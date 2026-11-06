@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ONBOARDING_KEYS } from '../api/routes/onboarding.js'
 import { controllableScan, EMPTY_SOURCES, recordingLogger } from '../api/testing.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
@@ -129,6 +130,43 @@ describe('scheduler', () => {
     expect(scan.runScan).not.toHaveBeenCalled()
     expect(timers.pendingAt()).not.toBeNull()
     expect(repos.scanRuns.list()).toEqual([])
+  })
+
+  it('waits for GitHub or the end of setup before the first scan with only Coolify', () => {
+    const { repos, scan, timers, scheduler } = setup()
+    repos.sources.create({
+      kind: 'coolify',
+      name: 'edge',
+      baseUrl: 'https://coolify.example.dev',
+      token: 'fictional-token-0002',
+    })
+    scheduler.start()
+    // Not right away: the first scan is an interval out, and skipped while setup runs.
+    expect(timers.pendingAt()?.getTime()).toBe(timers.now().getTime() + 6 * HOUR)
+    timers.fire()
+    expect(scan.runScan).not.toHaveBeenCalled()
+
+    // GitHub connected: the first scan starts at once.
+    connect(repos)
+    scheduler.reschedule()
+    expect(timers.pendingAt()).toEqual(timers.now())
+    timers.fire()
+    expect(scan.calls.map((c) => c.trigger)).toEqual(['boot'])
+  })
+
+  it('scans with only Coolify once setup is finished', () => {
+    const { repos, scan, timers, scheduler } = setup()
+    repos.sources.create({
+      kind: 'coolify',
+      name: 'edge',
+      baseUrl: 'https://coolify.example.dev',
+      token: 'fictional-token-0003',
+    })
+    repos.settings.set(ONBOARDING_KEYS.finished, true)
+    scheduler.start()
+    expect(timers.pendingAt()).toEqual(timers.now())
+    timers.fire()
+    expect(scan.calls.map((c) => c.trigger)).toEqual(['boot'])
   })
 
   it('allows one scan at a time and returns the running one', async () => {
