@@ -1,13 +1,17 @@
-import type {
-  AdvisorySummary,
-  DeploymentRef,
-  FindingDetail,
-  FindingEvent,
-  FindingListItem,
-  FindingNotification,
-  RepoRef,
-  ScanRun,
-  SourceDto,
+import {
+  FINDING_TIERS,
+  type AdvisorySummary,
+  type DeploymentRef,
+  type FindingDetail,
+  type FindingEvent,
+  type FindingListItem,
+  type FindingNotification,
+  type FindingTier,
+  type FixItem,
+  type RepoRef,
+  type ScanRun,
+  type SeverityCounts,
+  type SourceDto,
 } from '@hinomi/shared'
 import type {
   AdvisoryRow,
@@ -17,7 +21,7 @@ import type {
   ScanRunRow,
 } from '../db/schema.js'
 import type { Source } from '../repository/index.js'
-import { tierOf, type RankedFinding } from '../scan/index.js'
+import { tierOf, type Fix, type RankedFinding } from '../scan/index.js'
 
 // Rows to API shapes. Dates become ISO strings; nothing secret is ever copied.
 
@@ -184,5 +188,32 @@ export function toSourceDto(source: Source): SourceDto {
     lastError: source.lastError,
     createdAt: iso(source.createdAt),
     updatedAt: iso(source.updatedAt),
+  }
+}
+
+/** A fix as the API serves it: counts by tier and severity, repos with their own target. */
+export function toFixItem(fix: Fix): FixItem {
+  const byTier = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0])) as Record<FindingTier, number>
+  const bySeverity: SeverityCounts = { critical: 0, high: 0, moderate: 0, low: 0 }
+  for (const finding of fix.findings) {
+    byTier[tierOf(finding)]++
+    bySeverity[finding.factors.severity]++
+  }
+  return {
+    key: fix.key,
+    ecosystem: fix.ecosystem,
+    packageName: fix.packageName,
+    target: fix.target,
+    mixedTargets: fix.mixedTargets,
+    findings: { total: fix.findings.length, byTier, bySeverity },
+    findingIds: fix.findings.map((f) => f.finding.id),
+    bestTier: fix.bestTier,
+    exposedCritical: fix.exposedCritical,
+    repos: fix.repos.map((r) => ({
+      repo: toRepoRef(r.repo),
+      target: r.target,
+      findings: r.findings.length,
+    })),
+    apps: fix.apps.map(toDeploymentRef),
   }
 }
