@@ -1,14 +1,7 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  deploymentDetail,
-  deploymentItem,
-  findingsResponse,
-  repoRef,
-  apiError,
-  mockViews,
-} from '@/test/fixtures'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deploymentDetail, deploymentItem, repoRef, apiError, mockViews } from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -44,46 +37,171 @@ const cron = deploymentItem({
   openBlindSpots: 1,
 })
 
-describe('deployments', () => {
-  it('lists apps with coverage and shows the join on demand', async () => {
+/** The test setup answers every media query with false (a phone); this makes width queries match. */
+function screenWidth(wide: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: wide && query.includes('min-width'),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }))
+}
+
+const media = deploymentItem({
+  id: 2,
+  name: 'media-api',
+  server: 'edge-2',
+  domains: ['https://media.example.dev'],
+  exposed: 64,
+  openFindings: { critical: 4, high: 60, moderate: 0, low: 0 },
+  coverage: {
+    alerts: 'enabled',
+    blindSpots: ['lockfile_missing'],
+    covered: false,
+    imageOnly: false,
+  },
+  openBlindSpots: 1,
+})
+
+const stopped = deploymentItem({
+  id: 3,
+  name: 'cron-runner',
+  server: 'core-1',
+  domains: [],
+  reach: 'internal',
+  status: 'exited:0',
+  exposed: 0,
+  openFindings: { critical: 0, high: 0, moderate: 2, low: 0 },
+})
+
+const fleet = [deploymentItem(), media, stopped, proxy, cron]
+
+describe('deployments on a phone', () => {
+  it('turns the map into a list grouped by server, each app linking to its detail', async () => {
     mockViews({
-      'GET /deployments': { items: [deploymentItem(), proxy, cron] },
-      'GET /findings': findingsResponse([]),
+      'GET /deployments': { items: fleet },
       'GET /repos': { items: [repoRef(), repoRef({ id: 5, name: 'landing-2023' })] },
     })
-    const user = userEvent.setup()
     await renderApp('/deployments')
-    expect(await screen.findByRole('link', { name: 'storefront-web' })).toHaveAttribute(
-      'href',
-      '/deployments/1',
-    )
-    expect(screen.getByText('No repo matched')).toBeInTheDocument()
-    expect(screen.getByLabelText('1 critical, 2 high, 9 moderate')).toBeInTheDocument()
-    // The exposed count comes with the deployment; no findings query is needed for it.
-    expect(screen.getByText('1 exposed')).toBeInTheDocument()
-    expect(await screen.findByText('1 repo has no deployment')).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Deployments' })
+    expect(within(list).getByText('edge-2')).toBeInTheDocument()
+    expect(within(list).getByText('core-1')).toBeInTheDocument()
+    const storefront = within(list).getByRole('link', { name: /storefront-web/ })
+    expect(storefront).toHaveAttribute('href', '/deployments?sel=1')
+    expect(within(list).getByText('No repo')).toBeInTheDocument()
+    expect(within(list).getByText('Stopped')).toBeInTheDocument()
+    expect(within(list).getByText('Image only')).toBeInTheDocument()
+    expect(within(list).getByRole('img', { name: 'Blind spot' })).toBeInTheDocument()
+    // No map on a phone, only the two list orders.
+    expect(screen.queryByRole('link', { name: 'Map' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'By exposure' })).toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole('button', { name: 'Show the join for image-proxy' }))
+  it('opens an app as its own page with the join and back to the list', async () => {
+    mockViews({
+      'GET /deployments': { items: fleet },
+      'GET /deployments/6': deploymentDetail({ ...proxy, watchPaths: null, findings: [] }),
+    })
+    await renderApp('/deployments?sel=6')
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'image-proxy' }),
+    ).toBeInTheDocument()
     const join = screen.getByRole('list', { name: /joins its repo/ })
     expect(within(join).getByText('Image only, the image scan covers it later')).toBeInTheDocument()
-    // An image only service is not a missing mapping.
-    expect(screen.getAllByText('No repo matched')).toHaveLength(1)
-    expect(screen.getAllByText('Image only').length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: 'Back to the list' })).toBeInTheDocument()
   })
 
   it('teaches how deployments arrive when there are none', async () => {
-    mockViews({ 'GET /deployments': { items: [] }, 'GET /findings': findingsResponse([]) })
+    mockViews({ 'GET /deployments': { items: [] } })
     await renderApp('/deployments')
     expect(await screen.findByText('No deployments yet')).toBeInTheDocument()
   })
 
   it('shows an error with a retry', async () => {
-    mockViews({
-      'GET /deployments': () => apiError(500, 'internal', 'Boom'),
-      'GET /findings': findingsResponse([]),
-    })
+    mockViews({ 'GET /deployments': () => apiError(500, 'internal', 'Boom') })
     await renderApp('/deployments')
     expect(await screen.findByRole('alert')).toHaveTextContent('Deployments did not load')
+  })
+})
+
+describe('deployments map', () => {
+  beforeEach(() => screenWidth(true))
+
+  it('draws apps as tiles grouped by server, with the legend and every mark', async () => {
+    mockViews({
+      'GET /deployments': { items: fleet },
+      'GET /repos': { items: [repoRef(), repoRef({ id: 5, name: 'landing-2023' })] },
+    })
+    await renderApp('/deployments')
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Deployments' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('5 apps on 3 servers')).toBeInTheDocument()
+    const legend = screen.getByRole('list', { name: 'Map legend' })
+    expect(within(legend).getByText('60 or more exposed')).toBeInTheDocument()
+    expect(within(legend).getByText('Blind spot')).toBeInTheDocument()
+
+    // Public servers first, the hotter one leading; internal ones after.
+    const servers = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+    expect(servers).toEqual([
+      'edge-2public edge, 1 app',
+      'edge-1public edge, 3 apps',
+      'core-1internal network, 1 app',
+    ])
+    const edge2 = screen.getByRole('region', { name: 'edge-2' })
+    const tile = within(edge2).getByRole('link', { name: /media-api/ })
+    expect(tile).toHaveAttribute('href', '/deployments?sel=2')
+    expect(within(tile).getByText('64')).toBeInTheDocument()
+    expect(within(tile).getByText('4 critical')).toBeInTheDocument()
+    expect(within(tile).getByText('Blind spot')).toBeInTheDocument()
+    expect(tile.className).toContain('--heat-3')
+
+    const edge1 = screen.getByRole('region', { name: 'edge-1' })
+    expect(within(edge1).getByRole('link', { name: /legacy-cron/ })).toHaveTextContent(
+      'Unknownno repo mapped',
+    )
+    expect(within(edge1).getByRole('link', { name: /image-proxy/ })).toHaveTextContent('Image only')
+    expect(screen.getByRole('link', { name: /cron-runner/ })).toHaveTextContent('findings, stopped')
+    expect(await screen.findByText('1 repo has no deployment')).toBeInTheDocument()
+  })
+
+  it('opens a tile in the split pane and leaves it with Esc', async () => {
+    mockViews({ 'GET /deployments': { items: fleet }, 'GET /deployments/1': deploymentDetail() })
+    const user = userEvent.setup()
+    const { router } = await renderApp('/deployments')
+    await user.click(await screen.findByRole('link', { name: /storefront-web/ }))
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'storefront-web' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Deployments' })).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Deployments' })
+    expect(within(list).getByRole('link', { name: /storefront-web/ })).toHaveAttribute(
+      'aria-current',
+    )
+    expect(within(list).getByRole('link', { name: /media-api/ })).not.toHaveAttribute(
+      'aria-current',
+    )
+    expect(screen.getByRole('link', { name: 'By server' })).toHaveAttribute('aria-current', 'page')
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(router.state.location.search).toEqual({}))
+    expect(await screen.findByRole('list', { name: 'Map legend' })).toBeInTheDocument()
+  })
+
+  it('ranks the list by exposure across servers', async () => {
+    mockViews({
+      'GET /deployments': { items: fleet },
+      'GET /deployments/2': deploymentDetail(media),
+    })
+    await renderApp('/deployments?order=exposure')
+    const list = await screen.findByRole('list', { name: 'Deployments' })
+    const names = within(list)
+      .getAllByRole('link')
+      .map((a) => a.textContent ?? '')
+    expect(names[0]).toContain('media-api')
+    expect(names[1]).toContain('storefront-web')
+    // Ranked, so no server headings.
+    expect(within(list).queryByText('edge-1')).not.toBeInTheDocument()
   })
 })
 
@@ -106,6 +224,14 @@ describe('deployment detail', () => {
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
       'storefront-web',
     )
+  })
+
+  it('shows the bumps that clear the most exposed findings here', async () => {
+    mockViews({ 'GET /deployments/1': deploymentDetail() })
+    await renderApp('/deployments/1')
+    const bumps = await screen.findByRole('region', { name: 'Bumps that clear the most here' })
+    expect(within(bumps).getByText('14.2.9')).toBeInTheDocument()
+    expect(within(bumps).getByText('finding cleared')).toBeInTheDocument()
   })
 
   it('lists recent deploys and their commits from Coolify', async () => {

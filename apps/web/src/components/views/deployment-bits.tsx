@@ -1,5 +1,4 @@
 import type { DeploymentItem } from '@hinomi/shared'
-import { Link } from '@tanstack/react-router'
 import {
   IconCircleCheck,
   IconCircleX,
@@ -97,10 +96,13 @@ const MAPPING_LABEL: Record<DeploymentItem['mapping'], string> = {
 export function JoinStrip({
   d,
   exposed,
+  columns = 4,
   className,
 }: {
   d: DeploymentItem
   exposed: number
+  /** 4 in a row with connectors, or 2 by 2 for a narrow pane. */
+  columns?: 2 | 4
   className?: string
 }) {
   const repo = repoLabel(d)
@@ -154,21 +156,28 @@ export function JoinStrip({
   return (
     <ol
       aria-label="How this deployment joins its repo and alerts"
-      className={cn('m-0 grid list-none gap-1.5 p-0 tab:grid-cols-4 tab:gap-0', className)}
+      className={cn(
+        'm-0 grid list-none gap-1.5 p-0',
+        columns === 4 ? 'tab:grid-cols-4 tab:gap-0' : 'tab:grid-cols-2',
+        className,
+      )}
     >
       {nodes.map((n, i) => (
         <li
           key={n.label}
           className={cn(
             'flex min-w-0 items-center',
-            i > 0 &&
+            columns === 4 &&
+              i > 0 &&
               "tab:before:block tab:before:h-px tab:before:w-3.5 tab:before:flex-none tab:before:bg-input tab:before:content-['']",
           )}
         >
           <div
             className={cn(
               'flex min-w-0 flex-1 flex-col gap-0.5 rounded-md border bg-card px-3.5 py-2.5',
-              n.hot ? 'border-sev-critical' : 'border-border',
+              n.hot
+                ? 'border-[color-mix(in_oklab,var(--primary)_55%,var(--border))]'
+                : 'border-border',
             )}
           >
             <small className="text-xs text-muted-foreground">{n.label}</small>
@@ -178,24 +187,5 @@ export function JoinStrip({
         </li>
       ))}
     </ol>
-  )
-}
-
-export function AppLink({
-  d,
-  className,
-}: {
-  d: Pick<DeploymentItem, 'id' | 'name'>
-  className?: string
-}) {
-  return (
-    <Link
-      to="/deployments/$id"
-      params={{ id: String(d.id) }}
-      data-row-link
-      className={cn('font-medium text-foreground hover:text-accent-ink', className)}
-    >
-      {d.name}
-    </Link>
   )
 }

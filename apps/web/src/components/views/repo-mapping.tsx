@@ -29,7 +29,7 @@ export function RepoMappingPanel({ d }: { d: DeploymentDetail }) {
                 key={o.repo.id}
                 className="flex min-w-0 flex-col border-t border-border py-2 first:border-t-0 first:pt-0"
               >
-                <span className="truncate font-mono text-[12.5px]">{o.repo.fullName}</span>
+                <span className="truncate font-mono text-xs">{o.repo.fullName}</span>
                 <small className="text-xs text-muted-foreground">
                   {o.note ? `${o.note}, ` : ''}added {formatDate(o.createdAt)}
                 </small>

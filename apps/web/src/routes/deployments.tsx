@@ -1,187 +1,195 @@
 import type { DeploymentItem } from '@hinomi/shared'
-import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import {
-  IconArchive,
-  IconArrowRight,
-  IconChevronDown,
-  IconPlugConnected,
-  IconServer2,
-} from '@tabler/icons-react'
-import { SeverityCounts } from '@/components/findings/severity-badge'
-import { StatusText } from '@/components/findings/finding-state'
-import { PageHeader } from '@/components/page-header'
+import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
+import { IconArchive, IconServer2, IconServerOff } from '@tabler/icons-react'
+import { KeyHintBar } from '@/components/shell/key-hints'
+import type { KeyHint } from '@/components/shell/key-hints-meta'
+import { TopBar } from '@/components/shell/top-bar'
+import { SplitListHeader } from '@/components/split/split-parts'
+import { SplitView } from '@/components/split/split-view'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
 import { LoadingState } from '@/components/states/loading-state'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DeploymentDetailView } from '@/components/views/deployment-detail-view'
 import {
-  AppLink,
-  CoverageCell,
-  JoinStrip,
-  ReachBadge,
-  RunStatus,
-} from '@/components/views/deployment-bits'
+  DeploymentRow,
+  HeatLegend,
+  ServerHeading,
+  TileBody,
+} from '@/components/views/deployment-map'
+import { tileClass } from '@/components/views/deployment-map-meta'
 import { ScanStrip } from '@/components/views/scan-strip'
-import { displayDomain } from '@/lib/finding-meta'
-import { needsRepo } from '@/lib/finding-meta'
-import { formatRelative } from '@/lib/format'
+import { SPLIT_QUERY, TAB_QUERY, useMediaQuery } from '@/hooks/use-media-query'
+import { ApiError } from '@/lib/api'
+import { byExposure, groupByServer, SERVER_UNKNOWN } from '@/lib/deployment-map'
+import type { DeploymentsSearch } from '@/lib/deployments-search'
 import { cn } from '@/lib/utils'
-import { deploymentsQuery, reposQuery } from '@/lib/view-api'
+import { deploymentQuery, deploymentsQuery, reposQuery } from '@/lib/view-api'
 
-const TD = 'border-t border-border px-3 py-2.5 align-middle max-tab:border-0 max-tab:p-0'
-const HIDE_CARD = 'max-tab:hidden'
-const HIDE_MID = 'tab:max-desk:hidden'
+const route = getRouteApi('/deployments')
 
-function Row({ d, open, onToggle }: { d: DeploymentItem; open: boolean; onToggle: () => void }) {
-  const repo = d.repos[0]
-  return (
-    <>
-      <tr
-        data-row
-        onClick={(event) => {
-          if ((event.target as HTMLElement).closest('a, button')) return
-          onToggle()
-        }}
-        className={cn(
-          'cursor-pointer hover:bg-sidebar max-tab:grid max-tab:grid-cols-[minmax(0,1fr)_auto] max-tab:gap-x-2.5 max-tab:gap-y-1.5 max-tab:border-t max-tab:border-border max-tab:p-3',
-          open && 'bg-sidebar',
-        )}
-      >
-        <td className={cn(TD, 'max-tab:col-span-2')}>
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <b className="font-medium">
-              <AppLink d={d} />
-            </b>
-            <small className="text-xs text-muted-foreground">
-              {d.domains.length
-                ? d.domains.map(displayDomain).join(', ')
-                : d.kind === 'database'
-                  ? 'Database, no domain'
-                  : 'No domain'}
-            </small>
-          </span>
-        </td>
-        <td className={TD}>
-          <ReachBadge reach={d.reach} />
-        </td>
-        <td className={cn(TD, HIDE_CARD, 'text-sm')}>
-          {repo ? (
-            <>
-              <span className="font-mono text-[12.5px]">{repo.fullName}</span>
-              {d.repos.length > 1 ? (
-                <span className="text-muted-foreground"> +{d.repos.length - 1}</span>
-              ) : null}
-              {d.gitBranch ? (
-                <span className="font-mono text-xs text-muted-foreground"> @{d.gitBranch}</span>
-              ) : null}
-            </>
-          ) : needsRepo(d) ? (
-            <StatusText icon={IconPlugConnected} tone="wait">
-              No repo matched
-            </StatusText>
-          ) : d.coverage.imageOnly ? (
-            <span
-              className="text-muted-foreground"
-              title="No git source: the image scan covers it later"
-            >
-              Image only
-            </span>
-          ) : (
-            <span className="text-muted-foreground">Not needed</span>
-          )}
-        </td>
-        <td className={cn(TD, HIDE_CARD, HIDE_MID, 'font-mono text-[12.5px] whitespace-nowrap')}>
-          {d.server ?? 'Unknown'}
-        </td>
-        <td className={cn(TD, HIDE_CARD)}>
-          <RunStatus status={d.status} />
-        </td>
-        <td
-          className={cn(TD, HIDE_CARD, HIDE_MID, 'text-sm whitespace-nowrap text-muted-foreground')}
-        >
-          {d.lastDeployedAt ? formatRelative(d.lastDeployedAt) : 'Unknown'}
-        </td>
-        <td className={TD}>
-          <CoverageCell d={d} />
-        </td>
-        <td className={cn(TD, 'max-tab:col-span-2')}>
-          <span className="flex flex-wrap items-center gap-1.5">
-            {d.exposed ? <Badge variant="critical">{d.exposed} exposed</Badge> : null}
-            <SeverityCounts
-              counts={d.openFindings}
-              empty={d.repos.length ? 'None open' : 'Unknown'}
-            />
-          </span>
-        </td>
-        <td className={cn(TD, 'w-10 max-tab:hidden')}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-expanded={open}
-            aria-label={`${open ? 'Hide' : 'Show'} the join for ${d.name}`}
-            onClick={onToggle}
-          >
-            <IconChevronDown
-              aria-hidden="true"
-              className={cn('transition-transform', open && 'rotate-180')}
-            />
-          </Button>
-        </td>
-      </tr>
-      {open ? (
-        <tr className="max-tab:block">
-          <td colSpan={9} className="border-t border-border bg-sidebar p-3 max-tab:block">
-            <JoinStrip d={d} exposed={d.exposed + d.openBlindSpots} />
-            <div className="mt-2.5">
-              <Button asChild size="sm" variant="outline">
-                <Link to="/deployments/$id" params={{ id: String(d.id) }}>
-                  Open {d.name}
-                  <IconArrowRight aria-hidden="true" />
-                </Link>
-              </Button>
-            </div>
-          </td>
-        </tr>
-      ) : null}
-    </>
+const MAP_HINTS: readonly KeyHint[] = [
+  { keys: ['j', 'k'], label: 'move' },
+  { keys: ['Enter'], label: 'open' },
+  { keys: ['g'], label: 'go to' },
+]
+
+type Order = NonNullable<DeploymentsSearch['order']>
+
+/**
+ * The map and the page states fill the split route on their own: from 1100 px the shell leaves
+ * the top bar and key bar to the view, below it the view brings its own padding.
+ */
+function MapFrame({ wide, children }: { wide: boolean; children: ReactNode }) {
+  const body = (
+    <div className="flex w-full max-w-[1280px] flex-col gap-5 px-4 pt-6 pb-10 tab:px-8 tab:pt-7">
+      {children}
+    </div>
   )
+  if (!wide) return body
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <TopBar />
+      <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+      <KeyHintBar hints={MAP_HINTS} />
+    </div>
+  )
+}
+
+/** Map, list by server, list by exposure. The map needs room, so the phone gets the lists. */
+function ViewSwitch({ current, withMap }: { current: 'map' | Order; withMap: boolean }) {
+  const options: { key: 'map' | Order; label: string }[] = [
+    ...(withMap ? [{ key: 'map' as const, label: 'Map' }] : []),
+    { key: 'server', label: 'By server' },
+    { key: 'exposure', label: 'By exposure' },
+  ]
+  return (
+    <nav
+      aria-label="Deployments view"
+      className="flex gap-1 rounded-md border border-border bg-sidebar p-[3px]"
+    >
+      {options.map((o) => {
+        const on = o.key === current
+        return (
+          <Link
+            key={o.key}
+            to="."
+            search={
+              ((prev: DeploymentsSearch) =>
+                o.key === 'map'
+                  ? { ...prev, order: undefined, sel: undefined }
+                  : { ...prev, order: o.key }) as never
+            }
+            replace
+            aria-current={on ? 'page' : undefined}
+            className={cn(
+              'flex h-8 flex-1 items-center justify-center rounded-[7px] px-3 text-sm font-medium whitespace-nowrap no-underline',
+              on
+                ? 'bg-muted text-foreground'
+                : 'text-foreground-2 hover:bg-[color-mix(in_oklab,var(--muted)_55%,transparent)] hover:text-foreground',
+            )}
+          >
+            {o.label}
+          </Link>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** Repos no deployment runs, kept from the old table: their alerts rank last. */
+function UnmappedRepos({ items }: { items: readonly DeploymentItem[] }) {
+  const repos = useQuery(reposQuery)
+  const mapped = new Set(items.flatMap((d) => d.repos.map((r) => r.id)))
+  const unmapped = (repos.data?.items ?? []).filter((r) => !mapped.has(r.id))
+  if (unmapped.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-sidebar px-3.5 py-3 text-sm">
+      <IconArchive
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 text-foreground-2"
+        stroke={1.75}
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <b className="font-semibold">
+          {unmapped.length} repo{unmapped.length === 1 ? ' has' : 's have'} no deployment
+        </b>
+        <span className="text-foreground-2">
+          Their alerts rank last in All alerts. If one of them runs somewhere, map it in Settings,
+          Repo mapping.
+        </span>
+      </span>
+      <Button asChild size="sm" variant="outline">
+        <Link to="/alerts" search={{ tier: ['not_deployed'] }}>
+          View
+        </Link>
+      </Button>
+    </div>
+  )
+}
+
+/** The selected app's detail beside the list, read from its own query. */
+function SplitDetail({ id, focused }: { id: number; focused: boolean }) {
+  const query = useQuery(deploymentQuery(id))
+  if (query.error instanceof ApiError && query.error.status === 404) {
+    return (
+      <EmptyState icon={IconServerOff} title="This deployment is gone">
+        It dropped out of Coolify on the last scan. Pick another app from the list.
+      </EmptyState>
+    )
+  }
+  if (query.error) {
+    return (
+      <ErrorState
+        title="This deployment did not load"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
+    )
+  }
+  if (!query.data) return <LoadingState layout="detail" label="Loading deployment" />
+  return <DeploymentDetailView d={query.data} layout={focused ? 'two' : 'stack'} titleLevel={2} />
 }
 
 export function DeploymentsPage() {
   const query = useQuery(deploymentsQuery)
-  const repos = useQuery(reposQuery)
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const search = route.useSearch()
+  const navigate = useNavigate()
+  const wide = useMediaQuery(SPLIT_QUERY)
+  const roomy = useMediaQuery(TAB_QUERY)
+  const order: Order = search.order ?? 'server'
+  // No order and no selection is the map; on a phone it is the list by server.
+  const showMap = roomy && search.order === undefined && search.sel === undefined
 
-  const header = (
-    <PageHeader title="Deployments">
-      {query.data?.items.length
-        ? `${query.data.items.length} apps, joined to their GitHub repos. Select a row for a quick look at the join, or the app name for its page.`
-        : 'Every running app with its domains, server and repo, and what is exposed on it.'}
-    </PageHeader>
-  )
+  const title = <h1 className="text-xl font-semibold tracking-[-0.02em]">Deployments</h1>
 
   if (query.error) {
     return (
-      <>
-        {header}
+      <MapFrame wide={wide}>
+        {title}
         <ErrorState
           title="Deployments did not load"
           error={query.error}
           onRetry={() => void query.refetch()}
         />
-      </>
+      </MapFrame>
     )
   }
-  if (!query.data) return <LoadingState layout="table" label="Loading deployments" />
+  if (!query.data) {
+    return (
+      <MapFrame wide={wide}>
+        <LoadingState layout="table" label="Loading deployments" />
+      </MapFrame>
+    )
+  }
 
   const items = query.data.items
   if (items.length === 0) {
     return (
-      <>
-        {header}
+      <MapFrame wide={wide}>
+        {title}
         <EmptyState
           icon={IconServer2}
           title="No deployments yet"
@@ -194,88 +202,106 @@ export function DeploymentsPage() {
           Hinomi reads applications, services and servers from Coolify with a read only token, then
           maps each one to its GitHub repo.
         </EmptyState>
-      </>
+      </MapFrame>
     )
   }
 
-  const mapped = new Set(items.flatMap((d) => d.repos.map((r) => r.id)))
-  const unmapped = (repos.data?.items ?? []).filter((r) => !mapped.has(r.id))
+  const groups = groupByServer(items)
+  const lists: Record<Order, DeploymentItem[]> = {
+    server: groups.flatMap((g) => g.items),
+    exposure: [...items].sort(byExposure),
+  }
+  const servers = groups.length
+
+  if (showMap) {
+    return (
+      <MapFrame wide={wide}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          {title}
+          <span className="text-base text-foreground-2">
+            {items.length} app{items.length === 1 ? '' : 's'} on {servers} server
+            {servers === 1 ? '' : 's'}
+          </span>
+          <div className="ml-auto w-full max-w-[340px] min-w-[260px]">
+            <ViewSwitch current="map" withMap />
+          </div>
+        </div>
+        <HeatLegend />
+        <ScanStrip />
+        <div data-list="" className="flex flex-col gap-6">
+          {groups.map((g) => (
+            <section
+              key={g.server ?? SERVER_UNKNOWN}
+              aria-label={g.server ?? SERVER_UNKNOWN}
+              className="flex flex-col gap-2.5"
+            >
+              <ServerHeading group={g} />
+              <ul className="m-0 grid list-none grid-cols-2 gap-2.5 p-0 desk:grid-cols-3 split:grid-cols-4">
+                {g.items.map((d) => (
+                  <li key={d.id} data-row="" className="flex min-w-0">
+                    <Link
+                      to="."
+                      search={((prev: DeploymentsSearch) => ({ ...prev, sel: d.id })) as never}
+                      data-row-link=""
+                      className={cn(tileClass(d), 'w-full')}
+                    >
+                      <TileBody d={d} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+        <UnmappedRepos items={items} />
+      </MapFrame>
+    )
+  }
 
   return (
-    <>
-      {header}
-      <ScanStrip />
-      <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <table data-list className="w-full border-collapse text-sm max-tab:block">
-          <caption className="sr-only">
-            Deployments with their repo, coverage and open findings
-          </caption>
-          <thead className="max-tab:hidden">
-            <tr className="bg-sidebar text-left text-xs text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-medium">
-                App
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Exposure
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Repo
-              </th>
-              <th scope="col" className={cn('px-3 py-2 font-medium', HIDE_MID)}>
-                Server
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Status
-              </th>
-              <th scope="col" className={cn('px-3 py-2 font-medium', HIDE_MID)}>
-                Last deploy
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Alerts
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Critical, high, moderate, low
-              </th>
-              <th scope="col" className="px-3 py-2">
-                <span className="sr-only">Join</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="max-tab:block">
-            {items.map((d) => (
-              <Row
-                key={d.id}
-                d={d}
-                open={expanded === d.id}
-                onToggle={() => setExpanded((cur) => (cur === d.id ? null : d.id))}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {unmapped.length > 0 ? (
-        <div className="mt-4 flex flex-wrap items-start gap-3 rounded-lg border border-border bg-sidebar px-3.5 py-3 text-sm">
-          <IconArchive
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-foreground-2"
-            stroke={1.75}
-          />
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <b className="font-semibold">
-              {unmapped.length} repo{unmapped.length === 1 ? ' has' : 's have'} no deployment
-            </b>
-            <span className="text-muted-foreground">
-              Their alerts rank last in All alerts. If one of them runs somewhere, map it on that
-              deployment&apos;s page.
-            </span>
-          </span>
-          <Button asChild size="sm" variant="outline">
-            <Link to="/alerts" search={{ tier: ['not_deployed'] }}>
-              View
-            </Link>
-          </Button>
-        </div>
-      ) : null}
-    </>
+    <SplitView
+      items={lists[order]}
+      getKey={(d) => d.id}
+      getLabel={(d) => d.name}
+      listLabel="Deployments"
+      listHeader={
+        <SplitListHeader
+          title="Deployments"
+          meta={`${items.length} app${items.length === 1 ? '' : 's'}`}
+        >
+          <ViewSwitch current={order} withMap={roomy} />
+        </SplitListHeader>
+      }
+      getGroup={
+        order === 'server'
+          ? (d) => {
+              const group = groups.find((g) => g.server === d.server)
+              return {
+                key: d.server ?? SERVER_UNKNOWN,
+                label: <span className="font-mono">{d.server ?? SERVER_UNKNOWN}</span>,
+                count: `${group?.items.length ?? 0} app${group?.items.length === 1 ? '' : 's'}`,
+              }
+            }
+          : undefined
+      }
+      renderRow={(d) => <DeploymentRow d={d} />}
+      renderDetail={(d, { focused }) => <SplitDetail id={d.id} focused={focused} />}
+      onEscape={
+        roomy
+          ? () => {
+              void navigate({
+                to: '.',
+                search: ((prev: DeploymentsSearch) => ({
+                  ...prev,
+                  order: undefined,
+                  sel: undefined,
+                })) as never,
+                replace: true,
+              })
+              return true
+            }
+          : undefined
+      }
+    />
   )
 }
