@@ -16,6 +16,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Longer than asyncUtilTimeout, so a missing element fails with its own message, not a timeout.
+    testTimeout: 15_000,
   },
   server: {
     port: 5173,
