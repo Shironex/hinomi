@@ -1,6 +1,6 @@
 // Scan pipeline: joins Coolify, GitHub and OSV into ranked findings and blind spots.
 export { runScan } from './run.js'
-export type { RunScanOptions, ScanError, ScanLogger, ScanSummary } from './run.js'
+export type { RunScanOptions, ScanError, ScanLogger, ScanProgress, ScanSummary } from './run.js'
 export { buildScanSources } from './sources.js'
 export type {
   BuildScanSourcesOptions,
