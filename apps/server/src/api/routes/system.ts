@@ -1,0 +1,226 @@
+import {
+  FINDING_TIERS,
+  idParamSchema,
+  navCountsSchema,
+  overviewResponseSchema,
+  scanRunSchema,
+  scansQuerySchema,
+  scansResponseSchema,
+  scanStatusSchema,
+  settingsSchema,
+  startScanResponseSchema,
+  updateSettingsRequestSchema,
+  type ActivityItem,
+  type FindingTier,
+  type ScanStatusDto,
+  type SettingsDto,
+  type SourceHealth,
+} from '@hinomi/shared'
+import { Hono } from 'hono'
+import type { Repositories, Source } from '../../repository/index.js'
+import {
+  countFindings,
+  listRankedFindings,
+  readScanSettings,
+  SCAN_SETTING_KEYS,
+  type RankedFinding,
+} from '../../scan/index.js'
+import {
+  isConfigured,
+  readScanIntervalMinutes,
+  SCAN_INTERVAL_KEY,
+  type Scheduler,
+} from '../../scheduler/index.js'
+import type { ApiDeps } from '../deps.js'
+import { notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { tierOf, toFindingEvent, toScanRun } from '../serialize.js'
+
+const RECENT_ACTIVITY = 20
+
+function readSettings(repositories: Repositories): SettingsDto {
+  return {
+    scanIntervalMinutes: readScanIntervalMinutes(repositories.settings),
+    ...readScanSettings(repositories.settings),
+  }
+}
+
+function sourceHealth(source: Source): SourceHealth {
+  const status: SourceHealth['status'] = !source.enabled
+    ? 'disabled'
+    : source.kind !== 'osv' && !source.hasToken
+      ? 'missing_token'
+      : source.lastError !== null
+        ? 'error'
+        : source.lastOkAt
+          ? 'ok'
+          : 'never'
+  return {
+    id: source.id,
+    kind: source.kind,
+    name: source.name,
+    status,
+    lastOkAt: source.lastOkAt?.toISOString() ?? null,
+    lastErrorAt: source.lastErrorAt?.toISOString() ?? null,
+    lastError: source.lastError,
+  }
+}
+
+function findingTitle(r: RankedFinding): string {
+  if (r.advisory) return `${r.advisory.packageName} ${r.advisory.advisoryKey}`
+  return (r.finding.blindSpotType ?? 'blind spot').replaceAll('_', ' ')
+}
+
+function recentActivity(repositories: Repositories, ranked: RankedFinding[]): ActivityItem[] {
+  const byId = new Map(ranked.map((r) => [r.finding.id, r]))
+  return repositories.findings.listRecentEvents(RECENT_ACTIVITY).flatMap((event) => {
+    const r = byId.get(event.findingId)
+    if (!r) return []
+    return [
+      {
+        ...toFindingEvent(event),
+        finding: {
+          id: r.finding.id,
+          kind: r.kind,
+          title: findingTitle(r),
+          severity: r.factors.severity,
+          repo: r.repo ? `${r.repo.owner}/${r.repo.name}` : (r.deployments[0]?.name ?? null),
+        },
+      },
+    ]
+  })
+}
+
+function tierCounts(ranked: RankedFinding[]): Record<FindingTier, number> {
+  const counts = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0])) as Record<FindingTier, number>
+  for (const r of ranked) if (r.state !== 'fixed') counts[tierOf(r)]++
+  return counts
+}
+
+/**
+ * Shell scan status. While a scan runs it reports progress; otherwise the
+ * latest finished run. Connected but never scanned reports scanning 0 of 0:
+ * the scheduler starts the first scan as soon as a source is connected.
+ */
+export function scanStatus(repositories: Repositories, scheduler: Scheduler): ScanStatusDto {
+  const progress = scheduler.progress()
+  if (progress) return { state: 'scanning', done: progress.done, total: progress.total }
+  if (!isConfigured(repositories)) return { state: 'unconfigured' }
+  const runs = repositories.scanRuns.list(20).filter((r) => r.status !== 'running')
+  const latest = runs[0]
+  if (!latest) return { state: 'scanning', done: 0, total: 0 }
+  const finishedAt = (latest.finishedAt ?? latest.startedAt).toISOString()
+  if (latest.status === 'failed') {
+    const lastGood = runs.find((r) => r.status !== 'failed')
+    const firstSourceError = Object.values(latest.sourceResults).find((r) => r?.error)?.error
+    return {
+      state: 'failed',
+      lastScanAt: lastGood ? (lastGood.finishedAt ?? lastGood.startedAt).toISOString() : null,
+      message: latest.error ?? firstSourceError ?? 'The last scan failed',
+    }
+  }
+  return {
+    state: 'idle',
+    lastScanAt: finishedAt,
+    nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null,
+  }
+}
+
+export function overviewRoutes(deps: ApiDeps) {
+  const app = new Hono()
+  const { repositories, scheduler } = deps
+
+  app.get('/', (c) => {
+    const ranked = listRankedFindings(repositories)
+    const counts = countFindings(ranked, deps.now())
+    const lastScan = repositories.scanRuns.latest()
+    return send(c, overviewResponseSchema, {
+      funnel: counts.advisories,
+      blindSpots: counts.blindSpots,
+      tiers: tierCounts(ranked),
+      lastScan: lastScan ? toScanRun(lastScan) : null,
+      nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null,
+      sources: repositories.sources.list().map(sourceHealth),
+      recentActivity: recentActivity(repositories, ranked),
+    })
+  })
+
+  return app
+}
+
+export function settingsRoutes(deps: ApiDeps) {
+  const app = new Hono()
+  const { repositories, scheduler } = deps
+
+  app.get('/', (c) => send(c, settingsSchema, readSettings(repositories)))
+
+  app.patch('/', async (c) => {
+    const body = await readJson(c, updateSettingsRequestSchema)
+    repositories.db.transaction(() => {
+      if (body.scanIntervalMinutes !== undefined) {
+        repositories.settings.set(SCAN_INTERVAL_KEY, body.scanIntervalMinutes)
+      }
+      if (body.osvEnabled !== undefined) {
+        repositories.settings.set(SCAN_SETTING_KEYS.osvEnabled, body.osvEnabled)
+      }
+      if (body.includeAccountRepos !== undefined) {
+        repositories.settings.set(SCAN_SETTING_KEYS.includeAccountRepos, body.includeAccountRepos)
+      }
+    })
+    if (body.scanIntervalMinutes !== undefined) scheduler.reschedule()
+    return send(c, settingsSchema, readSettings(repositories))
+  })
+
+  return app
+}
+
+export function scansRoutes(deps: ApiDeps) {
+  const app = new Hono()
+  const { repositories, scheduler } = deps
+
+  app.get('/', (c) => {
+    const { limit } = readQuery(c, scansQuerySchema)
+    return send(c, scansResponseSchema, {
+      items: repositories.scanRuns.list(limit).map(toScanRun),
+    })
+  })
+
+  app.get('/:id', (c) => {
+    const { id } = readParams(c, idParamSchema)
+    const run = repositories.scanRuns.get(id)
+    if (!run) throw notFound('Scan run')
+    return send(c, scanRunSchema, toScanRun(run))
+  })
+
+  /** Starts a scan now. When one is running, answers 200 with that scan instead. */
+  app.post('/', (c) => {
+    const result = scheduler.scanNow('manual')
+    return send(
+      c,
+      startScanResponseSchema,
+      { started: result.started, run: toScanRun(result.run) },
+      result.started ? 202 : 200,
+    )
+  })
+
+  return app
+}
+
+export function shellRoutes(deps: ApiDeps) {
+  const app = new Hono()
+  const { repositories, scheduler } = deps
+
+  app.get('/nav-counts', (c) => {
+    const ranked = listRankedFindings(repositories)
+    const counts = countFindings(ranked, deps.now())
+    return send(c, navCountsSchema, {
+      needsAction: counts.advisories.needsAction,
+      deployments: repositories.deployments.list().length,
+      alerts: counts.advisories.total + counts.blindSpots.total,
+      activeFixRuns: null,
+    })
+  })
+
+  app.get('/scan-status', (c) => send(c, scanStatusSchema, scanStatus(repositories, scheduler)))
+
+  return app
+}

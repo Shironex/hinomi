@@ -33,6 +33,8 @@ describe('static SPA', () => {
   it('keeps unknown api routes as json 404', async () => {
     const res = await createApp({ webDistDir: dir }).request('/api/nope')
     expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: 'not found' })
+    expect(await res.json()).toEqual({
+      error: { code: 'not_found', message: 'No such API route' },
+    })
   })
 })

@@ -41,6 +41,24 @@ describe('api', () => {
     expect(error).toMatchObject({ kind: 'http', status: 404, message: 'not found' })
   })
 
+  it('reads the code and message of the error shape', async () => {
+    stubFetch(() =>
+      Promise.resolve(
+        Response.json(
+          { error: { code: 'validation_failed', message: 'Invalid query: limit: Too big' } },
+          { status: 400 },
+        ),
+      ),
+    )
+    const error = await failure(api.get('/findings', healthResponseSchema))
+    expect(error).toMatchObject({
+      kind: 'http',
+      status: 400,
+      code: 'validation_failed',
+      message: 'Invalid query: limit: Too big',
+    })
+  })
+
   it('keeps the status when an error page is not JSON', async () => {
     stubFetch(() => Promise.resolve(new Response('<h1>Bad gateway</h1>', { status: 502 })))
     const error = await failure(api.get('/health', healthResponseSchema))

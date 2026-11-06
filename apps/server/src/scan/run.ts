@@ -22,6 +22,15 @@ export interface RunScanOptions {
   log?: ScanLogger
   /** Repos fetched in parallel. */
   concurrency?: number
+  /** Called when the repo list is known and after each repo is fetched. Must not throw. */
+  onProgress?: (progress: ScanProgress) => void
+}
+
+export interface ScanProgress {
+  /** Repos fetched so far. */
+  done: number
+  /** Repos this scan looks at. */
+  total: number
 }
 
 export interface ScanError {
@@ -70,6 +79,7 @@ interface ScanContext {
   log: ScanLogger
   tallies: Tallies
   errors: ScanError[]
+  onProgress: (progress: ScanProgress) => void
 }
 
 function recordError(ctx: ScanContext, error: ScanError): void {
@@ -184,9 +194,13 @@ async function scanRepos(
   index: DeploymentIndex,
   concurrency: number,
 ): Promise<{ scans: Map<number, RepoScan>; changes: FindingChange[] }> {
-  const results = await mapLimit(repos, concurrency, (repo) =>
-    collectRepo(ctx.sources, repo, index.byRepo.get(repo.id) ?? []),
-  )
+  let done = 0
+  ctx.onProgress({ done, total: repos.length })
+  const results = await mapLimit(repos, concurrency, async (repo) => {
+    const scan = await collectRepo(ctx.sources, repo, index.byRepo.get(repo.id) ?? [])
+    ctx.onProgress({ done: ++done, total: repos.length })
+    return scan
+  })
   const scans = new Map<number, RepoScan>()
   const changes: FindingChange[] = []
   for (const scan of results) {
@@ -275,6 +289,13 @@ export async function runScan(
     log: options.log ?? silent,
     tallies: {},
     errors: [],
+    onProgress: (progress) => {
+      try {
+        options.onProgress?.(progress)
+      } catch {
+        // Progress is informational; a failing listener never stops the scan.
+      }
+    },
   }
   const startedAt = now()
   const run = ctx.repositories.scanRuns.start(options.trigger ?? 'manual', startedAt)

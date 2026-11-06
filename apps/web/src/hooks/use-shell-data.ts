@@ -1,26 +1,19 @@
+import type { NavCountsDto, ScanStatusDto } from '@hinomi/shared'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import { navCountsQuery, queryKeys, scanStatusQuery, startScan } from '@/lib/queries'
+
 /**
- * Data the shell shows on every page: sidebar counts and the scan status.
- *
- * Placeholders until the server exposes them. Replace the bodies with TanStack Query calls
- * (see lib/queries.ts) and keep the return types, so the sidebar, tabs and top bar need no change.
+ * Data the shell shows on every page: sidebar counts and the scan status,
+ * from GET /api/shell/nav-counts and /api/shell/scan-status. The types are
+ * the shared API contract, so the sidebar, tabs and top bar read the same
+ * shape the server validates.
  */
 
-export interface NavCounts {
-  /** Exposed findings with no snooze or accepted risk in force. Shown as the hot badge. */
-  needsAction: number | null
-  deployments: number | null
-  alerts: number | null
-  /** Fix runs not yet verified fixed. */
-  activeFixRuns: number | null
-}
+export type NavCounts = NavCountsDto
 
-export type ScanStatus =
-  /** No source connected yet (first run). */
-  | { state: 'unconfigured' }
-  /** Timestamps are ISO 8601 strings. */
-  | { state: 'idle'; lastScanAt: string; nextScanAt: string | null }
-  | { state: 'scanning'; done: number; total: number }
-  | { state: 'failed'; lastScanAt: string | null; message: string }
+/** Timestamps are ISO 8601 strings. */
+export type ScanStatus = ScanStatusDto
 
 export const EMPTY_NAV_COUNTS: NavCounts = {
   needsAction: null,
@@ -29,10 +22,36 @@ export const EMPTY_NAV_COUNTS: NavCounts = {
   activeFixRuns: null,
 }
 
+const UNCONFIGURED: ScanStatus = { state: 'unconfigured' }
+
+/** Counts, or nulls (no badge) while loading or when the server cannot be reached. */
 export function useNavCounts(): NavCounts {
-  return EMPTY_NAV_COUNTS
+  return useQuery(navCountsQuery).data ?? EMPTY_NAV_COUNTS
 }
 
+/** Scan status. When a scan finishes, every other query is refreshed to show its results. */
 export function useScanStatus(): ScanStatus {
-  return { state: 'unconfigured' }
+  const queryClient = useQueryClient()
+  const status = useQuery(scanStatusQuery).data ?? UNCONFIGURED
+  const previous = useRef(status.state)
+  useEffect(() => {
+    if (previous.current === 'scanning' && status.state !== 'scanning') {
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] !== queryKeys.scanStatus[0],
+      })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.navCounts })
+    }
+    previous.current = status.state
+  }, [queryClient, status.state])
+  return status
+}
+
+/** Handler for the "Scan now" button; undefined while a start request is in flight. */
+export function useStartScan(): (() => void) | undefined {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: startScan,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.scanStatus }),
+  })
+  return mutation.isPending ? undefined : () => mutation.mutate()
 }

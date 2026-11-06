@@ -237,6 +237,16 @@ export function createFindingsRepository(db: Db) {
         .all()
     },
 
+    /** Latest events across every finding, newest first (activity feed). */
+    listRecentEvents(limit = 20): FindingEventRow[] {
+      return db
+        .select()
+        .from(findingEvents)
+        .orderBy(desc(findingEvents.at), desc(findingEvents.id))
+        .limit(limit)
+        .all()
+    },
+
     /** History of a finding, newest first. */
     listEvents(findingId: number): FindingEventRow[] {
       return db

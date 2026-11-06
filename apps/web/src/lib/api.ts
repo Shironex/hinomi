@@ -1,3 +1,4 @@
+import { apiErrorSchema } from '@hinomi/shared'
 import type { z } from 'zod'
 
 export const API_BASE = '/api'
@@ -9,13 +10,23 @@ export class ApiError extends Error {
   readonly kind: ApiErrorKind
   readonly status: number | undefined
   readonly path: string
+  /** The server's error code (for example `validation_failed`), when it sent one. */
+  readonly code: string | undefined
 
-  constructor(kind: ApiErrorKind, path: string, message: string, status?: number, cause?: unknown) {
+  constructor(
+    kind: ApiErrorKind,
+    path: string,
+    message: string,
+    status?: number,
+    cause?: unknown,
+    code?: string,
+  ) {
     super(message, { cause })
     this.name = 'ApiError'
     this.kind = kind
     this.path = path
     this.status = status
+    this.code = code
   }
 }
 
@@ -41,11 +52,15 @@ async function readBody(res: Response, path: string): Promise<unknown> {
   }
 }
 
-function serverMessage(body: unknown): string | undefined {
+/** The server answers errors as `{ error: { code, message } }` (see apiErrorSchema). */
+function serverError(body: unknown): { code?: string; message?: string } {
+  const parsed = apiErrorSchema.safeParse(body)
+  if (parsed.success) return parsed.data.error
+  // Older or foreign servers may send a bare string.
   if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
-    return body.error
+    return { message: body.error }
   }
-  return undefined
+  return {}
 }
 
 /**
@@ -76,11 +91,14 @@ export async function request<S extends z.ZodType>(
   if (!res.ok) {
     // An error page from a proxy is often HTML; fall back to the status line.
     const body = await readBody(res, path).catch(() => undefined)
+    const { code, message } = serverError(body)
     throw new ApiError(
       'http',
       path,
-      serverMessage(body) ?? `The server answered ${res.status}`,
+      message ?? `The server answered ${res.status}`,
       res.status,
+      undefined,
+      code,
     )
   }
 
