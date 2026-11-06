@@ -6,6 +6,7 @@ import { clearListSelection, moveListSelection, openListSelection } from '@/lib/
 import { useRouteMeta } from '@/lib/route-meta'
 import { findSearchInput, focusSearchInput } from '@/lib/search'
 import { cycleTheme } from '@/lib/theme'
+import { PublicAccessBanner } from './access-line'
 import { MobileTabs } from './mobile-tabs'
 import { ShortcutsDialog } from './shortcuts-dialog'
 import { Sidebar } from './sidebar'
@@ -59,6 +60,7 @@ export function AppShell() {
       />
       <div className="flex min-w-0 flex-col">
         <TopBar crumbs={meta.crumbs} scan={scan} onSearch={focusSearch} onScan={startScan} />
+        <PublicAccessBanner />
         <main
           id="main"
           tabIndex={-1}

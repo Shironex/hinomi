@@ -11,6 +11,9 @@ const calloutVariants = cva(
         default: 'border-border bg-sidebar [&>svg]:text-foreground-2',
         info: 'border-[color-mix(in_oklch,var(--primary)_22%,transparent)] bg-accent [&>svg]:text-accent-ink',
         warn: 'border-[color-mix(in_oklch,var(--sev-high)_25%,transparent)] bg-sev-high-soft [&>svg]:text-sev-high',
+        danger:
+          'border-[color-mix(in_oklch,var(--sev-critical)_40%,transparent)] bg-sev-critical-soft [&>svg]:text-sev-critical',
+        ok: 'border-[color-mix(in_oklch,var(--success)_25%,transparent)] bg-success-soft [&>svg]:text-success',
       },
     },
     defaultVariants: { variant: 'default' },
