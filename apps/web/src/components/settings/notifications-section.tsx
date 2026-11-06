@@ -7,6 +7,7 @@ import {
   IconBell,
   IconBrandDiscord,
   IconLoader2,
+  IconMail,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -69,7 +70,7 @@ export function NotificationsSection() {
           </Button>
         }
       >
-        Add a Discord or webhook channel to hear about new exposed findings as they appear.
+        Add a Discord, webhook or email channel to hear about new exposed findings as they appear.
       </EmptyState>
     )
   } else {
@@ -115,11 +116,14 @@ export function NotificationsSection() {
   )
 }
 
+const KIND_ICONS = { discord: IconBrandDiscord, webhook: IconWebhook, email: IconMail } as const
+const KIND_LABELS = { discord: 'Discord', webhook: 'Webhook', email: 'Email' } as const
+
 function ChannelRow({ channel }: { channel: NotifyChannel }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const KindIcon = channel.kind === 'discord' ? IconBrandDiscord : IconWebhook
+  const KindIcon = KIND_ICONS[channel.kind]
   const severity = SEVERITY_OPTIONS.find((o) => o.value === channel.minSeverity)?.label
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: settingsKeys.channels })
@@ -160,7 +164,8 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
           <h3 className="truncate text-base font-medium">{channel.name}</h3>
           <span className="truncate font-mono text-xs text-muted-foreground">{channel.url}</span>
           <span className="text-xs text-muted-foreground">
-            {channel.kind === 'discord' ? 'Discord' : 'Webhook'}, {severity?.toLowerCase()}
+            {KIND_LABELS[channel.kind]}
+            {channel.email ? ` to ${channel.email.to.join(', ')}` : ''}, {severity?.toLowerCase()}
           </span>
         </span>
         <Switch
@@ -173,8 +178,8 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
       {channel.urlEncrypted ? null : (
         <p className="flex items-start gap-2 text-xs text-sev-high">
           <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
-          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and save the URL
-          again.
+          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and save the{' '}
+          {channel.kind === 'email' ? 'password' : 'URL'} again.
         </p>
       )}
       {editing ? (

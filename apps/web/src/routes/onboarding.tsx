@@ -182,7 +182,7 @@ function Steps() {
         sub={
           alertsDone
             ? channelList.map((c) => c.name).join(', ')
-            : 'Discord or a webhook. You can skip this.'
+            : 'Discord, a webhook or email. You can skip this.'
         }
         state={stateOf(3)}
         optional
