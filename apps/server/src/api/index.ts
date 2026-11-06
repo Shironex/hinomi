@@ -7,6 +7,7 @@ import type { ApiDeps } from './deps.js'
 import { errorBody, errorHandler } from './http.js'
 import { deploymentsRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
+import { fixesRoutes } from './routes/fixes.js'
 import { onboardingRoutes } from './routes/onboarding.js'
 import { notificationsRoutes, type NotificationsApiOptions } from './routes/notifications.js'
 import { sourcesRoutes } from './routes/sources.js'
@@ -60,6 +61,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
 
   api.route('/overview', overviewRoutes(deps))
   api.route('/findings', findingsRoutes(deps))
+  api.route('/fixes', fixesRoutes(deps))
   api.route('/deployments', deploymentsRoutes(deps))
   api.route('/repos', reposRoutes(deps))
   api.route('/sources', sourcesRoutes(deps))
