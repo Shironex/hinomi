@@ -168,3 +168,104 @@ describe('notifier wiring', () => {
     expect(digest.nextAt()).toBeNull()
   })
 })
+
+describe('email channels', () => {
+  const email = {
+    host: 'smtp.example.dev',
+    port: 587,
+    security: 'starttls',
+    user: 'hinomi@example.dev',
+    password: 'smtp-SECRET-pass-0123',
+    from: 'hinomi@example.dev',
+    to: ['ops@example.dev'],
+  }
+
+  it('shows host, port, from, to and "password set", never the password', async () => {
+    const { call, logger } = createTestApi()
+    const created = await call('POST', '/notifications/channels', {
+      kind: 'email',
+      name: 'mail',
+      email,
+    })
+    expect(created.status).toBe(201)
+    expect(created.text).not.toContain('SECRET')
+    expect(created.json).toMatchObject({
+      kind: 'email',
+      url: 'smtp.example.dev:587',
+      email: {
+        host: 'smtp.example.dev',
+        port: 587,
+        from: 'hinomi@example.dev',
+        to: ['ops@example.dev'],
+        passwordSet: true,
+      },
+    })
+    const id = (created.json as { id: string }).id
+
+    const patched = await call('PATCH', `/notifications/channels/${id}`, {
+      email: { to: ['ops@example.dev', 'oncall@example.dev'] },
+    })
+    expect(patched.status).toBe(200)
+    expect(patched.text).not.toContain('SECRET')
+    expect(patched.json).toMatchObject({ email: { passwordSet: true } })
+
+    const list = await call('GET', '/notifications/channels')
+    expect(notifyChannelsResponseSchema.parse(list.json).items).toHaveLength(1)
+    expect(list.text).not.toContain('SECRET')
+    expect(logger.text()).not.toContain('SECRET')
+  })
+
+  it('rejects settings that do not fit', async () => {
+    const { call } = createTestApi()
+    const post = (body: unknown) => call('POST', '/notifications/channels', body)
+    expect((await post({ kind: 'email', name: 'mail' })).status).toBe(400)
+    expect(
+      (await post({ kind: 'email', name: 'mail', url: 'https://hooks.example.dev/x', email }))
+        .status,
+    ).toBe(400)
+    expect(
+      (await post({ kind: 'webhook', name: 'hook', url: 'https://hooks.example.dev/x', email }))
+        .status,
+    ).toBe(400)
+    expect((await post({ kind: 'email', name: 'mail', email: { ...email, to: [] } })).status).toBe(
+      400,
+    )
+    expect(
+      (await post({ kind: 'email', name: 'mail', email: { ...email, to: ['not an address'] } }))
+        .status,
+    ).toBe(400)
+    expect(
+      (await post({ kind: 'email', name: 'mail', email: { ...email, port: 70000 } })).status,
+    ).toBe(400)
+    expect(
+      (await post({ kind: 'email', name: 'mail', email: { ...email, host: 'a b' } })).status,
+    ).toBe(400)
+    expect(
+      (
+        await post({
+          kind: 'email',
+          name: 'mail',
+          email: { ...email, from: 'a@example.dev\r\nBcc: x@example.dev' },
+        })
+      ).status,
+    ).toBe(400)
+  })
+
+  it('sends a test email and reports a failed login without the password', async () => {
+    const { call, mails, mailFailure } = createTestApi()
+    const created = await call('POST', '/notifications/channels', {
+      kind: 'email',
+      name: 'mail',
+      email,
+    })
+    const id = (created.json as { id: string }).id
+    expect((await call('POST', `/notifications/channels/${id}/test`)).json).toEqual({ ok: true })
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.message.to).toEqual(['ops@example.dev'])
+
+    mailFailure.message = 'Invalid login'
+    const failed = await call('POST', `/notifications/channels/${id}/test`)
+    expect(failed.json).toEqual({ ok: false, error: 'Invalid login' })
+    expect(failed.text).not.toContain('SECRET')
+  })
+})

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSecretBox } from '../crypto/secret-box.js'
 import type { DatabaseHandle } from '../db/client.js'
@@ -5,7 +6,8 @@ import { createTestRepositories, TEST_SECRET } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, ScanSummary } from '../scan/index.js'
 import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
-import { maskWebhookUrl } from './channels.js'
+import { maskWebhookUrl, type ResolvedEmail } from './channels.js'
+import { SmtpError, type MailMessage } from './email.js'
 import { createNotifier } from './notifier.js'
 import { msUntilNextDigest } from './schedule.js'
 import { writePublicBaseUrl } from './settings.js'
@@ -29,6 +31,8 @@ let calls: { url: string; body: Body }[]
 let responses: Response[]
 let sleeps: number[]
 let logs: string[]
+let mails: { config: ResolvedEmail; message: MailMessage }[]
+let mailError: SmtpError | null
 
 const fakeFetch = ((url: string | URL, init?: RequestInit) => {
   calls.push({ url: String(url), body: JSON.parse(init?.body as string) as Body })
@@ -44,6 +48,8 @@ beforeEach(() => {
   responses = []
   sleeps = []
   logs = []
+  mails = []
+  mailError = null
 })
 afterEach(() => handle.close())
 
@@ -52,6 +58,11 @@ function notifier(options: { secret?: boolean } = {}) {
     repositories: repos,
     secretBox: options.secret === false ? null : createSecretBox(TEST_SECRET),
     fetch: fakeFetch,
+    mailSender: (config, message) => {
+      if (mailError) return Promise.reject(mailError)
+      mails.push({ config, message })
+      return Promise.resolve()
+    },
     now: () => clock,
     sleep: (ms) => {
       sleeps.push(ms)
@@ -556,5 +567,151 @@ describe('msUntilNextDigest', () => {
   it('is a full day at exactly the hour', () => {
     const now = new Date(2026, 10, 6, 8, 0, 0)
     expect(msUntilNextDigest(now, 8)).toBe(24 * 60 * 60_000)
+  })
+})
+
+const SMTP_PASSWORD = 'smtp-SECRET-pass-0123'
+const emailInput = {
+  host: 'smtp.example.dev',
+  port: 587,
+  security: 'starttls' as const,
+  user: 'hinomi@example.dev',
+  password: SMTP_PASSWORD,
+  from: 'hinomi@example.dev',
+  to: ['ops@example.dev', 'oncall@example.dev'],
+}
+
+describe('email channel', () => {
+  it('stores the password encrypted and never shows it', () => {
+    const n = notifier()
+    const view = n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    expect(JSON.stringify(view)).not.toContain('SECRET')
+    expect(view).toMatchObject({
+      kind: 'email',
+      url: 'smtp.example.dev:587',
+      urlEncrypted: true,
+      email: { host: 'smtp.example.dev', user: 'hinomi@example.dev', passwordSet: true },
+    })
+    const stored = JSON.stringify(repos.settings.get('notify.channels', z.unknown()))
+    expect(stored).not.toContain(SMTP_PASSWORD)
+    expect(n.channels.resolve()[0]?.email?.password).toBe(SMTP_PASSWORD)
+  })
+
+  it('falls back to clear text without a key and says so', () => {
+    const view = notifier({ secret: false }).channels.add({
+      kind: 'email',
+      name: 'mail',
+      email: emailInput,
+    })
+    expect(view.urlEncrypted).toBe(false)
+    expect(view.email?.passwordSet).toBe(true)
+  })
+
+  it('needs no password when there is no user', () => {
+    const n = notifier()
+    const view = n.channels.add({
+      kind: 'email',
+      name: 'relay',
+      email: {
+        host: '10.0.0.5',
+        port: 25,
+        security: 'none',
+        from: 'a@example.dev',
+        to: ['b@example.dev'],
+      },
+    })
+    expect(view).toMatchObject({ urlEncrypted: true, email: { user: null, passwordSet: false } })
+  })
+
+  it('keeps the password on a patch without one, replaces it, and removes it with an empty one', () => {
+    const n = notifier()
+    const { id } = n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    const password = () => n.channels.resolve()[0]?.email?.password
+    n.channels.update(id, { email: { port: 465, security: 'tls' } })
+    expect(n.channels.resolve()[0]?.email).toMatchObject({ port: 465, security: 'tls' })
+    expect(password()).toBe(SMTP_PASSWORD)
+    n.channels.update(id, { email: { password: 'next-pass' } })
+    expect(password()).toBe('next-pass')
+    n.channels.update(id, { email: { password: '' } })
+    expect(password()).toBeNull()
+  })
+
+  it('rejects the wrong shape for the kind', () => {
+    const n = notifier()
+    expect(() => n.channels.add({ kind: 'email', name: 'x', url: HOOK_URL })).toThrow(/SMTP/)
+    expect(() => n.channels.add({ kind: 'webhook', name: 'x', email: emailInput })).toThrow(
+      /URL is required/,
+    )
+    const { id } = n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    expect(() => n.channels.update(id, { url: HOOK_URL })).toThrow(/no URL/)
+  })
+
+  it('skips a channel whose password can no longer be decrypted', () => {
+    const n = notifier()
+    n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    const other = createNotifier({ repositories: repos, secretBox: null })
+    expect(other.channels.resolve()).toHaveLength(0)
+    expect(other.channels.list()[0]?.email?.passwordSet).toBe(true)
+  })
+
+  it('sends one email with every item of an immediate batch', async () => {
+    writePublicBaseUrl(repos.settings, 'https://hinomi.example.dev')
+    const n = notifier()
+    n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    const repo = seedDeployedRepo()
+    const a = seedAdvisoryFinding(repo.id, 'critical')
+    const b = seedAdvisoryFinding(repo.id, 'high', 'other-lib')
+
+    await n.handleScanFinished(summary([opened(a.id), opened(b.id)]))
+
+    expect(calls).toHaveLength(0)
+    expect(mails).toHaveLength(1)
+    const { config, message } = mails[0] as (typeof mails)[number]
+    expect(config.host).toBe('smtp.example.dev')
+    expect(message.to).toEqual(['ops@example.dev', 'oncall@example.dev'])
+    expect(message.subject).toBe('Hinomi: 2 new items need attention')
+    expect(message.text).toContain('[CRITICAL] example-lib')
+    expect(message.text).toContain(`https://hinomi.example.dev/finding/${a.id}`)
+    expect(message.html).toContain('[HIGH] other-lib')
+
+    // Deduped like every channel.
+    await n.handleScanFinished(summary([opened(a.id)]))
+    expect(mails).toHaveLength(1)
+  })
+
+  it('leaves a failed email for the digest and never leaks the password', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    const finding = seedAdvisoryFinding(seedDeployedRepo().id, 'critical')
+    mailError = new SmtpError(
+      `Invalid login for ${SMTP_PASSWORD}`.replace(SMTP_PASSWORD, '[password]'),
+      535,
+    )
+
+    await n.handleScanFinished(summary([opened(finding.id)]))
+    expect(mails).toHaveLength(0)
+    expect(logs.join('\n')).not.toContain(SMTP_PASSWORD)
+
+    mailError = null
+    advance(60)
+    await n.sendDigest()
+    expect(mails).toHaveLength(1)
+    expect(mails[0]?.message.subject).toContain('daily digest')
+    expect(mails[0]?.message.text).toContain('New: [CRITICAL] example-lib')
+  })
+
+  it('sends a test email, even to a disabled channel, and reports a failure', async () => {
+    const n = notifier()
+    const { id } = n.channels.add({
+      kind: 'email',
+      name: 'mail',
+      email: emailInput,
+      enabled: false,
+    })
+    expect(await n.sendTest(id)).toEqual({ ok: true })
+    expect(mails[0]?.message.subject).toBe('Hinomi test message')
+    mailError = new SmtpError('Could not send the email: Invalid login', 535)
+    const failed = await n.sendTest(id)
+    expect(failed).toEqual({ ok: false, error: 'Could not send the email: Invalid login' })
   })
 })

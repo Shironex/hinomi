@@ -1,4 +1,4 @@
-// Discord and generic webhook notifications. The scheduler calls
+// Discord, generic webhook and email notifications. The scheduler calls
 // `handleScanFinished` after each scan and `sendDigest` once a day.
 export { createNotifier, type Notifier, type NotifierOptions, type TestResult } from './notifier.js'
 export {
@@ -12,7 +12,15 @@ export {
   type ChannelPatch,
   type ChannelStore,
   type ChannelView,
+  type ResolvedEmail,
 } from './channels.js'
+export {
+  SmtpError,
+  createSmtpSender,
+  emailContent,
+  type MailMessage,
+  type MailSender,
+} from './email.js'
 export { msUntilNextDigest } from './schedule.js'
 export {
   DEFAULT_DIGEST_HOUR,
