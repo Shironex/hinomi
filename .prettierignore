@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+dist/
+coverage/
+# Prose is formatted by hand; prettier pads wide tables.
+*.md
