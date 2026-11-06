@@ -1,4 +1,4 @@
-import { IconBox, IconEyeOff } from '@tabler/icons-react'
+import { IconBox, IconEyeOff, IconShieldCheck } from '@tabler/icons-react'
 import { Badge } from '@/components/ui/badge'
 import { SEVERITY_LABEL, type SeverityKey } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,16 @@ export function ImageOnlyBadge({ className }: { className?: string }) {
     <Badge variant="outline" className={className}>
       <IconBox aria-hidden="true" stroke={2} />
       Image only
+    </Badge>
+  )
+}
+
+/** GitHub's alert is still open, but the lockfile already resolves only patched versions. */
+export function PatchedBadge({ className }: { className?: string }) {
+  return (
+    <Badge variant="outline" className={className}>
+      <IconShieldCheck aria-hidden="true" stroke={2} />
+      Patched in lockfile
     </Badge>
   )
 }

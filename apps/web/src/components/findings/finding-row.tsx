@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { IconClock, IconLock, IconServer2, IconWorld } from '@tabler/icons-react'
 import { FindingStateText } from './finding-state'
 import { RankMarker } from './rank-marker'
-import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from './severity-badge'
+import { BlindSpotBadge, ImageOnlyBadge, PatchedBadge, SeverityBadge } from './severity-badge'
 import { SourceBadge } from './source-badge'
 import {
   blindSpotSubject,
@@ -97,7 +97,11 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
             </>
           ) : (
             <>
-              <SeverityBadge severity={item.factors.severity} />
+              {item.patchedInLockfile ? (
+                <PatchedBadge />
+              ) : (
+                <SeverityBadge severity={item.factors.severity} />
+              )}
               <span className="font-mono text-sm font-medium">{advisory?.packageName}</span>
               {item.installedVersion || advisory?.firstPatchedVersion ? (
                 <span className="font-mono text-xs text-muted-foreground">
@@ -119,6 +123,9 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
                 <span className="font-mono text-[11px] text-muted-foreground">
                   CVSS {advisory.cvssScore.toFixed(1)}
                 </span>
+              ) : null}
+              {item.patchedInLockfile ? (
+                <span className="text-xs text-muted-foreground">GitHub alert still open</span>
               ) : null}
               {item.stopped ? (
                 <span className="text-xs text-muted-foreground">every deployment stopped</span>

@@ -23,7 +23,12 @@ import { DeferForm } from '@/components/findings/defer-form'
 import { eventIcon, eventTone } from '@/components/findings/event-icon'
 import { FindingStateText } from '@/components/findings/finding-state'
 import { RankMarker } from '@/components/findings/rank-marker'
-import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from '@/components/findings/severity-badge'
+import {
+  BlindSpotBadge,
+  ImageOnlyBadge,
+  PatchedBadge,
+  SeverityBadge,
+} from '@/components/findings/severity-badge'
 import { SEVERITY_ICON } from '@/lib/view-icons'
 import { SourceBadge } from '@/components/findings/source-badge'
 import { PageHeader } from '@/components/page-header'
@@ -315,6 +320,22 @@ function StateBanner({
               ? 'The deployment has a repo now, or is gone'
               : 'Coverage came back'}
           {f.fixedAt ? `, ${formatRelative(f.fixedAt)}` : ''}. The history stays below.
+        </span>
+      </Banner>
+    )
+  }
+  if (f.patchedInLockfile && f.state === 'open') {
+    return (
+      <Banner icon={IconShieldCheck} title="Patched in the lockfile, GitHub alert still open">
+        <span className="text-foreground-2">
+          {f.advisory?.packageName}
+          {f.versions.installed ? ` ${f.versions.installed}` : ''} in the lockfile is already
+          patched, for example through an override or a resolution. GitHub keeps the alert open
+          until it rescans. Dismiss it on GitHub, or wait for GitHub to close it.
+        </span>
+        <span className="text-xs text-muted-foreground">
+          It ranks below every open advisory and never sends a notification. If a later scan finds a
+          vulnerable version again, it returns to the ranking.
         </span>
       </Banner>
     )
@@ -704,6 +725,7 @@ function Head({ f }: { f: FindingDetail }) {
   return (
     <div className="mb-6 flex flex-col gap-2.5 border-b border-border pb-5">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        {f.patchedInLockfile ? <PatchedBadge /> : null}
         <SeverityBadge severity={f.factors.severity} />
         {a?.cvssScore != null ? (
           <Badge variant="outline" className="font-mono">
