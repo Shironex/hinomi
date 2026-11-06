@@ -1,13 +1,20 @@
-import { Button } from '@/components/ui/button'
+import type { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
+import { ErrorBoundary } from '@/components/states/error-boundary'
+import type { createAppRouter } from '@/router'
 
-export function App() {
+interface AppProps {
+  queryClient: QueryClient
+  router: ReturnType<typeof createAppRouter>
+}
+
+export function App({ queryClient, router }: AppProps) {
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">Hinomi</h1>
-      <p className="text-muted-foreground">Early development. Nothing to watch yet.</p>
-      <Button asChild variant="outline">
-        <a href="https://github.com/Shironex/hinomi/blob/main/docs/spec.md">Read the spec</a>
-      </Button>
-    </main>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }
