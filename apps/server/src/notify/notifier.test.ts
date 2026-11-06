@@ -226,6 +226,27 @@ describe('immediate messages', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('never sends a stale alert that the lockfile already patched, right away or in the digest', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    const stale = seedAdvisoryFinding(seedDeployedRepo().id, 'critical')
+    repos.findings.observe(
+      {
+        kind: 'advisory',
+        advisoryId: stale.advisoryId!,
+        repoId: stale.repoId!,
+        reportedBy: ['github'],
+        patchedInLockfile: true,
+      },
+      clock,
+    )
+
+    await n.handleScanFinished(summary([opened(stale.id)]))
+    advance(60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(0)
+  })
+
   it('does not repeat a finding that was already announced', async () => {
     const n = notifier()
     n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })

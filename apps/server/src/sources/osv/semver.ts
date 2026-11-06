@@ -36,6 +36,11 @@ function comparePre(a: string[], b: string[]): number {
   return 0
 }
 
+/** True when `compareVersions` can order the version by semver rather than by string. */
+export function isComparableVersion(version: string): boolean {
+  return parse(version) !== null
+}
+
 /** Semver precedence compare. Unparseable versions sort by plain string order. */
 export function compareVersions(a: string, b: string): number {
   const pa = parse(a)

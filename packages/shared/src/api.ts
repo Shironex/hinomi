@@ -128,7 +128,8 @@ export type ExposureFactorsDto = z.infer<typeof exposureFactorsSchema>
  * Display tiers of the alerts list. Blind spots come first, then advisories:
  * 1 exposed (critical or high, runtime, public), 2 deployed internal only,
  * 3 deployed and public but moderate or low, 4 deployed dev dependencies,
- * 5 not deployed. Coverage notes (image only deployments) come last.
+ * 5 not deployed. Then advisories GitHub still reports although the lockfile is already
+ * patched. Coverage notes (image only deployments) come last.
  * Within a tier rows keep their rank order.
  */
 export const FINDING_TIERS = [
@@ -138,6 +139,7 @@ export const FINDING_TIERS = [
   'public_low',
   'dev',
   'not_deployed',
+  'patched',
   'coverage',
 ] as const
 export const findingTierSchema = z.enum(FINDING_TIERS)
@@ -170,6 +172,8 @@ export const findingListItemSchema = z.object({
   unscored: z.boolean(),
   /** Every deployment it runs in is stopped: ranked as not deployed, shown with a badge. */
   stopped: z.boolean(),
+  /** GitHub's alert is still open but every version in the lockfile is patched. */
+  patchedInLockfile: z.boolean(),
   state: findingStateSchema,
   stateReason: z.string().nullable(),
   stateUntil: isoDate.nullable(),

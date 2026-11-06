@@ -5,6 +5,7 @@ import type { Repositories } from '../repository/index.js'
 import { runScan, type ScanProgress, type ScanSummary } from './run.js'
 import { SCAN_SETTING_KEYS } from './settings.js'
 import { buildScanSources } from './sources.js'
+import { tierOf } from './rank.js'
 import { findingChangesSince, findingCounts, listRankedFindings } from './views.js'
 
 // A fictional world: one Coolify instance on edge-1 and three repos of kestrel-co.
@@ -31,6 +32,8 @@ interface World {
   githubDismissed: Record<string, { ghsa: string; reason: string; comment: string }[]>
   /** Coolify status per app name; running:healthy when absent. */
   appStatus: Record<string, string>
+  /** GitHub sent an empty vulnerable range for its alerts (only the first patched version). */
+  blankRange: boolean
 }
 
 const ADVISORIES: Record<string, { pkg: string; severity: string; fixed: string; cve: string }> = {
@@ -60,6 +63,7 @@ function initialWorld(): World {
     },
     githubDismissed: {},
     appStatus: {},
+    blankRange: false,
   }
 }
 
@@ -112,7 +116,7 @@ function packageLock(name: string, deps: Record<string, string>): string {
   return JSON.stringify({ name, lockfileVersion: 3, packages })
 }
 
-function alertNode(ghsa: string, index: number) {
+function alertNode(ghsa: string, index: number, blankRange = false) {
   const a = ADVISORIES[ghsa]!
   return {
     number: index + 1,
@@ -122,7 +126,7 @@ function alertNode(ghsa: string, index: number) {
     dependencyScope: 'RUNTIME',
     securityVulnerability: {
       severity: a.severity,
-      vulnerableVersionRange: `< ${a.fixed}`,
+      vulnerableVersionRange: blankRange ? '' : `< ${a.fixed}`,
       firstPatchedVersion: { identifier: a.fixed },
       package: { name: a.pkg, ecosystem: 'NPM' },
       advisory: {
@@ -151,7 +155,7 @@ function githubResponse(world: World, url: URL, init: RequestInit | undefined): 
           dismissReason: d.reason,
           dismissComment: d.comment,
         }))
-      : (world.githubAlerts[repo] ?? []).map(alertNode)
+      : (world.githubAlerts[repo] ?? []).map((ghsa, i) => alertNode(ghsa, i, world.blankRange))
     return json({
       data: {
         repository: {
@@ -702,5 +706,74 @@ describe('runScan', () => {
       await scan(2)
       expect(repos.findings.getByKey(key)?.state).toBe('open')
     })
+  })
+})
+
+describe('alerts GitHub keeps open although the lockfile is patched', () => {
+  const GHSA = 'GHSA-hw00-0000-0001'
+
+  it('flags the finding, ranks it below every advisory and keeps it out of the counts', async () => {
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+    await scan(0)
+    const finding = advisoryFinding('harbor-web', GHSA)!
+    expect(finding).toMatchObject({
+      state: 'open',
+      reportedBy: ['github'],
+      installedVersion: '1.2.5',
+      patchedInLockfile: true,
+    })
+    const ranked = listRankedFindings(repos)
+    const row = ranked.find((r) => r.finding.id === finding.id)!
+    expect(row.patchedInLockfile).toBe(true)
+    expect(tierOf(row)).toBe('patched')
+    const advisoryRanks = ranked
+      .filter((r) => r.kind === 'advisory' && !r.patchedInLockfile)
+      .map((r) => r.rank)
+    expect(row.rank).toBeLessThan(Math.min(...advisoryRanks))
+    // Only the critical on lantern-api is left in the funnel.
+    expect(findingCounts(repos, new Date(t0)).advisories).toMatchObject({
+      total: 1,
+      exposed: 1,
+      needsAction: 1,
+    })
+  })
+
+  it('falls back to the first patched version when GitHub sent no range', async () => {
+    world.blankRange = true
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+    await scan(0)
+    expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({
+      installedVersion: '1.2.5',
+      patchedInLockfile: true,
+    })
+  })
+
+  it('stays exposed when the lockfile is still vulnerable, with or without a range', async () => {
+    for (const blank of [false, true]) {
+      world.blankRange = blank
+      world.lockfiles['harbor-web'] = { 'example-parser': '1.2.0' }
+      await scan(blank ? 1 : 0)
+      expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({
+        installedVersion: '1.2.0',
+        patchedInLockfile: false,
+      })
+    }
+  })
+
+  it('flips an existing finding on the next scan, and back when it regresses', async () => {
+    await scan(0)
+    expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({ patchedInLockfile: false })
+
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+    await scan(1)
+    expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({
+      state: 'open',
+      installedVersion: '1.2.5',
+      patchedInLockfile: true,
+    })
+
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.0' }
+    await scan(2)
+    expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({ patchedInLockfile: false })
   })
 })

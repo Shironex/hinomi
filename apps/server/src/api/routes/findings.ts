@@ -100,6 +100,7 @@ const TIER_LABEL: Record<(typeof FINDING_TIERS)[number], string> = {
   public_low: 'Deployed and public, moderate or low',
   dev: 'Deployed, dev dependencies only',
   not_deployed: 'Not deployed',
+  patched: 'Patched in the lockfile, GitHub alert still open',
   coverage: 'Image only, covered by the image scan later',
 }
 

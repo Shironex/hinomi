@@ -22,6 +22,8 @@ export interface ExposureInput {
   reach: ExposureReach
   /** CVSS base score, only used to order findings that tie on every factor. */
   cvssScore?: number | null
+  /** GitHub's alert is stale: the lockfile already resolves only patched versions. */
+  patchedInLockfile?: boolean
 }
 
 /** The four factors the UI shows next to a finding to explain its rank. */
@@ -80,6 +82,7 @@ function effectiveSeverity(input: ExposureInput): { severity: Severity; unscored
  */
 export function rankExposure(input: ExposureInput): ExposureRank {
   if (input.kind === 'coverage_note') return rankCoverageNote(input.reach)
+  if (input.kind === 'advisory' && input.patchedInLockfile) return rankPatched(input)
   const { severity, unscored } = effectiveSeverity(input)
   const runtime = input.kind === 'blind_spot' || input.scope !== 'dev'
   const cvss = input.kind === 'advisory' ? (input.cvssScore ?? 0) : 0
@@ -91,6 +94,25 @@ export function rankExposure(input: ExposureInput): ExposureRank {
     factors: {
       severity,
       runtime,
+      deployed: input.reach !== 'none',
+      public: input.reach === 'public',
+    },
+    unscored,
+  }
+}
+
+/**
+ * An advisory GitHub still reports although the lockfile is patched: nothing to
+ * fix, so it ranks below every open advisory (rank at least 1) but above coverage
+ * notes, deployed before not deployed. Severity and scope still show in the factors.
+ */
+function rankPatched(input: ExposureInput): ExposureRank {
+  const { severity, unscored } = effectiveSeverity(input)
+  return {
+    rank: 0.5 + REACH_WEIGHT[input.reach] / 100,
+    factors: {
+      severity,
+      runtime: input.scope !== 'dev',
       deployed: input.reach !== 'none',
       public: input.reach === 'public',
     },
@@ -159,9 +181,14 @@ export function reachOf(deployments: readonly ReachInput[]): ExposureReach {
 }
 
 /** Display tier of a ranked finding (see FINDING_TIERS in the shared contract). */
-export function tierOf(ranked: { kind: FindingKind; factors: ExposureFactors }): FindingTier {
+export function tierOf(ranked: {
+  kind: FindingKind
+  factors: ExposureFactors
+  patchedInLockfile?: boolean
+}): FindingTier {
   if (ranked.kind === 'blind_spot') return 'blind_spot'
   if (ranked.kind === 'coverage_note') return 'coverage'
+  if (ranked.patchedInLockfile) return 'patched'
   const { factors } = ranked
   if (!factors.deployed) return 'not_deployed'
   if (!factors.runtime) return 'dev'

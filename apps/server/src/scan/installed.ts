@@ -1,5 +1,5 @@
 import type { LockfileDependency } from '@hinomi/shared'
-import { compareVersions } from '../sources/osv/semver.js'
+import { compareVersions, isComparableVersion } from '../sources/osv/semver.js'
 import { normalizeEcosystem } from './advisories.js'
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1)
@@ -30,6 +30,31 @@ export function inGithubRange(version: string, range: string): boolean {
 }
 
 /**
+ * True when `version` is not affected: outside the vulnerable range when GitHub
+ * sent one, else at or above the first patched version. An unreadable version,
+ * or an alert with neither a range nor a patched version, is never patched.
+ */
+export function isPatchedVersion(
+  version: string,
+  vulnerableRange: string | null,
+  firstPatched: string | null,
+): boolean {
+  if (!isComparableVersion(version)) return false
+  const range = vulnerableRange?.trim()
+  if (range) return !inGithubRange(version, range)
+  const patched = firstPatched?.trim()
+  if (!patched || !isComparableVersion(patched)) return false
+  return compareVersions(version, patched) >= 0
+}
+
+export interface LockfileResolution {
+  /** Versions to show, comma separated. Undefined when no lockfile lists the package. */
+  installed: string | undefined
+  /** Every resolved version is patched, so the open GitHub alert is stale. */
+  patched: boolean
+}
+
+/**
  * The installed version of a package a GitHub alert names, read from the
  * repo's parsed lockfiles. GitHub alerts carry no version, and before this
  * only an OSV match on the same advisory filled one in, so an alert OSV did
@@ -38,14 +63,16 @@ export function inGithubRange(version: string, range: string): boolean {
  *
  * Lockfiles are tried closest first: the alert's manifest itself, then any
  * in the same folder, then all of them. Several versions are narrowed to the
- * ones inside the vulnerable range; what is left is joined with a comma.
- * Undefined when no lockfile lists the package.
+ * unpatched ones; what is left is joined with a comma. `patched` is true only
+ * when every resolved version is patched (an override or resolution can fix a
+ * package while the GitHub alert stays open until GitHub rescans).
  */
-export function installedFromLockfiles(
+export function resolveFromLockfiles(
   deps: readonly LockfileDependency[],
   alert: { package: string; ecosystem: string; manifestPath: string | null },
   vulnerableRange: string | null,
-): string | undefined {
+  firstPatched: string | null,
+): LockfileResolution {
   const named = deps.filter(
     (d) => d.name === alert.package && normalizeEcosystem(d.ecosystem) === alert.ecosystem,
   )
@@ -56,10 +83,11 @@ export function installedFromLockfiles(
     named,
   ]
   const found = tiers.find((t) => t.length > 0)
-  if (!found) return undefined
+  if (!found) return { installed: undefined, patched: false }
   const versions = [...new Set(found.map((d) => d.version))].sort(compareVersions)
-  const vulnerable = vulnerableRange
-    ? versions.filter((v) => inGithubRange(v, vulnerableRange))
-    : versions
-  return (vulnerable.length > 0 ? vulnerable : versions).join(', ')
+  const vulnerable = versions.filter((v) => !isPatchedVersion(v, vulnerableRange, firstPatched))
+  return {
+    installed: (vulnerable.length > 0 ? vulnerable : versions).join(', '),
+    patched: vulnerable.length === 0,
+  }
 }

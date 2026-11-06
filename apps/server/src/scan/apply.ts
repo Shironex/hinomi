@@ -3,7 +3,7 @@ import type { FindingRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { advisoryFromGithub, advisoryFromOsv, saveAdvisory } from './advisories.js'
 import type { RepoScan } from './collect.js'
-import { installedFromLockfiles } from './installed.js'
+import { resolveFromLockfiles } from './installed.js'
 import {
   markDismissedUpstream,
   expireForNewAdvisory,
@@ -26,6 +26,11 @@ interface Observation {
   scopes: Set<FindingScope>
   manifestPaths: Set<string>
   installedVersion: string | undefined
+  /**
+   * Every GitHub alert for it resolves to patched versions in the lockfile. Undefined when
+   * GitHub did not report it; an OSV match sets it to false, since OSV checked the lockfile.
+   */
+  patchedInLockfile: boolean | undefined
   /** Shortest chain any lockfile showed, runtime ones first. */
   dependencyPath: string[] | undefined
   pathIsRuntime: boolean
@@ -79,6 +84,7 @@ function observationFor(map: Map<number, Observation>, advisoryId: number): Obse
       scopes: new Set(),
       manifestPaths: new Set(),
       installedVersion: undefined,
+      patchedInLockfile: undefined,
       dependencyPath: undefined,
       pathIsRuntime: false,
     }
@@ -115,7 +121,14 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
       obs.scopes.add(alert.scope ?? 'unknown')
       if (alert.manifestPath) obs.manifestPaths.add(alert.manifestPath)
       // An OSV match below sets the exact version; this covers alerts OSV did not match.
-      obs.installedVersion ??= installedFromLockfiles(deps, alert, record.vulnerableRange)
+      const found = resolveFromLockfiles(deps, alert, record.vulnerableRange, record.firstPatched)
+      if (
+        obs.installedVersion === undefined ||
+        (obs.patchedInLockfile === true && !found.patched && found.installed !== undefined)
+      ) {
+        obs.installedVersion = found.installed ?? obs.installedVersion
+      }
+      obs.patchedInLockfile = (obs.patchedInLockfile ?? true) && found.patched
     }
   }
   if (scan.osv.status === 'ok') {
@@ -125,6 +138,7 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
       obs.reporters.add('osv')
       obs.scopes.add(match.scope)
       obs.installedVersion = match.installedVersion
+      obs.patchedInLockfile = false
       if (match.lockfile) obs.manifestPaths.add(match.lockfile)
       notePath(obs, match.path, match.scope === 'runtime')
     }
@@ -210,6 +224,7 @@ function applyObservation(
       reportedBy: [...obs.reporters],
       manifestPaths: [...obs.manifestPaths],
       ...(obs.installedVersion !== undefined && { installedVersion: obs.installedVersion }),
+      ...(obs.patchedInLockfile !== undefined && { patchedInLockfile: obs.patchedInLockfile }),
       ...(obs.dependencyPath !== undefined && { dependencyPath: obs.dependencyPath }),
     },
     now,
