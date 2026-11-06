@@ -1,16 +1,24 @@
 import {
   IconArchive,
-  IconCalendarTime,
+  IconBrandGithub,
   IconDeviceDesktop,
   IconEyeOff,
   IconNetwork,
+  IconRoute,
   IconStack2,
   IconUserShield,
   type Icon,
 } from '@tabler/icons-react'
-import { PageHeader } from '@/components/page-header'
+import { SetBox, SetRow, SubHeading } from '@/components/settings/settings-section'
+import { SplitListHeader } from '@/components/split/split-parts'
+import { SplitView } from '@/components/split/split-view'
+import { DetailEmpty } from '@/components/states/detail-empty'
 import { Badge } from '@/components/ui/badge'
-import { Callout } from '@/components/ui/callout'
+import { Button } from '@/components/ui/button'
+import { SPLIT_QUERY, useMediaQuery } from '@/hooks/use-media-query'
+
+/** Phase 2 of the spec, where drift guards are planned. */
+const ROADMAP_URL = 'https://github.com/Shironex/hinomi/blob/main/docs/spec.md#phase-2-guard-it'
 
 const GUARDS: { icon: Icon; title: string; detail: string }[] = [
   {
@@ -40,49 +48,72 @@ const GUARDS: { icon: Icon; title: string; detail: string }[] = [
   },
 ]
 
+/** Drift guards arrive in phase 2: the split shows what they will check and where to follow. */
 export function DriftPage() {
-  return (
-    <>
-      <PageHeader
-        title="Drift guards"
+  const wide = useMediaQuery(SPLIT_QUERY)
+  const content = (
+    <div className="flex flex-col gap-8">
+      <DetailEmpty
+        icon={IconRoute}
+        title="Drift guards arrive in phase 2"
         actions={
-          <Badge variant="outline">
-            <IconCalendarTime aria-hidden="true" />
-            Phase 2
-          </Badge>
+          <Button asChild variant="outline">
+            <a href={ROADMAP_URL} target="_blank" rel="noreferrer noopener">
+              <IconBrandGithub aria-hidden="true" />
+              Follow the roadmap
+            </a>
+          </Button>
         }
       >
-        Planned. Checks for configuration that quietly makes exposure worse.
-      </PageHeader>
-      <ul className="overflow-hidden rounded-lg border border-border bg-card">
-        {GUARDS.map((g) => (
-          <li
-            key={g.title}
-            className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3.5 border-t border-border p-4 first:border-t-0 tab:grid-cols-[36px_minmax(0,1fr)_auto]"
-          >
-            <span className="grid size-9 place-items-center rounded-md bg-muted text-foreground-2">
-              <g.icon aria-hidden="true" className="size-4" stroke={1.75} />
-            </span>
-            <div className="min-w-0">
-              <b className="font-medium">{g.title}</b>
-              <p className="text-sm text-muted-foreground">{g.detail}</p>
-            </div>
-            <Badge variant="outline" className="col-start-2 justify-self-start tab:col-start-auto">
-              Planned
-            </Badge>
-          </li>
-        ))}
-      </ul>
-      <section className="mt-7 flex flex-col gap-3">
-        <div className="flex items-baseline gap-2.5">
-          <h2 className="text-md">Shipped apps</h2>
-          <Badge variant="outline">Phase 2</Badge>
-        </div>
-        <Callout icon={IconDeviceDesktop} title="A second tier for apps in users' hands">
-          Desktop releases are not deployed, but every installed copy keeps its dependencies until
-          users update. Hinomi will rank them by release age, under the exposed tier.
-        </Callout>
+        <p>
+          They will warn when configuration quietly makes exposure worse: a repo archived but still
+          deployed, a container running as root, or a public app next to internal databases.
+        </p>
+      </DetailEmpty>
+      <section aria-labelledby="drift-planned" className="flex max-w-[720px] flex-col gap-3">
+        <h2 id="drift-planned" className="text-md">
+          What they will check
+        </h2>
+        <SetBox as="ul">
+          {GUARDS.map((g) => (
+            <SetRow
+              key={g.title}
+              as="li"
+              icon={<g.icon stroke={1.75} />}
+              title={g.title}
+              sub={g.detail}
+              aside={<Badge variant="outline">Planned</Badge>}
+            />
+          ))}
+        </SetBox>
+        <SubHeading title="Shipped apps" note="Phase 2" />
+        <SetBox>
+          <SetRow
+            icon={<IconDeviceDesktop stroke={1.75} />}
+            title="A second tier for apps in users' hands"
+            sub="Desktop releases are not deployed, but every installed copy keeps its dependencies until users update. Hinomi will rank them by release age, under the exposed tier."
+          />
+        </SetBox>
       </section>
-    </>
+    </div>
+  )
+  return (
+    <SplitView<never>
+      items={[]}
+      getKey={() => ''}
+      getLabel={() => ''}
+      listLabel="Drift guards"
+      listHeader={<SplitListHeader title="Drift guards" />}
+      renderRow={() => null}
+      renderDetail={() => null}
+      emptyList={
+        wide ? (
+          <p className="px-[18px] py-[18px] text-xs text-foreground-2">Phase 2</p>
+        ) : (
+          <div className="px-4 pt-8 pb-10 tab:px-7">{content}</div>
+        )
+      }
+      emptyDetail={<div className="pt-14">{content}</div>}
+    />
   )
 }
