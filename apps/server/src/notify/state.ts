@@ -1,0 +1,35 @@
+import { z } from 'zod'
+import type { SettingsRepository } from '../repository/index.js'
+import { NOTIFY_SETTING_KEYS } from './settings.js'
+
+/**
+ * What was already sent, per channel.
+ *
+ * `immediate[channelId][findingId]` is the id of the `opened` or `reopened`
+ * event that was announced. The same event is never announced twice; a new
+ * `reopened` event (the finding came back) has a new id and is announced again.
+ *
+ * `digestSince[channelId]` is the time (unix ms) up to which the digest of
+ * that channel covers. It only moves when the digest was delivered.
+ */
+const stateSchema = z.object({
+  immediate: z.record(z.string(), z.record(z.string(), z.number())).default({}),
+  digestSince: z.record(z.string(), z.number()).default({}),
+})
+
+export type NotifyState = z.infer<typeof stateSchema>
+
+export function readState(settings: SettingsRepository): NotifyState {
+  return settings.get(NOTIFY_SETTING_KEYS.state, stateSchema) ?? { immediate: {}, digestSince: {} }
+}
+
+export function writeState(settings: SettingsRepository, state: NotifyState): void {
+  settings.set(NOTIFY_SETTING_KEYS.state, state)
+}
+
+/** Drops records of channels that no longer exist. */
+export function pruneState(state: NotifyState, channelIds: ReadonlySet<string>): NotifyState {
+  const keep = <T>(record: Record<string, T>) =>
+    Object.fromEntries(Object.entries(record).filter(([id]) => channelIds.has(id)))
+  return { immediate: keep(state.immediate), digestSince: keep(state.digestSince) }
+}
