@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable
+# Node 26 no longer bundles corepack, so install it first.
+RUN npm install --global corepack@0.36.0 && corepack enable
 WORKDIR /repo
 
 # Install with only the manifests first so the dependency layer stays cached.
@@ -19,7 +20,7 @@ RUN pnpm build
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm --filter @hinomi/server deploy --prod --legacy /out/server
 
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     HINOMI_DATA_DIR=/data \
