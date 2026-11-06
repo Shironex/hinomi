@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { COVERAGE_NOTE_INFO } from '@/lib/finding-meta'
 import { checkField, isInputError, mutationMessage } from '@/lib/form'
 import { describeError } from '@/lib/errors'
 import {
@@ -29,6 +30,14 @@ const MAPPING_BADGE: Record<
   override: { label: 'Manual', variant: 'accent' },
   none: { label: 'Needs mapping', variant: 'high' },
 }
+
+const IMAGE_ONLY_BADGE = { label: COVERAGE_NOTE_INFO.image_only.short, variant: 'outline' } as const
+
+/** No repo and no git source, so nothing needs mapping: the deployment is just an image. */
+const isImageOnly = (d: DeploymentItem) => d.mapping === 'none' && d.coverage.imageOnly
+
+/** Apps that really need a repo first, then image only ones, then the mapped ones. */
+const mappingOrder = (d: DeploymentItem) => (d.mapping !== 'none' ? 2 : isImageOnly(d) ? 1 : 0)
 
 /**
  * Which repo each deployment runs. Hinomi reads it from the git source in
@@ -64,11 +73,8 @@ export function MappingSection() {
 
   const items = deployments.data.items
     .filter((d) => d.kind !== 'database')
-    // Unmapped first: they are the ones that need a person.
-    .sort(
-      (a, b) =>
-        Number(b.mapping === 'none') - Number(a.mapping === 'none') || a.name.localeCompare(b.name),
-    )
+    // Unmapped git based apps first: they are the ones that need a person.
+    .sort((a, b) => mappingOrder(a) - mappingOrder(b) || a.name.localeCompare(b.name))
 
   if (items.length === 0) {
     return (
@@ -114,7 +120,8 @@ function MappingRow({
 }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
-  const badge = MAPPING_BADGE[deployment.mapping]
+  const imageOnly = isImageOnly(deployment)
+  const badge = imageOnly ? IMAGE_ONLY_BADGE : MAPPING_BADGE[deployment.mapping]
   const manual = deployment.mapping === 'override'
 
   const remove = useMutation({
@@ -137,7 +144,7 @@ function MappingRow({
         <Badge variant={badge.variant}>{badge.label}</Badge>
         {adding ? null : (
           <Button
-            variant={deployment.mapping === 'none' ? 'outline' : 'ghost'}
+            variant={deployment.mapping === 'none' && !imageOnly ? 'outline' : 'ghost'}
             size="sm"
             onClick={() => setAdding(true)}
             aria-label={`${deployment.mapping === 'none' ? 'Map a repo to' : 'Override the repo of'} ${deployment.name}`}
@@ -147,6 +154,12 @@ function MappingRow({
           </Button>
         )}
       </div>
+      {imageOnly ? (
+        <p className="text-xs text-muted-foreground">
+          Deployed from a container image with no git source, so there is nothing to map. The image
+          scan will cover it. Map a repo only if you build this image yourself.
+        </p>
+      ) : null}
       {deployment.repos.length > 0 ? (
         <ul aria-label={`Repos of ${deployment.name}`} className="flex flex-wrap gap-1.5">
           {deployment.repos.map((repo) => (
