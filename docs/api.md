@@ -38,7 +38,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 |---|---|
 | `GET /api/health` | `{ status: "ok" }` |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
-| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events |
+| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below) |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
 | `GET /api/shell/scan-status` | One of the states below |
 
@@ -95,7 +95,7 @@ Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed
 
 | Method and path | Does |
 |---|---|
-| `GET /api/findings/:id` | Detail: full advisory with its description, versions (installed, first patched, vulnerable ranges), dependency scope, manifests and path, deployments, history newest first, notifications sent |
+| `GET /api/findings/:id` | Detail: full advisory with its description, versions (installed, first patched, vulnerable ranges), dependency scope, manifests and path, deployments, `sameFixClears`, history newest first, notifications sent |
 | `POST /api/findings/:id/snooze` | `{ reason, until }` or `{ reason, untilNewAdvisory: true }`. A reason and exactly one expiry; `until` in the future. Returns the detail |
 | `POST /api/findings/:id/accept` | Same body, accepts the risk until the date or the next advisory |
 | `POST /api/findings/:id/reopen` | `{ reason? }`, cancels a snooze or acceptance |
@@ -108,6 +108,39 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 **Dependency path.** `dependency.path` is the chain of package names from a direct dependency down to the vulnerable package, taken from the lockfiles Hinomi parses for OSV (pnpm, npm v2 and v3, yarn, bun, Cargo; not npm v1). Chains longer than 12 links keep the first ten, `...` and the package. `pathSource` says what is known: `lockfile` (the path), `manifest` (only `manifestPaths`) or `package` (neither).
 
 **Notifications.** `notifications` lists the immediate messages (or first scan and large batch summaries) that announced the finding, one per channel (the latest announcement), with the channel name and kind (null when the channel was removed) and when it went out. Daily digests are not recorded per finding.
+
+### Fixes
+
+`GET /api/fixes` groups open advisory findings by the version bump that fixes them, so "upgrade `kestrel-http` to 2.1.0" shows once with everything it clears instead of as five rows.
+
+| Query | Meaning |
+|---|---|
+| `repo`, `deployment` | Repo ids, app (deployment) ids. They narrow the findings before grouping, so a repo filter gives the targets that repo needs |
+| `offset`, `limit` | Paging, `limit` 1 to 100 (default 25). `nextOffset` is null on the last page |
+
+Returns `{ items, total, offset, limit, nextOffset }`. Each item is a fix:
+
+| Field | Meaning |
+|---|---|
+| `key` | `ecosystem:package:target`, `none` instead of the target without a patch |
+| `ecosystem`, `packageName`, `target` | The bump. `target` is null for the findings of the package that have no patched version yet |
+| `mixedTargets` | Repos need different versions. `target` is then the highest, which clears every repo; each repo's own version is in `repos` |
+| `findings` | `total`, `byTier` (every display tier) and `bySeverity` of what the bump clears |
+| `findingIds` | The findings, most urgent first |
+| `bestTier` | The most urgent tier among them |
+| `exposedCritical` | At least one finding is critical, shipped at runtime and on an app reachable from the internet (tier `exposed`) |
+| `repos` | `{ repo, target, findings }` per repo, most findings first. `target` is the highest first patched version among that repo's findings of the package |
+| `apps` | Deployments the findings reach |
+
+How findings are grouped:
+
+- A fix is an ecosystem, a package and a target. The target is the highest first patched version among the grouped advisories, compared as semver (`1.10.0` is above `1.4.0`), so one upgrade clears all of them. Versions that are not semver compare as plain text.
+- Only findings in the `open` state with a package version to bump are grouped. Snoozed, accepted, fixing, fixed and dismissed upstream findings, advisories already patched in the lockfile, blind spots and image only coverage notes are left out, and they never raise a target.
+- Advisories with no patched version form a separate fix of the same package with a null target. It is listed like any other fix but is left out of `topFixes`, which only holds bumps you can make.
+- Fixes are sorted by exposure: `exposedCritical` first, then the number of exposed findings, then the number of findings, then the top severity.
+- Not deployed and dev only findings are included (`byTier` says so): a repo with no deployment still has a bump to make.
+
+`GET /api/findings/:id` has `sameFixClears`: the number of open findings the same fix clears, itself included, across repos. It is 0 when the finding is not part of a fix (not open, patched in the lockfile, a blind spot or a coverage note).
 
 ### Deployments and repo mapping
 
