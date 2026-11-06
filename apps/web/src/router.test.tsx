@@ -95,4 +95,18 @@ describe('routes', () => {
     await act(() => user.keyboard('t'))
     expect(document.documentElement).toHaveClass('dark')
   })
+
+  it('loads a lazy route on navigation and keeps its search validation and static data', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(Response.json({ status: 'ok' }))),
+    )
+    const { router } = await renderApp('/settings')
+    await screen.findByRole('heading', { level: 1, name: 'Settings' })
+
+    await act(() => router.navigate({ to: '/alerts', search: { q: 'redis' } }))
+    expect(await screen.findByRole('searchbox', { name: 'Search alerts' })).toHaveValue('redis')
+    expect(router.state.location.search).toMatchObject({ q: 'redis' })
+    expect(router.state.matches.at(-1)?.staticData).toMatchObject({ crumb: 'All alerts' })
+  })
 })
