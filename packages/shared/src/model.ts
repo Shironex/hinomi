@@ -2,7 +2,8 @@ import { z } from 'zod'
 
 // Value sets of the core model (see docs/spec.md). The server stores these
 // strings in SQLite; the API and the SPA validate against the same lists.
-// The tuples are exported too, for drizzle column enums.
+// The tuples are exported too, for drizzle column enums. Advisory severity
+// lives in sources/osv.ts (advisorySeveritySchema), shared by both sources.
 
 export const SOURCE_KINDS = ['coolify', 'github', 'osv'] as const
 export const sourceKindSchema = z.enum(SOURCE_KINDS)
@@ -13,12 +14,8 @@ export const REPORTERS = ['github', 'osv'] as const
 export const reporterSchema = z.enum(REPORTERS)
 export type Reporter = z.infer<typeof reporterSchema>
 
-export const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'unknown'] as const
-export const severitySchema = z.enum(SEVERITIES)
-export type Severity = z.infer<typeof severitySchema>
-
 /** Dependency scope of a finding: shipped at runtime or only used in development. */
-export const FINDING_SCOPES = ['runtime', 'development', 'unknown'] as const
+export const FINDING_SCOPES = ['runtime', 'dev', 'unknown'] as const
 export const findingScopeSchema = z.enum(FINDING_SCOPES)
 export type FindingScope = z.infer<typeof findingScopeSchema>
 
