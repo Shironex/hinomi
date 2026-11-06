@@ -26,6 +26,30 @@ describe('finding detail', () => {
     expect(screen.getByText('First seen by a scan')).toBeInTheDocument()
   })
 
+  it('says the version is unknown and why, instead of a question mark', async () => {
+    mockViews({
+      'GET /findings/1': findingDetail({
+        sources: ['github'],
+        installedVersion: null,
+        versions: { installed: null, firstPatched: '14.2.9', vulnerableRanges: [] },
+      }),
+    })
+    await renderApp('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    expect(screen.queryByText(/@\?/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Dependency path')).toHaveTextContent('tessera (version unknown)')
+    expect(screen.getByText('(version unknown)')).toHaveAttribute(
+      'title',
+      expect.stringContaining('GitHub reports this alert on pnpm-lock.yaml without a version'),
+    )
+    expect(
+      screen.getByText(/no lockfile Hinomi read lists the package: the OSV lockfile scan/),
+    ).toBeInTheDocument()
+    const installed = screen.getByText('Installed').nextElementSibling
+    expect(installed).toHaveTextContent('Unknown')
+    expect(installed).toHaveAttribute('title', expect.stringContaining('GitHub reports this alert'))
+  })
+
   it('snoozes with a reason and an expiry, opened with s', async () => {
     const api = mockViews({
       'GET /findings/1': findingDetail(),

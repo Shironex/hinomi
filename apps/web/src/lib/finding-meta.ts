@@ -386,9 +386,46 @@ export const TERMS = {
 /** Where repo overrides are edited: the Repo mapping section of Settings. */
 export const MAPPING_SETTINGS = { to: '/settings', hash: 'settings-mapping' } as const
 
+/** Shown instead of an installed version no source reported. */
+export const VERSION_UNKNOWN = 'version unknown'
+
+export const VERSION_UNKNOWN_HINT =
+  'No source reported the installed version. The finding page says why.'
+
+const LOCKFILE_NAMES = [
+  'pnpm-lock.yaml',
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'yarn.lock',
+  'bun.lock',
+  'Cargo.lock',
+]
+const isLockfile = (path: string) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf('/') + 1))
+
+/**
+ * Why an advisory has no installed version. GitHub alerts carry none: it comes from
+ * the OSV lockfile scan, so it is missing when no lockfile Hinomi read lists the package.
+ */
+export function unknownVersionReason(
+  f: Pick<FindingDetail, 'sources'> & {
+    dependency: Pick<FindingDetail['dependency'], 'manifestPaths'>
+  },
+): string {
+  const manifest = f.dependency.manifestPaths[0]
+  if (!f.sources.includes('github') || !manifest) {
+    return 'No source reported which version is installed.'
+  }
+  if (isLockfile(manifest)) {
+    return `GitHub reports this alert on ${manifest} without a version, and no lockfile Hinomi read lists the package: the OSV lockfile scan may be off, or the deployed branch has another lockfile.`
+  }
+  return `GitHub reports this alert on ${manifest}, a manifest without exact versions, and no lockfile Hinomi read lists the package.`
+}
+
 /** Repo, then the lockfile or manifest, then the chain down to the vulnerable package. */
 export function dependencyPath(f: FindingDetail, packageName: string): string[] {
-  const installed = `${packageName}@${f.versions.installed ?? '?'}`
+  const installed = f.versions.installed
+    ? `${packageName}@${f.versions.installed}`
+    : `${packageName} (${VERSION_UNKNOWN})`
   const chain = f.dependency.path ?? []
   const above = chain.length > 1 && chain.at(-1) === packageName ? chain.slice(0, -1) : []
   return [
