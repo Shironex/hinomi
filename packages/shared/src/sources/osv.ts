@@ -20,6 +20,13 @@ export const lockfileDependencySchema = z.object({
   scope: lockfileScopeSchema,
   /** Listed by a manifest (root or workspace) rather than pulled in transitively. */
   direct: z.boolean(),
+  /**
+   * Shortest chain of package names from a direct dependency down to this one, both included.
+   * Missing when the lockfile does not record the graph (npm v1).
+   */
+  path: z.array(z.string()).optional(),
+  /** Repo relative path of the lockfile it was read from, when known. */
+  lockfile: z.string().optional(),
 })
 export type LockfileDependency = z.infer<typeof lockfileDependencySchema>
 
@@ -106,6 +113,8 @@ export const osvAdvisoryMatchSchema = z.object({
   severityRaw: z.string().nullable(),
   cvss: advisoryCvssSchema.nullable(),
   summary: z.string().nullable(),
+  /** OSV `details`: the long description. */
+  description: z.string().nullable().optional(),
   /** GitHub style range containing the installed version, e.g. ">= 1.0.0, < 1.2.3". */
   vulnerableRange: z.string().nullable(),
   /** Lowest fixed version above the installed one, null when no fix exists yet. */
@@ -116,5 +125,9 @@ export const osvAdvisoryMatchSchema = z.object({
   installedVersion: z.string(),
   scope: lockfileScopeSchema,
   direct: z.boolean(),
+  /** See `LockfileDependency.path`. */
+  path: z.array(z.string()).optional(),
+  /** See `LockfileDependency.lockfile`. */
+  lockfile: z.string().optional(),
 })
 export type OsvAdvisoryMatch = z.infer<typeof osvAdvisoryMatchSchema>

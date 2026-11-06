@@ -37,6 +37,7 @@ query DependabotAlerts($owner: String!, $name: String!, $cursor: String) {
           advisory {
             ghsaId
             summary
+            description
             publishedAt
             identifiers { type value }
             cvss { score vectorString }
@@ -173,6 +174,7 @@ function recordOf(
       severity: mapSeverity(vuln.severity),
       cvss: mapCvss(vuln.advisory.cvss),
       summary: vuln.advisory.summary,
+      description: vuln.advisory.description ?? null,
       vulnerableRange: vuln.vulnerableVersionRange,
       firstPatched: vuln.firstPatchedVersion?.identifier ?? null,
       publishedAt: vuln.advisory.publishedAt,

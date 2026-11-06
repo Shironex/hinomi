@@ -455,3 +455,78 @@ describe('parseLockfile', () => {
     expect(() => parseLockfile('', 'Gemfile.lock')).toThrow(UnsupportedLockfileError)
   })
 })
+
+/** `name@version` -> the dependency path joined with ` > `. */
+function paths(deps: LockfileDependency[]): Record<string, string | undefined> {
+  return Object.fromEntries(deps.map((d) => [`${d.name}@${d.version}`, d.path?.join(' > ')]))
+}
+
+describe('dependency paths', () => {
+  it('walks the pnpm graph from the importers, runtime chains first', () => {
+    expect(paths(parseLockfile(PNPM_V9, 'pnpm-lock.yaml'))).toMatchObject({
+      'kestrel-http@2.1.0': 'kestrel-http',
+      // Reached from tern-test (dev) too, but the runtime chain explains the finding.
+      'plover-parse@1.2.0': 'kestrel-http > plover-parse',
+      'heron-native@0.9.1': '@kestrel/ui > wren-dom > heron-native',
+      'gull-assert@5.0.0': 'tern-test > gull-assert',
+    })
+  })
+
+  it('resolves package-lock.json entries like node does, nested copies included', () => {
+    const lock = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          name: 'kestrel-site',
+          dependencies: { 'kestrel-http': '^2.0.0' },
+          devDependencies: { 'tern-test': '^1.0.0' },
+        },
+        'node_modules/kestrel-http': {
+          version: '2.1.0',
+          dependencies: { 'plover-parse': '^1.0.0' },
+        },
+        'node_modules/plover-parse': { version: '1.2.0', dependencies: { 'wren-dom': '^1' } },
+        'node_modules/wren-dom': { version: '1.0.0' },
+        'node_modules/tern-test': {
+          version: '1.4.0',
+          dev: true,
+          dependencies: { 'plover-parse': '^0.9.0' },
+        },
+        'node_modules/tern-test/node_modules/plover-parse': { version: '0.9.0', dev: true },
+      },
+    })
+    expect(paths(parseLockfile(lock, 'package-lock.json'))).toEqual({
+      'kestrel-http@2.1.0': 'kestrel-http',
+      'plover-parse@1.2.0': 'kestrel-http > plover-parse',
+      'wren-dom@1.0.0': 'kestrel-http > plover-parse > wren-dom',
+      'tern-test@1.4.0': 'tern-test',
+      'plover-parse@0.9.0': 'tern-test > plover-parse',
+    })
+  })
+
+  it('cuts very deep chains to their first links and the vulnerable package', () => {
+    const packages: Record<string, unknown> = {
+      '': { dependencies: { p0: '1.0.0' } },
+    }
+    for (let i = 0; i < 20; i++) {
+      packages[`node_modules/p${i}`] = {
+        version: '1.0.0',
+        ...(i < 19 && { dependencies: { [`p${i + 1}`]: '1.0.0' } }),
+      }
+    }
+    const deep = parseLockfile(
+      JSON.stringify({ lockfileVersion: 3, packages }),
+      'package-lock.json',
+    ).find((d) => d.name === 'p19')
+    expect(deep?.path).toHaveLength(12)
+    expect(deep?.path?.slice(-2)).toEqual(['...', 'p19'])
+  })
+
+  it('leaves npm v1 trees without a path', () => {
+    const v1 = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: { 'kestrel-http': { version: '2.1.0' } },
+    })
+    expect(parseLockfile(v1, 'package-lock.json')[0]?.path).toBeUndefined()
+  })
+})

@@ -141,6 +141,7 @@ describe('scanLockfile', () => {
       severityRaw: 'CRITICAL',
       cvss: { score: 9.8, vector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' },
       summary: 'Remote code execution in kestrel-http request parsing',
+      description: null,
       vulnerableRange: '>= 2.0.0, < 2.1.5',
       firstPatched: '2.1.5',
       publishedAt: '2026-10-01T12:00:00Z',
@@ -149,6 +150,7 @@ describe('scanLockfile', () => {
       installedVersion: '2.1.0',
       scope: 'runtime',
       direct: true,
+      path: ['kestrel-http'],
     })
 
     // One querybatch, then one detail request per unique id.

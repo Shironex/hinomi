@@ -39,6 +39,8 @@ export const advisoryRecordSchema = z.object({
   /** CVSS base score 0 to 10, null when the advisory has none. */
   cvss: z.number().min(0).max(10).nullable(),
   summary: z.string(),
+  /** Long description, when GitHub sent one. */
+  description: z.string().nullable().optional(),
   vulnerableRange: z.string(),
   firstPatched: z.string().nullable(),
   publishedAt: isoDate.nullable(),

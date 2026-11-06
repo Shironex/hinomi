@@ -58,6 +58,7 @@ function toMatch(
     ecosystem: dep.ecosystem,
     ...deriveSeverity(vuln),
     summary: vuln.summary ?? null,
+    description: vuln.details ?? null,
     vulnerableRange: range ? formatRange(range) : null,
     firstPatched,
     publishedAt: vuln.published ?? null,
@@ -66,6 +67,8 @@ function toMatch(
     installedVersion: dep.version,
     scope: dep.scope,
     direct: dep.direct,
+    ...(dep.path && { path: dep.path }),
+    ...(dep.lockfile && { lockfile: dep.lockfile }),
   }
 }
 
