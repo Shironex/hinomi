@@ -1,0 +1,35 @@
+# Path based labels for pull requests. Names match the repo labels (gh label list).
+
+area:server:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/server/**
+          - packages/shared/**
+
+area:web:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/**
+          - packages/shared/**
+
+area:sources:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/server/src/sources/**
+          - docs/github.md
+          - docs/access.md
+
+area:infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - Dockerfile
+          - .dockerignore
+          - docker-compose.yml
+          - .node-version
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - docs/**
