@@ -1,4 +1,4 @@
-import { fixesResponseSchema } from '@hinomi/shared'
+import { findingDetailSchema, fixesResponseSchema, overviewResponseSchema } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { createTestApi, seedFixWorld } from './testing.js'
 
@@ -89,5 +89,90 @@ describe('GET /api/fixes', () => {
     expect((await call('GET', '/fixes?limit=0')).status).toBe(400)
     expect((await call('GET', '/fixes?repo=abc')).status).toBe(400)
     expect((await call('GET', '/fixes?tier=exposed')).status).toBe(400)
+  })
+})
+
+describe('overview topFixes', () => {
+  it('lists the fixes with a patch, best first, at most five', async () => {
+    const { call, repos } = createTestApi()
+    seedFixWorld(repos)
+    const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)
+    expect(overview.topFixes.map((f) => `${f.packageName}@${f.target}`)).toEqual([
+      'kestrel-http@2.1.0',
+      'tiny-glob@1.10.0',
+      'hyper-lite@0.14.9',
+    ])
+  })
+
+  it('caps the list at five', async () => {
+    const { call, repos } = createTestApi()
+    const world = seedFixWorld(repos)
+    for (let i = 0; i < 4; i++) {
+      const advisory = repos.advisories.upsert({
+        advisoryKey: `GHSA-extra-aaaa-000${i}`,
+        ecosystem: 'npm',
+        packageName: `kestrel-extra-${i}`,
+        severity: 'moderate',
+        firstPatchedVersion: '1.0.1',
+      })
+      repos.findings.observe(
+        { kind: 'advisory', advisoryId: advisory.id, repoId: world.ledger.id, reportedBy: ['osv'] },
+        new Date(),
+      )
+    }
+    const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)
+    expect(overview.topFixes).toHaveLength(5)
+  })
+
+  it('is empty when nothing needs a bump', async () => {
+    const { call } = createTestApi()
+    const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)
+    expect(overview.topFixes).toEqual([])
+  })
+})
+
+describe('finding detail sameFixClears', () => {
+  async function clears(
+    call: ReturnType<typeof createTestApi>['call'],
+    id: number,
+  ): Promise<number> {
+    return findingDetailSchema.parse((await call('GET', `/findings/${id}`)).json).sameFixClears
+  }
+
+  it('counts the open findings the same bump clears, itself included', async () => {
+    const { call, repos } = createTestApi()
+    const { findings } = seedFixWorld(repos)
+    expect(await clears(call, findings.httpCriticalLedger.id)).toBe(5)
+    expect(await clears(call, findings.globNewStorefront.id)).toBe(2)
+    expect(await clears(call, findings.hyperLedger.id)).toBe(1)
+  })
+
+  it('counts the no patch group for a finding without a patch', async () => {
+    const { call, repos } = createTestApi()
+    const { findings } = seedFixWorld(repos)
+    expect(await clears(call, findings.padStorefront.id)).toBe(1)
+  })
+
+  it('is 0 for findings that are not part of a fix', async () => {
+    const { call, repos } = createTestApi()
+    const world = seedFixWorld(repos)
+    const { findings } = world
+    for (const id of [
+      findings.xmlSnoozed.id,
+      findings.xmlDismissed.id,
+      findings.xmlFixed.id,
+      findings.hyperStaleLedger.id,
+      world.blind.id,
+      world.coverage.id,
+    ]) {
+      expect(await clears(call, id)).toBe(0)
+    }
+  })
+
+  it('drops when a sibling is snoozed', async () => {
+    const { call, repos } = createTestApi()
+    const { findings } = seedFixWorld(repos)
+    repos.findings.changeState(findings.httpModerateDocs.id, { state: 'snoozed', actor: 'user' })
+    expect(await clears(call, findings.httpCriticalLedger.id)).toBe(4)
   })
 })

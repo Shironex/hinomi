@@ -237,6 +237,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
         },
       },
     ],
+    topFixes: [],
     ...over,
   }
 }
@@ -266,6 +267,7 @@ export function findingDetail(over: Partial<FindingDetail> = {}): FindingDetail 
       pathSource: 'manifest',
     },
     notifications: [],
+    sameFixClears: 0,
     history: [
       {
         id: 1,

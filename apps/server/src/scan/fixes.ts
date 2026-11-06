@@ -185,3 +185,8 @@ export function groupFixes(ranked: readonly RankedFinding[], filter: FixFilter =
   }
   return fixes.sort(compareFixes)
 }
+
+/** The fix a finding belongs to, or undefined when it is not part of one. */
+export function fixOf(fixes: readonly Fix[], findingId: number): Fix | undefined {
+  return fixes.find((fix) => fix.findings.some((f) => f.finding.id === findingId))
+}
