@@ -415,6 +415,74 @@ export const activityItemSchema = findingEventSchema.extend({
 })
 export type ActivityItem = z.infer<typeof activityItemSchema>
 
+// ---------------------------------------------------------------------------
+// Fixes: open findings grouped by the version bump that clears them
+
+export const FIXES_PAGE_MAX = 100
+
+/** Query of GET /api/fixes. The filters narrow the findings before they are grouped. */
+export const fixesQuerySchema = z.strictObject({
+  /** Repo ids. */
+  repo: csvIds.optional(),
+  /** Deployment (app) ids. */
+  deployment: csvIds.optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  limit: z.coerce.number().int().min(1).max(FIXES_PAGE_MAX).default(25),
+})
+export type FixesQuery = z.input<typeof fixesQuerySchema>
+
+/** What one fix means for one repo: the version that repo needs and how much it clears there. */
+export const fixRepoSchema = z.object({
+  repo: repoRefSchema,
+  /** Lowest version that clears every advisory of the package in this repo. Null: no patch yet. */
+  target: z.string().nullable(),
+  findings: z.number().int(),
+})
+export type FixRepo = z.infer<typeof fixRepoSchema>
+
+/**
+ * One bump: the open advisory findings of a package that a single upgrade clears. `target` is
+ * the highest version any repo needs, so installing it clears everything listed. The fix with
+ * a null `target` holds the findings of the package that have no patched version yet.
+ */
+export const fixItemSchema = z.object({
+  /** Stable key: `ecosystem:package:target`, with `none` as the target when there is no patch. */
+  key: z.string(),
+  ecosystem: z.string(),
+  packageName: z.string(),
+  target: z.string().nullable(),
+  /** Repos need different target versions; see `repos`. Always false without a target. */
+  mixedTargets: z.boolean(),
+  /** Findings the bump clears, and how they split by display tier and by effective severity. */
+  findings: z.object({
+    total: z.number().int(),
+    byTier: z.record(findingTierSchema, z.number().int()),
+    bySeverity: severityCountsSchema,
+  }),
+  /** Ids of those findings, most urgent first. */
+  findingIds: z.array(id),
+  /** Most urgent tier among the findings, in FINDING_TIERS order. */
+  bestTier: findingTierSchema,
+  /** At least one finding is critical on an app that is reachable from the internet. */
+  exposedCritical: z.boolean(),
+  /** Repos behind the fix, each with the version it needs. Most findings first. */
+  repos: z.array(fixRepoSchema),
+  /** Apps (deployments) the findings reach. */
+  apps: z.array(deploymentRefSchema),
+})
+export type FixItem = z.infer<typeof fixItemSchema>
+
+export const fixesResponseSchema = z.object({
+  items: z.array(fixItemSchema),
+  /** Fixes matching the filters, over every page. */
+  total: z.number().int(),
+  offset: z.number().int(),
+  limit: z.number().int(),
+  /** Offset of the next page, null on the last one. */
+  nextOffset: z.number().int().nullable(),
+})
+export type FixesResponse = z.infer<typeof fixesResponseSchema>
+
 /** Funnel steps that narrow alerts down to exposed ones, in order. */
 export const FUNNEL_STEPS = [
   'total',
