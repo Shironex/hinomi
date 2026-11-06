@@ -10,6 +10,8 @@ services:
     volumes:
       - hinomi-data:/data
     restart: unless-stopped
+    # Longer than HINOMI_SHUTDOWN_TIMEOUT_SECONDS (25 s), so a running scan can finish on stop.
+    stop_grace_period: 30s
 
 volumes:
   hinomi-data:
