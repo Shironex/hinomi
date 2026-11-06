@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Refuse packages published less than 7 days ago (in minutes).
+minimumReleaseAge: 10080
+
+onlyBuiltDependencies:
+  - esbuild
