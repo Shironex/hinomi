@@ -1,4 +1,4 @@
-import type { FindingGroup, FindingListItem } from '@hinomi/shared'
+import type { FindingGroup, FindingListItem, FindingState } from '@hinomi/shared'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
@@ -10,7 +10,7 @@ import { LoadingState } from '@/components/states/loading-state'
 import { Button } from '@/components/ui/button'
 import { AlertsFilters } from '@/components/views/alerts-filters'
 import { AlertsTable } from '@/components/views/alerts-table'
-import { BulkBar } from '@/components/views/bulk-bar'
+import { BulkBar, type BulkAction } from '@/components/views/bulk-bar'
 import { ScanStrip } from '@/components/views/scan-strip'
 import {
   alertsParams,
@@ -26,6 +26,12 @@ import { findingsInfiniteQuery } from '@/lib/view-api'
 
 const route = getRouteApi('/alerts')
 const PAGE = 50
+const REOPENABLE = new Set<FindingState>(['snoozed', 'accepted'])
+const BULK_DONE: Record<BulkAction, string> = {
+  snooze: 'Snoozed',
+  accept: 'Accepted the risk of',
+  reopen: 'Removed the decision on',
+}
 const number = new Intl.NumberFormat('en-US')
 
 const GROUPS: { value: FindingGroup; label: string }[] = [
@@ -318,10 +324,12 @@ export function AlertsPage() {
         <BulkBar
           ids={[...selected]}
           labelOf={(id) => itemLabel(byId.get(id), id)}
+          allowNewAdvisory={[...selected].every((id) => byId.get(id)?.kind === 'advisory')}
+          canReopen={[...selected].some((id) => REOPENABLE.has(byId.get(id)?.state ?? 'open'))}
           onClear={() => setSelected(new Set())}
           onDone={(result) => {
             setNotice(
-              `${result.kind === 'snooze' ? 'Snoozed' : 'Accepted the risk of'} ${result.ok} finding${result.ok === 1 ? '' : 's'}.`,
+              `${BULK_DONE[result.kind]} ${result.ok} finding${result.ok === 1 ? '' : 's'}.`,
             )
             if (result.failed.length === 0) setSelected(new Set())
             else setSelected(new Set(result.failed.map((f) => f.id)))

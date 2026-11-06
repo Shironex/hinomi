@@ -1,10 +1,11 @@
-import type { OverviewResponse } from '@hinomi/shared'
+import type { FunnelReach, FunnelStep, OverviewResponse } from '@hinomi/shared'
 import { Link, type LinkProps } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 
 const number = new Intl.NumberFormat('en-US')
 
 interface Step {
+  key: FunnelStep
   n: number
   short: string
   label: string
@@ -15,6 +16,7 @@ interface Step {
 function steps(f: OverviewResponse['funnel']): Step[] {
   return [
     {
+      key: 'total',
       n: f.total,
       short: 'alerts',
       label: 'Open alerts, GitHub and OSV',
@@ -24,6 +26,7 @@ function steps(f: OverviewResponse['funnel']): Step[] {
       link: { to: '/alerts' },
     },
     {
+      key: 'deployed',
       n: f.deployed,
       short: 'deployed',
       label: 'In a repo that is deployed',
@@ -31,6 +34,7 @@ function steps(f: OverviewResponse['funnel']): Step[] {
       link: { to: '/deployments' },
     },
     {
+      key: 'runtime',
       n: f.runtime,
       short: 'runtime',
       label: 'In runtime dependencies',
@@ -38,6 +42,7 @@ function steps(f: OverviewResponse['funnel']): Step[] {
       link: { to: '/alerts', search: { scope: ['runtime'] } },
     },
     {
+      key: 'criticalOrHigh',
       n: f.criticalOrHigh,
       short: 'crit, high',
       label: 'Critical or high',
@@ -45,6 +50,7 @@ function steps(f: OverviewResponse['funnel']): Step[] {
       link: { to: '/alerts', search: { severity: ['critical', 'high'], scope: ['runtime'] } },
     },
     {
+      key: 'exposed',
       n: f.exposed,
       short: 'exposed',
       label: 'Exposed on a public app',
@@ -54,11 +60,26 @@ function steps(f: OverviewResponse['funnel']): Step[] {
   ]
 }
 
+const plural = (n: number, word: string) => `${number.format(n)} ${word}${n === 1 ? '' : 's'}`
+
+/** "11 repos, 12 apps" for a step; the first step names repos only, apps only follow deploys. */
+function reachLabel(step: FunnelStep, reach: FunnelReach | undefined): string | null {
+  if (!reach) return null
+  if (step === 'total') return plural(reach.repos, 'repo')
+  return `${plural(reach.repos, 'repo')}, ${plural(reach.apps, 'app')}`
+}
+
 /**
  * The sieve: how every open alert narrows to the few that are exposed. Each step links to the
  * rows behind it. On a phone it shrinks to five compact counts.
  */
-export function ExposureFunnel({ funnel }: { funnel: OverviewResponse['funnel'] }) {
+export function ExposureFunnel({
+  funnel,
+  reach,
+}: {
+  funnel: OverviewResponse['funnel']
+  reach?: OverviewResponse['funnelReach']
+}) {
   const list = steps(funnel)
   const total = Math.max(funnel.total, 1)
   return (
@@ -68,6 +89,7 @@ export function ExposureFunnel({ funnel }: { funnel: OverviewResponse['funnel'] 
     >
       {list.map((step, i) => {
         const last = i === list.length - 1
+        const where = reachLabel(step.key, reach?.[step.key])
         return (
           <Link
             key={step.short}
@@ -98,6 +120,9 @@ export function ExposureFunnel({ funnel }: { funnel: OverviewResponse['funnel'] 
             <span className="hidden text-sm leading-snug text-foreground-2 tab:block">
               {step.label}
             </span>
+            {where ? (
+              <span className="hidden text-xs text-foreground-2 tab:block">{where}</span>
+            ) : null}
             <span className="hidden text-xs text-muted-foreground tab:block">{step.note}</span>
             <span
               aria-hidden="true"

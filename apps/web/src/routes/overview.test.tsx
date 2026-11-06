@@ -43,6 +43,10 @@ describe('overview', () => {
 
     const funnel = screen.getByRole('navigation', { name: /4,917 alerts narrow down to 2 exposed/ })
     expect(within(funnel).getByText('Exposed on a public app')).toBeInTheDocument()
+    // Repo and app counts per step come from the server.
+    expect(within(funnel).getByText('64 repos')).toBeInTheDocument()
+    expect(within(funnel).getByText('22 repos, 31 apps')).toBeInTheDocument()
+    expect(within(funnel).getByText('2 repos, 2 apps')).toBeInTheDocument()
 
     const rows = within(
       screen.getByRole('region', { name: 'Exposed findings and blind spots' }),
@@ -62,6 +66,9 @@ describe('overview', () => {
     expect(screen.getByText('Bad credentials')).toBeInTheDocument()
     expect(screen.getByText('Snooze expired, back in the ranking')).toBeInTheDocument()
     expect(screen.getByText(/3,731 alerts in repos that are not/)).toBeInTheDocument()
+    // Each tier card below the line shows its severity mix.
+    const internal = screen.getByRole('link', { name: /Deployed, internal only/ })
+    expect(internal).toHaveTextContent('12 critical, 30 high, 60 moderate, 16 low')
   })
 
   it('says nothing is exposed when the list is empty', async () => {

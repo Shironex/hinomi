@@ -3,6 +3,7 @@ import type {
   DeploymentItem,
   DeploymentReach,
   ExposureFactorsDto,
+  FindingDetail,
   FindingEvent,
   FindingListItem,
   FindingScope,
@@ -277,8 +278,15 @@ export function formatAge(iso: string, now: number = Date.now()): string {
 }
 
 /** Snoozed or accepted wording with the expiry, for rows and banners. */
-export function decisionLabel(item: Pick<FindingListItem, 'state' | 'stateUntil'>): string | null {
-  const until = item.stateUntil ? ` until ${formatDate(item.stateUntil)}` : ''
+export function decisionLabel(
+  item: Pick<FindingListItem, 'state' | 'stateUntil'> &
+    Partial<Pick<FindingListItem, 'stateUntilNewAdvisory'>>,
+): string | null {
+  const until = item.stateUntilNewAdvisory
+    ? ' until a new advisory'
+    : item.stateUntil
+      ? ` until ${formatDate(item.stateUntil)}`
+      : ''
   if (item.state === 'snoozed') return `Snoozed${until}`
   if (item.state === 'accepted') return `Risk accepted${until}`
   if (item.state === 'dismissed_upstream') return 'Dismissed on GitHub'
@@ -288,7 +296,11 @@ export function decisionLabel(item: Pick<FindingListItem, 'state' | 'stateUntil'
 /** One sentence per history event. */
 export function eventSentence(event: FindingEvent): string {
   const by = event.actor === 'user' ? 'by you' : ''
-  const until = event.until ? ` until ${formatDate(event.until)}` : ''
+  const until = event.untilNewAdvisory
+    ? ' until a new advisory'
+    : event.until
+      ? ` until ${formatDate(event.until)}`
+      : ''
   switch (event.type) {
     case 'opened':
       return 'First seen by a scan'
@@ -338,3 +350,31 @@ export const TERMS = {
 
 /** Where repo overrides are edited: the Repo mapping section of Settings. */
 export const MAPPING_SETTINGS = { to: '/settings', hash: 'settings-mapping' } as const
+
+/** Repo, then the lockfile or manifest, then the chain down to the vulnerable package. */
+export function dependencyPath(f: FindingDetail, packageName: string): string[] {
+  const installed = `${packageName}@${f.versions.installed ?? '?'}`
+  const chain = f.dependency.path ?? []
+  const above = chain.length > 1 && chain.at(-1) === packageName ? chain.slice(0, -1) : []
+  return [
+    f.repo?.fullName ?? 'repo',
+    ...f.dependency.manifestPaths.slice(0, 1),
+    ...above,
+    installed,
+  ]
+}
+
+/** The description as plain paragraphs, without a first paragraph that repeats the summary. */
+export function descriptionParagraphs(
+  description: string | null,
+  summary: string | null,
+): string[] {
+  if (!description) return []
+  const parts = description
+    .replace(/\r\n/g, '\n')
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/^#+\s*/gm, '').trim())
+    .filter(Boolean)
+  if (parts[0] && summary && parts[0] === summary.trim()) parts.shift()
+  return parts
+}

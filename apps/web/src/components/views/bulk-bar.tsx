@@ -1,32 +1,41 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { IconClockPause, IconThumbUp } from '@tabler/icons-react'
+import { IconArrowBackUp, IconClockPause, IconThumbUp } from '@tabler/icons-react'
 import { DeferForm } from '@/components/findings/defer-form'
+import type { BulkFindingsRequest } from '@hinomi/shared'
 import { DEFER_COPY } from '@/lib/defer'
 import { Button } from '@/components/ui/button'
 import { describeError } from '@/lib/errors'
-import { deferFinding, refreshAfterDecision, type DeferKind } from '@/lib/view-api'
+import { bulkFindings, refreshAfterDecision, type DeferKind } from '@/lib/view-api'
+
+export type BulkAction = DeferKind | 'reopen'
 
 export interface BulkResult {
   ok: number
   failed: { id: number; message: string }[]
-  kind: DeferKind
+  kind: BulkAction
 }
 
 /**
- * Snooze or accept many findings at once. The API takes one finding per call, so the bar sends
- * them one after another and reports any that failed (a fixed finding, for example) by name.
+ * Snooze, accept or reopen many findings in one call. The server changes each finding on its
+ * own and says which ones failed (a fixed finding, for example); those are reported by name.
  */
 export function BulkBar({
   ids,
   labelOf,
   onClear,
   onDone,
+  allowNewAdvisory = false,
+  canReopen = false,
 }: {
   ids: readonly number[]
   labelOf: (id: number) => string
   onClear: () => void
   onDone: (result: BulkResult) => void
+  /** Every selected row is an advisory, so "until a new advisory" applies. */
+  allowNewAdvisory?: boolean
+  /** Some selected row is snoozed or accepted. */
+  canReopen?: boolean
 }) {
   const queryClient = useQueryClient()
   const [kind, setKind] = useState<DeferKind | null>(null)
@@ -34,29 +43,33 @@ export function BulkBar({
   const [error, setError] = useState<string | null>(null)
   const n = ids.length
 
-  async function submit(k: DeferKind, body: { reason: string; until: string }) {
+  async function run(request: BulkFindingsRequest) {
+    const action = request.action
     setPending(true)
     setError(null)
-    const failed: BulkResult['failed'] = []
-    let ok = 0
-    for (const id of ids) {
-      try {
-        await deferFinding(id, k, body)
-        ok++
-      } catch (e) {
-        failed.push({ id, message: describeError(e) })
+    let result: BulkResult
+    try {
+      const answer = await bulkFindings(request)
+      result = {
+        ok: answer.ok,
+        failed: answer.results.flatMap((r) =>
+          r.ok ? [] : [{ id: r.id, message: r.error.message }],
+        ),
+        kind: action,
       }
+    } catch (e) {
+      result = { ok: 0, failed: ids.map((id) => ({ id, message: describeError(e) })), kind: action }
     }
     await refreshAfterDecision(queryClient)
     setPending(false)
-    if (failed.length > 0) {
+    if (result.failed.length > 0) {
       setError(
-        `${ok} of ${n} saved. Not saved: ${failed.map((f) => `${labelOf(f.id)} (${f.message.replace(/\.$/, '')})`).join(', ')}.`,
+        `${result.ok} of ${n} saved. Not saved: ${result.failed.map((f) => `${labelOf(f.id)} (${f.message.replace(/\.$/, '')})`).join(', ')}.`,
       )
     } else {
       setKind(null)
     }
-    onDone({ ok, failed, kind: k })
+    onDone(result)
   }
 
   return (
@@ -71,29 +84,51 @@ export function BulkBar({
         </b>
         {kind === null ? (
           <>
-            <Button size="sm" onClick={() => setKind('snooze')}>
+            <Button size="sm" onClick={() => setKind('snooze')} disabled={pending}>
               <IconClockPause aria-hidden="true" />
               {DEFER_COPY.snooze.verb}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setKind('accept')}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setKind('accept')}
+              disabled={pending}
+            >
               <IconThumbUp aria-hidden="true" />
               {DEFER_COPY.accept.verb}
             </Button>
+            {canReopen ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void run({ action: 'reopen', ids: [...ids] })}
+                disabled={pending}
+              >
+                <IconArrowBackUp aria-hidden="true" />
+                {pending ? 'Reopening' : 'Remove decision'}
+              </Button>
+            ) : null}
           </>
         ) : null}
         <Button size="sm" variant="ghost" onClick={onClear} disabled={pending}>
           Clear selection
         </Button>
       </div>
+      {kind === null && error ? (
+        <p role="alert" className="text-sm text-sev-critical">
+          {error}
+        </p>
+      ) : null}
       {kind !== null ? (
         <DeferForm
           key={kind}
           kind={kind}
           layout="inline"
           count={n}
+          allowNewAdvisory={allowNewAdvisory}
           pending={pending}
           error={error}
-          onSubmit={(k, body) => void submit(k, body)}
+          onSubmit={(k, body) => void run({ action: k, ids: [...ids], ...body })}
           onCancel={() => {
             setKind(null)
             setError(null)

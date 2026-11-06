@@ -96,6 +96,76 @@ describe('finding detail', () => {
     await waitFor(() => expect(screen.queryByText('Waiting for upstream')).not.toBeInTheDocument())
   })
 
+  it('shows the description, the lockfile chain, the notifications and names the crumb', async () => {
+    mockViews({
+      'GET /findings/1': findingDetail({
+        advisory: {
+          ...findingDetail().advisory!,
+          description:
+            'Remote code execution through crafted server action payloads\n\nA crafted request makes the server evaluate attacker input.\n\n### Patches\nUpgrade to 14.2.9.',
+        },
+        dependency: {
+          scope: 'runtime',
+          manifestPaths: ['apps/web/pnpm-lock.yaml'],
+          path: ['kestrel-ui', 'tessera'],
+          pathSource: 'lockfile',
+        },
+        notifications: [
+          {
+            channelId: '6f1c2a54-0000-4000-8000-000000000001',
+            channelName: 'ops alerts',
+            channelKind: 'discord',
+            event: 'opened',
+            eventId: 1,
+            sentAt: '2026-11-05T09:00:00.000Z',
+          },
+        ],
+      }),
+    })
+    await renderApp('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    expect(
+      screen.getByText('A crafted request makes the server evaluate attacker input.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Upgrade to 14\.2\.9/)).toBeInTheDocument()
+    const path = screen.getByLabelText('Dependency path')
+    expect(path).toHaveTextContent(
+      'kestrel-co/storefront└ apps/web/pnpm-lock.yaml └ kestrel-ui └ tessera@14.2.3',
+    )
+    expect(screen.getByText(/From the lockfile Hinomi scans/)).toBeInTheDocument()
+    expect(screen.getByText('ops alerts')).toBeInTheDocument()
+    expect(screen.getByText('(Discord)')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
+      'tessera GHSA-7q2m-48vx-hc3r',
+    )
+  })
+
+  it('snoozes until a new advisory for the package', async () => {
+    const api = mockViews({
+      'GET /findings/1': findingDetail(),
+      'POST /findings/1/snooze': findingDetail({
+        state: 'snoozed',
+        stateReason: 'Not reachable',
+        stateUntilNewAdvisory: true,
+      }),
+    })
+    const user = userEvent.setup()
+    await renderApp('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    await user.keyboard('s')
+    await user.type(await screen.findByLabelText('Reason'), 'Not reachable')
+    await user.selectOptions(screen.getByLabelText('Expires'), 'Until a new advisory')
+    expect(screen.getByText(/another advisory for the same package/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(
+      await screen.findByText(/Snoozed until a new advisory/, { selector: 'b' }),
+    ).toBeInTheDocument()
+    expect(api.called('POST', '/findings/1/snooze')[0]?.body).toEqual({
+      reason: 'Not reachable',
+      untilNewAdvisory: true,
+    })
+  })
+
   it('tells how to close a blind spot', async () => {
     mockViews({
       'GET /findings/9': {
@@ -112,6 +182,10 @@ describe('finding detail', () => {
       await screen.findByRole('heading', { name: 'Why this ranks like a critical' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Enable Dependabot alerts')).toBeInTheDocument()
+    // Blind spots have no package, so they cannot wait for a new advisory.
+    const user = userEvent.setup()
+    await user.keyboard('s')
+    expect(screen.queryByRole('option', { name: 'Until a new advisory' })).not.toBeInTheDocument()
   })
 
   it('says when the finding does not exist', async () => {

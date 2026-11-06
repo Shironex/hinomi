@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { IconSearch } from '@tabler/icons-react'
 import { SEVERITY_ICON } from '@/lib/view-icons'
 import { Kbd } from '@/components/ui/kbd'
-import type { AlertsSearch } from '@/lib/alerts-search'
+import { sourceFilter, sourceValue, type AlertsSearch } from '@/lib/alerts-search'
 import { SEVERITIES, SEVERITY_LABEL, TIER_INFO } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
 
@@ -137,16 +137,13 @@ export function AlertsFilters({
       <select
         aria-label="Source"
         className={SELECT}
-        value={single(search.source)}
-        onChange={(e) =>
-          onChange({
-            source: e.target.value === 'all' ? undefined : [e.target.value as 'github' | 'osv'],
-          })
-        }
+        value={sourceValue(search)}
+        onChange={(e) => onChange(sourceFilter(e.target.value))}
       >
         <option value="all">Any source</option>
         <option value="github">Reported by GitHub</option>
         <option value="osv">Reported by OSV</option>
+        <option value="both">Reported by both</option>
       </select>
 
       <select
