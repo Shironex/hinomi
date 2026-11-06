@@ -1,0 +1,19 @@
+[
+  {
+    "uuid": "svc-wiki-001",
+    "name": "team-wiki",
+    "status": "running:healthy",
+    "server_id": 2,
+    "applications": [
+      { "name": "wiki", "image": "example/wiki:3.1", "fqdn": "https://wiki.example.dev" },
+      { "name": "cache", "image": "redis:7", "fqdn": null }
+    ],
+    "updated_at": "2026-10-20T12:00:00Z"
+  },
+  {
+    "uuid": "svc-internal-002",
+    "name": "queue",
+    "status": "running:healthy",
+    "server": { "name": "edge-1" }
+  }
+]

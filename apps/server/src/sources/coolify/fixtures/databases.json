@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "uuid": "db-pg-001",
+      "name": "kestrel-pg",
+      "image": "postgres:17",
+      "status": "running:healthy",
+      "destination": { "server": { "name": "edge-2" } }
+    }
+  ]
+}

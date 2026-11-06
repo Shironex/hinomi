@@ -1,0 +1,4 @@
+[
+  { "id": 1, "uuid": "srv-aaa", "name": "edge-1" },
+  { "id": 2, "uuid": "srv-bbb", "name": "edge-2" }
+]
