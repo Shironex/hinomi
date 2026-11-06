@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@hinomi/shared": "workspace:*",
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.11",
     "tsdown": "^0.23.4",
