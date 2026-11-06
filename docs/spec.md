@@ -11,7 +11,7 @@ Hinomi answers one question: **is anything that is deployed and reachable right 
 - **Deployed first.** Every finding is ranked by real exposure: deployed and public beats deployed and internal beats not deployed.
 - **Rank, never hide.** Noise is handled by ranking, badges and filters. Snoozes and accepted risks stay visible with a reason and an expiry.
 - **Blind spots are findings.** A deployed repo with no advisory coverage (alerts off, no lockfile, private repo without access) is reported, not skipped.
-- **Self-hostable in one command.** One container, SQLite, `docker compose up` or a Coolify one-click. No external services required beyond the APIs it reads.
+- **Self-hostable in one command.** One container, SQLite, `docker compose up` or a Coolify one-click. No external services required beyond the APIs it reads. See [self-hosting.md](self-hosting.md).
 - **Inert until configured.** No required secrets at boot; each source turns on when connected.
 - **Read-only by default.** Write access (opening PRs, triggering deploys) is opt-in per action.
 

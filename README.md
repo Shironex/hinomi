@@ -23,6 +23,8 @@ pnpm build
 
 ## Run with Docker
 
+The full guide, including Coolify, access, tokens, upgrades and backups, is [docs/self-hosting.md](docs/self-hosting.md).
+
 ```sh
 docker compose up -d --build
 curl localhost:3000/api/health
