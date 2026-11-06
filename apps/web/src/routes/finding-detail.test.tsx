@@ -1,7 +1,14 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { blindSpotItem, findingDetail, apiError, mockViews } from '@/test/fixtures'
+import {
+  apiError,
+  blindSpotItem,
+  findingDetail,
+  findingItem,
+  findingsResponse,
+  mockViews,
+} from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -16,8 +23,11 @@ describe('finding detail', () => {
         name: 'Remote code execution through crafted server action payloads',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Why this ranks at the top' })).toBeInTheDocument()
-    expect(screen.getByText('Attack vector: network')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Why it ranks at the top' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Critical, CVSS 9.8, network, no privileges needed'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Reachable at shop.example.dev')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /storefront-web/ })).toHaveAttribute(
       'href',
       '/deployments/1',
@@ -38,7 +48,7 @@ describe('finding detail', () => {
     await screen.findByRole('heading', { level: 1 })
     expect(screen.queryByText(/@\?/)).not.toBeInTheDocument()
     expect(screen.getByLabelText('Dependency path')).toHaveTextContent('tessera (version unknown)')
-    expect(screen.getByText('(version unknown)')).toHaveAttribute(
+    expect(screen.getAllByText('version unknown')[0]).toHaveAttribute(
       'title',
       expect.stringContaining('GitHub reports this alert on pnpm-lock.yaml without a version'),
     )
@@ -96,8 +106,7 @@ describe('finding detail', () => {
     })
     const user = userEvent.setup()
     await renderApp('/finding/1')
-    // The actions sit in the side column on desktop and above the content on a phone.
-    await user.click((await screen.findAllByRole('button', { name: /Snooze or accept risk/ }))[0]!)
+    await user.click(await screen.findByRole('button', { name: 'Snooze' }))
     await user.type(screen.getByLabelText('Reason'), 'Later')
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The expiry must be in the future')
@@ -192,6 +201,7 @@ describe('finding detail', () => {
 
   it('tells how to close a blind spot', async () => {
     mockViews({
+      'GET /findings': findingsResponse([findingItem({ sources: ['osv'] })]),
       'GET /findings/9': {
         ...findingDetail(),
         ...blindSpotItem(),
@@ -203,9 +213,12 @@ describe('finding detail', () => {
     })
     await renderApp('/finding/9')
     expect(
-      await screen.findByRole('heading', { name: 'Why this ranks like a critical' }),
+      await screen.findByRole('heading', { name: 'Why it ranks like a critical' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Enable Dependabot alerts')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'How to close it' })).toBeInTheDocument()
+    expect(screen.getByText(/Enable Dependabot alerts/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'What Hinomi can still see' })).toBeInTheDocument()
+    expect(await screen.findByText(/OSV found 1 open advisory/)).toBeInTheDocument()
     // Blind spots have no package, so they cannot wait for a new advisory.
     const user = userEvent.setup()
     await user.keyboard('s')
