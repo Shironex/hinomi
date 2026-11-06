@@ -4,11 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   blindSpotItem,
   coverageNoteItem,
+  deploymentRef,
+  findingDetail,
   findingItem,
   findingsResponse,
   mockViews,
 } from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
+import { wideScreen } from '@/test/screen'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -46,17 +49,53 @@ function listResponse(_body: unknown, url: URL) {
 }
 
 describe('all alerts', () => {
-  it('groups rows by tier and loads more pages', async () => {
+  it('groups rows by tier in the list pane and loads more pages', async () => {
     const api = mockViews({ 'GET /findings': listResponse })
     await renderApp('/alerts')
-    expect(await screen.findByText('Tier 2: Deployed, internal only')).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: /Alerts, 4 matching/ })
+    expect(within(list).getByText('Tier 2: Deployed, internal only')).toBeInTheDocument()
     expect(api.called('GET', '/findings')[0]?.search.get('group')).toBe('tier')
-    expect(screen.getByRole('link', { name: 'yamlette' })).toHaveAttribute('href', '/finding/4')
-    expect(screen.getByText('1 more in this group, load more below')).toBeInTheDocument()
+    expect(within(list).getByRole('link', { name: /yamlette/ })).toHaveAttribute(
+      'href',
+      expect.stringContaining('sel=4'),
+    )
+    // The group knows its size over every page.
+    expect(within(list).getByText('3, 2 loaded')).toBeInTheDocument()
+    expect(screen.getByText('3 of 4 loaded')).toBeInTheDocument()
 
-    await userEvent.setup().click(screen.getByRole('button', { name: /Show 1 more/ }))
-    expect(await screen.findByRole('link', { name: 'csv-forge' })).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Load more' }))
+    expect(await within(list).findByRole('link', { name: /csv-forge/ })).toBeInTheDocument()
     expect(api.called('GET', '/findings').at(-1)?.search.get('offset')).toBe('3')
+  })
+
+  it('shows the selected alert beside the list, ranked below the line', async () => {
+    wideScreen()
+    mockViews({
+      'GET /findings': listResponse,
+      'GET /findings/4': findingDetail({
+        ...internal(4, 'yamlette'),
+        advisory: {
+          ...findingDetail().advisory!,
+          packageName: 'yamlette',
+          summary: 'Unsafe tag resolution',
+        },
+        deployments: [deploymentRef({ reach: 'internal', domains: [], server: 'core-1' })],
+        sameFixClears: 3,
+      }),
+      'GET /findings/9': findingDetail({ ...blindSpotItem(), advisory: null }),
+    })
+    const user = userEvent.setup()
+    await renderApp('/alerts')
+    const list = await screen.findByRole('list', { name: /Alerts, 4 matching/ })
+    await user.click(within(list).getByRole('link', { name: /yamlette/ }))
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Unsafe tag resolution' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Why it ranks below the line' })).toBeInTheDocument()
+    expect(
+      screen.getByText('No public domain; reachable from your network only'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/The same bump clears 3 open findings/)).toBeInTheDocument()
   })
 
   it('lists an image only deployment as a quiet coverage note, not a blind spot', async () => {
@@ -68,8 +107,7 @@ describe('all alerts', () => {
       }),
     })
     await renderApp('/alerts')
-    const link = await screen.findByRole('link', { name: 'status-board' })
-    const row = link.closest('tr')!
+    const row = await screen.findByRole('link', { name: /status-board/ })
     expect(within(row).getAllByText('Image only').length).toBeGreaterThan(0)
     expect(within(row).getByText('Runs an image with no git source')).toBeInTheDocument()
     expect(within(row).queryByText('Blind spot')).not.toBeInTheDocument()
@@ -104,6 +142,7 @@ describe('all alerts', () => {
     const user = userEvent.setup()
     const { router } = await renderApp('/alerts')
     await screen.findByText('Tier 2: Deployed, internal only')
+    await user.click(screen.getByRole('button', { name: '4 more filters' }))
     await user.selectOptions(screen.getByLabelText('Source'), 'Reported by both')
     await waitFor(() => {
       const search = api.called('GET', '/findings').at(-1)?.search

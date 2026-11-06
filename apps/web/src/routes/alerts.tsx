@@ -1,27 +1,32 @@
 import type { FindingGroup, FindingListItem, FindingState } from '@hinomi/shared'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
-import { IconFilterOff, IconInfoCircle, IconListDetails, IconX } from '@tabler/icons-react'
-import { PageHeader } from '@/components/page-header'
+import { IconFilterOff, IconListDetails, IconX } from '@tabler/icons-react'
+import { useShell } from '@/components/shell/shell-context'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
-import { LoadingState } from '@/components/states/loading-state'
+import { SplitListHeader } from '@/components/split/split-parts'
+import { SplitView, type SplitGroup } from '@/components/split/split-view'
+import { FindingPane } from '@/components/triage/finding-pane'
+import { ListSkeleton, LoadedFooter } from '@/components/triage/list-parts'
+import { TriageRow } from '@/components/triage/triage-row'
 import { Button } from '@/components/ui/button'
 import { AlertsFilters } from '@/components/views/alerts-filters'
-import { AlertsTable } from '@/components/views/alerts-table'
 import { BulkBar, type BulkAction } from '@/components/views/bulk-bar'
-import { ScanStrip } from '@/components/views/scan-strip'
+import { useDeferRequests } from '@/hooks/use-defer-requests'
+import { SPLIT_QUERY, useMediaQuery } from '@/hooks/use-media-query'
 import {
   alertsParams,
-  DEFAULT_GROUP,
   hasFilters,
   splitGroups,
   type AlertsSearch,
+  type RowGroup,
 } from '@/lib/alerts-search'
-import { blindSpotSubject } from '@/lib/finding-meta'
+import { blindSpotSubject, TIER_INFO, tierTitle } from '@/lib/finding-meta'
 import { activeRowIndex } from '@/lib/list-nav'
 import { isTypingTarget } from '@/lib/shortcuts'
+import { findingName } from '@/lib/triage'
 import { findingsInfiniteQuery } from '@/lib/view-api'
 
 const route = getRouteApi('/alerts')
@@ -34,49 +39,46 @@ const BULK_DONE: Record<BulkAction, string> = {
 }
 const number = new Intl.NumberFormat('en-US')
 
-const GROUPS: { value: FindingGroup; label: string }[] = [
-  { value: 'tier', label: 'Tier' },
-  { value: 'repo', label: 'Repo' },
-  { value: 'advisory', label: 'Advisory' },
-]
-
-function GroupSwitch({
-  value,
-  onChange,
-}: {
-  value: FindingGroup
-  onChange: (g: FindingGroup) => void
-}) {
-  return (
-    <fieldset className="flex items-center gap-2">
-      <legend className="float-left mr-2 text-xs text-muted-foreground">Group by</legend>
-      <div className="inline-flex gap-0.5 rounded-md bg-muted p-0.5">
-        {GROUPS.map((g) => (
-          <label
-            key={g.value}
-            className="cursor-pointer rounded-sm px-2 py-1 text-xs text-foreground-2 has-checked:bg-card has-checked:text-foreground has-checked:shadow-[0_1px_2px_oklch(0.2_0.02_265/0.12)] has-focus-visible:outline-2 has-focus-visible:outline-ring"
-          >
-            <input
-              type="radio"
-              name="alerts-group"
-              value={g.value}
-              checked={value === g.value}
-              onChange={() => onChange(g.value)}
-              className="sr-only"
-            />
-            {g.label}
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  )
-}
-
 function itemLabel(item: FindingListItem | undefined, id: number): string {
   if (!item) return `finding ${id}`
   if (item.kind === 'blind_spot') return `blind spot on ${blindSpotSubject(item)}`
   if (item.kind === 'coverage_note') return `image only note on ${blindSpotSubject(item)}`
   return `${item.advisory?.packageName ?? 'advisory'}${item.repo ? ` in ${item.repo.fullName}` : ''}`
+}
+
+function groupName(group: RowGroup, by: FindingGroup): string {
+  if (by === 'tier' && group.key in TIER_INFO) return tierTitle(group.key as keyof typeof TIER_INFO)
+  return group.label
+}
+
+/** Selects every loaded row of a group; indeterminate when only some are. */
+function GroupCheckbox({
+  ids,
+  label,
+  selected,
+  onToggle,
+}: {
+  ids: readonly number[]
+  label: string
+  selected: ReadonlySet<number>
+  onToggle: (ids: number[], on: boolean) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const all = ids.length > 0 && ids.every((id) => selected.has(id))
+  const some = !all && ids.some((id) => selected.has(id))
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = some
+  }, [some])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={all}
+      onChange={() => onToggle([...ids], !all)}
+      aria-label={`Select the ${ids.length} loaded in ${label}`}
+      className="size-4 cursor-pointer accent-primary"
+    />
+  )
 }
 
 /** Repo and deployment filters arrive from links; show them as removable chips. */
@@ -107,44 +109,42 @@ function ScopeChips({
       clear: { deployment: search.deployment?.filter((d) => d !== id) },
     })
   }
-  if (chips.length === 0) return null
-  return (
-    <>
-      {chips.map((chip) => (
-        <span
-          key={chip.key}
-          className="inline-flex h-6 items-center gap-1 rounded-full bg-accent pr-0.5 pl-2.5 text-xs text-accent-ink"
-        >
-          {chip.label}
-          <button
-            type="button"
-            onClick={() => onChange(chip.clear)}
-            aria-label={`Remove filter ${chip.label}`}
-            className="grid size-5 cursor-pointer place-items-center rounded-full hover:bg-card"
-          >
-            <IconX aria-hidden="true" className="size-3" />
-          </button>
-        </span>
-      ))}
-    </>
-  )
+  return chips.map((chip) => (
+    <span
+      key={chip.key}
+      className="inline-flex h-7 items-center gap-1 rounded-full bg-accent pr-0.5 pl-2.5 text-xs text-accent-ink"
+    >
+      {chip.label}
+      <button
+        type="button"
+        onClick={() => onChange(chip.clear)}
+        aria-label={`Remove filter ${chip.label}`}
+        className="grid size-6 cursor-pointer place-items-center rounded-full hover:bg-card"
+      >
+        <IconX aria-hidden="true" className="size-3.5" />
+      </button>
+    </span>
+  ))
 }
 
 export function AlertsPage() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
-  const group = search.group ?? DEFAULT_GROUP
+  const { counts } = useShell()
+  const wide = useMediaQuery(SPLIT_QUERY)
   const params = useMemo(() => alertsParams(search, PAGE), [search])
   const query = useInfiniteQuery(findingsInfiniteQuery(params))
   const [selected, setSelected] = useState<Set<number>>(() => new Set())
   const [notice, setNotice] = useState('')
+  const defer = useDeferRequests()
 
   const update = useCallback(
     (patch: Partial<AlertsSearch>) => {
-      void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
+      void navigate({ search: (prev) => ({ ...prev, ...patch, sel: undefined }), replace: true })
     },
     [navigate],
   )
+  const clearFilters = () => void navigate({ search: { group: search.group }, replace: true })
 
   // New filters mean new rows: a selection over rows no longer shown would surprise.
   const paramsKey = JSON.stringify(params)
@@ -156,8 +156,15 @@ export function AlertsPage() {
 
   const pages = useMemo(() => query.data?.pages ?? [], [query.data])
   const first = pages[0]
-  const items = useMemo(() => pages.flatMap((p) => p.items), [pages])
-  const groups = useMemo(() => (first ? splitGroups(items, first) : []), [items, first])
+  const loadedItems = useMemo(() => pages.flatMap((p) => p.items), [pages])
+  const groups = useMemo(() => (first ? splitGroups(loadedItems, first) : []), [loadedItems, first])
+  // Rows in group order, each knowing its group for the headings between them.
+  const items = useMemo(() => groups.flatMap((g) => g.items), [groups])
+  const groupOf = useMemo(() => {
+    const map = new Map<number, RowGroup>()
+    for (const g of groups) for (const item of g.items) map.set(item.id, g)
+    return map
+  }, [groups])
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
 
   const toggle = useCallback((ids: number[], on: boolean) => {
@@ -171,15 +178,21 @@ export function AlertsPage() {
     })
   }, [])
 
-  // x selects the row picked with j/k, like the design's keyboard map.
+  // x selects the current row: the one shown in the detail pane, or the j/k row on a phone.
+  const current = useRef<() => number | undefined>(() => undefined)
+  useEffect(() => {
+    current.current = () => {
+      if (!wide) return items[activeRowIndex()]?.id
+      const found = items.find((i) => String(i.id) === String(search.sel))
+      return (found ?? items[0])?.id
+    }
+  })
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key !== 'x' || event.metaKey || event.ctrlKey || event.altKey) return
       if (isTypingTarget(event.target) || document.querySelector('[role="dialog"]')) return
-      const index = activeRowIndex()
-      const row = document.querySelectorAll<HTMLElement>('[data-list] [data-row]')[index]
-      const id = Number(row?.dataset.findingId)
-      if (!id) return
+      const id = current.current()
+      if (id === undefined) return
       event.preventDefault()
       setSelected((prev) => {
         const next = new Set(prev)
@@ -194,20 +207,78 @@ export function AlertsPage() {
 
   const filtered = hasFilters(search)
   const total = first?.total ?? 0
+  const by = first?.group ?? 'none'
+  const getGroup =
+    by === 'none'
+      ? undefined
+      : (item: FindingListItem): SplitGroup | undefined => {
+          const g = groupOf.get(item.id)
+          if (!g) return undefined
+          const name = groupName(g, by)
+          const ids = g.items.map((i) => i.id)
+          return {
+            key: g.key,
+            label: (
+              <>
+                <GroupCheckbox
+                  ids={ids}
+                  label={g.label || name}
+                  selected={selected}
+                  onToggle={toggle}
+                />
+                <span className={by === 'tier' ? '' : 'font-mono'}>{name}</span>
+              </>
+            ),
+            count:
+              g.items.length < g.count
+                ? `${number.format(g.count)}, ${number.format(g.items.length)} loaded`
+                : number.format(g.count),
+          }
+        }
 
-  let body: React.ReactNode
+  const header = (
+    <SplitListHeader
+      title="All alerts"
+      meta={
+        first
+          ? filtered && counts.alerts != null
+            ? `${number.format(total)} of ${number.format(counts.alerts)}`
+            : `${number.format(total)} alert${total === 1 ? '' : 's'}`
+          : undefined
+      }
+    >
+      <AlertsFilters search={search} onChange={update} />
+      {filtered ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ScopeChips search={search} items={items} onChange={update} />
+          <Button variant="ghost" size="xs" onClick={clearFilters}>
+            <IconX aria-hidden="true" />
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
+      <p aria-live="polite" className="sr-only">
+        {first ? `${number.format(total)} ${filtered ? 'match' : 'alerts'}` : ''}
+        {query.isFetching && first && !query.isFetchingNextPage ? ', updating' : ''}
+      </p>
+    </SplitListHeader>
+  )
+
+  let emptyList: React.ReactNode
   if (query.error && !first) {
-    body = (
-      <ErrorState
-        title="Alerts did not load"
-        error={query.error}
-        onRetry={() => void query.refetch()}
-      />
+    emptyList = (
+      <div className="p-[18px]">
+        <ErrorState
+          title="Alerts did not load"
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
+      </div>
     )
   } else if (!first) {
-    body = <LoadingState layout="table" label="Loading alerts" />
-  } else if (total === 0 && !filtered) {
-    body = (
+    emptyList = <ListSkeleton label="Loading alerts" />
+  } else if (!filtered) {
+    emptyList = (
       <EmptyState
         icon={IconListDetails}
         title="No alerts yet"
@@ -221,108 +292,27 @@ export function AlertsPage() {
         Repos that are not deployed are ranked last, never dropped.
       </EmptyState>
     )
-  } else if (total === 0) {
-    body = (
+  } else {
+    emptyList = (
       <EmptyState
         icon={IconFilterOff}
         title="No alerts match these filters"
         actions={
-          <Button
-            variant="outline"
-            onClick={() => void navigate({ search: { group: search.group }, replace: true })}
-          >
+          <Button variant="outline" onClick={clearFilters}>
             Clear filters
           </Button>
         }
       >
-        Fixed findings are left out unless the state filter asks for them. Clear the filters to see
-        every alert again, ranked by exposure.
+        Fixed findings are left out unless the state filter asks for them.
       </EmptyState>
-    )
-  } else {
-    const loaded = items.length
-    body = (
-      <>
-        <AlertsTable
-          groups={groups}
-          by={first.group}
-          selected={selected}
-          onToggle={toggle}
-          caption={`Alerts, ${number.format(total)} matching, grouped by ${first.group}`}
-        />
-        {query.hasNextPage ? (
-          <div className="mt-3 flex justify-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={query.isFetchingNextPage}
-              onClick={() => void query.fetchNextPage()}
-            >
-              {query.isFetchingNextPage ? 'Loading' : `Show ${Math.min(PAGE, total - loaded)} more`}
-              <span className="text-muted-foreground">
-                ({number.format(total - loaded)} not loaded)
-              </span>
-            </Button>
-          </div>
-        ) : null}
-        {query.error ? (
-          <ErrorState
-            className="mt-3"
-            title="More alerts did not load"
-            error={query.error}
-            onRetry={() => void query.fetchNextPage()}
-          />
-        ) : null}
-      </>
     )
   }
 
-  return (
-    <>
-      <PageHeader title="All alerts">
-        Every open alert from GitHub and the OSV lockfile scan, ranked by exposure. Filters narrow
-        the view, nothing is removed.
-      </PageHeader>
-      <ScanStrip />
-      <AlertsFilters search={search} onChange={update} />
-      <div className="mt-2.5 mb-3 flex flex-wrap items-center gap-2.5 px-0.5 text-xs text-muted-foreground">
-        <span aria-live="polite">
-          {first ? (
-            <>
-              <b className="font-medium text-foreground">{number.format(total)}</b>{' '}
-              {filtered ? 'match' : `alert${total === 1 ? '' : 's'}`}.{' '}
-              {group === 'tier'
-                ? 'Sorted by exposure tier, then rank.'
-                : group === 'none'
-                  ? 'Sorted by rank.'
-                  : 'Groups sorted by their best ranked alert.'}
-            </>
-          ) : (
-            'Loading'
-          )}
-          {query.isFetching && first && !query.isFetchingNextPage ? ' Updating.' : ''}
-        </span>
-        <ScopeChips search={search} items={items} onChange={update} />
-        {filtered ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void navigate({ search: { group: search.group }, replace: true })}
-          >
-            <IconX aria-hidden="true" />
-            Clear filters
-          </Button>
-        ) : null}
-        <span className="ml-auto">
-          <GroupSwitch
-            value={group}
-            onChange={(g) => update({ group: g === DEFAULT_GROUP ? undefined : g })}
-          />
-        </span>
-      </div>
-      {body}
-      {selected.size > 0 ? (
+  const bulk =
+    selected.size > 0 ? (
+      <div className="border-t border-border p-3">
         <BulkBar
+          className="static mt-0 shadow-none"
           ids={[...selected]}
           labelOf={(id) => itemLabel(byId.get(id), id)}
           allowNewAdvisory={[...selected].every((id) => byId.get(id)?.kind === 'advisory')}
@@ -336,32 +326,68 @@ export function AlertsPage() {
             else setSelected(new Set(result.failed.map((f) => f.id)))
           }}
         />
-      ) : null}
+      </div>
+    ) : null
+
+  return (
+    <>
+      <SplitView<FindingListItem>
+        items={items}
+        getKey={(item) => item.id}
+        getLabel={findingName}
+        listLabel={`Alerts, ${number.format(total)} matching`}
+        listHeader={header}
+        getGroup={getGroup}
+        searchable
+        renderRowLead={(item) => (
+          <input
+            type="checkbox"
+            checked={selected.has(item.id)}
+            onChange={(e) => toggle([item.id], e.target.checked)}
+            aria-label={`Select ${findingName(item)}${item.repo && item.kind === 'advisory' ? ` in ${item.repo.fullName}` : ''}`}
+            className="mt-[5px] size-4 cursor-pointer accent-primary"
+          />
+        )}
+        renderRow={(item) => <TriageRow item={item} right="age" />}
+        renderDetail={(item, { focused }) => (
+          <FindingPane
+            key={item.id}
+            id={item.id}
+            layout={focused ? 'two' : 'stack'}
+            deferRequest={defer.request}
+          />
+        )}
+        actions={defer.actions}
+        emptyList={emptyList}
+        listFooter={
+          first ? (
+            <LoadedFooter
+              loaded={loadedItems.length}
+              total={total}
+              order={by === 'none' ? 'Ranked by exposure' : `Grouped by ${by}`}
+              hasMore={query.hasNextPage}
+              loading={query.isFetchingNextPage}
+              onMore={() => void query.fetchNextPage()}
+            >
+              {query.error ? (
+                <div className="border-t border-border p-3">
+                  <ErrorState
+                    title="More alerts did not load"
+                    error={query.error}
+                    onRetry={() => void query.fetchNextPage()}
+                  />
+                </div>
+              ) : null}
+              {bulk}
+            </LoadedFooter>
+          ) : (
+            bulk
+          )
+        }
+      />
       <p role="status" className="sr-only">
         {notice}
       </p>
-      <details className="group mt-4 rounded-lg border border-border bg-card">
-        <summary className="flex cursor-pointer list-none items-center gap-2.5 px-4 py-3 [&::-webkit-details-marker]:hidden">
-          <IconInfoCircle aria-hidden="true" className="size-4 text-foreground-2" stroke={1.75} />
-          <h2 className="text-base">How ranking works</h2>
-        </summary>
-        <div className="flex max-w-[68ch] flex-col gap-2.5 px-4 pb-4 text-foreground-2">
-          <p>
-            Each alert gets four yes or no factors: <b>S</b> critical or high severity, <b>R</b>{' '}
-            runtime dependency, <b>D</b> repo is deployed, <b>P</b> deployment has a public domain.
-            Tiers follow from those factors, then CVSS sorts within a tier.
-          </p>
-          <p>
-            Blind spots, such as a deployed repo with Dependabot alerts off, rank with the criticals
-            because their real severity is unknown. Hinomi scans the lockfile of every deployed repo
-            against OSV.dev, so each alert lists its source: GitHub, OSV or both.
-          </p>
-          <p>
-            Snoozed and accepted alerts keep their tier and show their reason. Hinomi never closes
-            or dismisses alerts on GitHub. A verified fix closes them on its own.
-          </p>
-        </div>
-      </details>
     </>
   )
 }

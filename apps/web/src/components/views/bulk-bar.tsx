@@ -6,6 +6,7 @@ import type { BulkFindingsRequest } from '@hinomi/shared'
 import { DEFER_COPY } from '@/lib/defer'
 import { Button } from '@/components/ui/button'
 import { describeError } from '@/lib/errors'
+import { cn } from '@/lib/utils'
 import { bulkFindings, refreshAfterDecision, type DeferKind } from '@/lib/view-api'
 
 export type BulkAction = DeferKind | 'reopen'
@@ -27,6 +28,7 @@ export function BulkBar({
   onDone,
   allowNewAdvisory = false,
   canReopen = false,
+  className,
 }: {
   ids: readonly number[]
   labelOf: (id: number) => string
@@ -36,6 +38,7 @@ export function BulkBar({
   allowNewAdvisory?: boolean
   /** Some selected row is snoozed or accepted. */
   canReopen?: boolean
+  className?: string
 }) {
   const queryClient = useQueryClient()
   const [kind, setKind] = useState<DeferKind | null>(null)
@@ -76,7 +79,10 @@ export function BulkBar({
     <div
       role="region"
       aria-label="Bulk actions"
-      className="sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-[6] mt-3 flex flex-col gap-3 rounded-lg border border-input bg-card px-3.5 py-3 shadow-pop tab:bottom-[calc(16px+env(safe-area-inset-bottom))]"
+      className={cn(
+        'sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-[6] mt-3 flex flex-col gap-3 rounded-lg border border-input bg-card px-3.5 py-3 shadow-pop tab:bottom-[calc(16px+env(safe-area-inset-bottom))]',
+        className,
+      )}
     >
       <div className="flex flex-wrap items-center gap-2.5">
         <b className="font-semibold" aria-live="polite">
