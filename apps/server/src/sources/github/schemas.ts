@@ -40,6 +40,7 @@ export const graphqlAlertsSchema = z.object({
                 advisory: z.object({
                   ghsaId: z.string(),
                   summary: z.string(),
+                  description: z.string().nullish(),
                   publishedAt: z.string().nullable(),
                   identifiers: z.array(z.object({ type: z.string(), value: z.string() })),
                   cvss: z

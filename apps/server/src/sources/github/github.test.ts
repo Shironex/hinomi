@@ -127,6 +127,7 @@ describe('fetchDependabotAlerts', () => {
         severity: 'high',
         cvss: 7.5,
         summary: 'Example prototype pollution',
+        description: null,
         vulnerableRange: '< 2.1.0',
         firstPatched: '2.1.0',
         publishedAt: '2025-12-01T10:00:00Z',

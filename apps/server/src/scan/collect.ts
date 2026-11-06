@@ -65,11 +65,10 @@ function parseAll(files: Awaited<ReturnType<ScanSources['fetchLockfiles']>>) {
   const unparseable: OsvRepoResult['unparseable'] = []
   for (const file of files) {
     try {
-      deps.push(
-        ...parseLockfile(file.text, file.path, {
-          ...(file.packageJson !== undefined && { packageJson: file.packageJson }),
-        }),
-      )
+      const parsed = parseLockfile(file.text, file.path, {
+        ...(file.packageJson !== undefined && { packageJson: file.packageJson }),
+      })
+      deps.push(...parsed.map((dep) => ({ ...dep, lockfile: file.path })))
       lockfiles.push(file.path)
     } catch (error) {
       unparseable.push({ path: file.path, error: errorMessage(error) })

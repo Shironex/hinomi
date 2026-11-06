@@ -35,6 +35,48 @@ function reachable(nodes: Map<string, GraphNode>, roots: Iterable<string>): Set<
   return seen
 }
 
+/** Longest chain kept: deeper ones are cut to their first and last links. */
+export const MAX_PATH_LENGTH = 12
+
+/**
+ * Shortest chain of node keys from any root to every reachable node (breadth first, roots
+ * tried in order, so pass production roots before dev roots).
+ */
+export function shortestPaths(
+  nodes: Map<string, GraphNode>,
+  roots: Iterable<string>,
+): Map<string, string[]> {
+  const parent = new Map<string, string | null>()
+  const queue: string[] = []
+  for (const root of roots) {
+    if (parent.has(root) || !nodes.has(root)) continue
+    parent.set(root, null)
+    queue.push(root)
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const key = queue[i]!
+    for (const dep of nodes.get(key)?.deps ?? []) {
+      if (parent.has(dep) || !nodes.has(dep)) continue
+      parent.set(dep, key)
+      queue.push(dep)
+    }
+  }
+  const out = new Map<string, string[]>()
+  for (const key of parent.keys()) {
+    const chain: string[] = []
+    for (let at: string | null | undefined = key; at; at = parent.get(at)) chain.unshift(at)
+    out.set(key, chain)
+  }
+  return out
+}
+
+/** Node keys to package names, cut to MAX_PATH_LENGTH (first links, an ellipsis, the last). */
+export function namePath(nodes: Map<string, GraphNode>, keys: readonly string[]): string[] {
+  const names = keys.map((key) => nodes.get(key)?.name ?? key)
+  if (names.length <= MAX_PATH_LENGTH) return names
+  return [...names.slice(0, MAX_PATH_LENGTH - 2), '...', names.at(-1)!]
+}
+
 /**
  * Walks the graph: anything reachable from a production root is runtime, the
  * rest reachable from dev roots is dev. Nodes reachable from neither (orphans,
@@ -44,17 +86,24 @@ export function classifyGraph(input: GraphInput): LockfileDependency[] {
   const runtime = input.scopeKnown ? reachable(input.nodes, input.prodRoots) : new Set<string>()
   const dev = input.scopeKnown ? reachable(input.nodes, input.devRoots) : new Set<string>()
   const direct = new Set(input.directKeys)
+  const paths = shortestPaths(input.nodes, [
+    ...input.prodRoots,
+    ...input.devRoots,
+    ...input.directKeys,
+  ])
   const out: LockfileDependency[] = []
   for (const [key, node] of input.nodes) {
     let scope: LockfileScope = 'unknown'
     if (runtime.has(key)) scope = 'runtime'
     else if (dev.has(key)) scope = 'dev'
+    const chain = paths.get(key)
     out.push({
       name: node.name,
       version: node.version,
       ecosystem: input.ecosystem,
       scope,
       direct: direct.has(key),
+      ...(chain && { path: namePath(input.nodes, chain) }),
     })
   }
   return dedupeDependencies(out)
@@ -85,7 +134,20 @@ export function dedupeDependencies(deps: Iterable<LockfileDependency>): Lockfile
       byKey.set(key, { ...dep })
       continue
     }
-    if (scopeRank[dep.scope] > scopeRank[prev.scope]) prev.scope = dep.scope
+    if (scopeRank[dep.scope] > scopeRank[prev.scope]) {
+      prev.scope = dep.scope
+      // The path that makes it runtime explains the finding better than a shorter dev one.
+      if (dep.path) prev.path = dep.path
+      if (dep.lockfile) prev.lockfile = dep.lockfile
+    } else if (
+      dep.path &&
+      scopeRank[dep.scope] === scopeRank[prev.scope] &&
+      (!prev.path || dep.path.length < prev.path.length)
+    ) {
+      prev.path = dep.path
+      if (dep.lockfile) prev.lockfile = dep.lockfile
+    }
+    if (prev.lockfile === undefined && dep.lockfile !== undefined) prev.lockfile = dep.lockfile
     prev.direct = prev.direct || dep.direct
   }
   return [...byKey.values()].sort(
