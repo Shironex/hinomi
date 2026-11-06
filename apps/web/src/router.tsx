@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-router'
 import { AppShell } from '@/components/shell/app-shell'
 import { alertsSearchSchema } from '@/lib/alerts-search'
+import { deploymentsSearchSchema } from '@/lib/deployments-search'
 import { NotFoundPage } from '@/routes/not-found'
 import { RouteError } from '@/routes/route-error'
 import { RoutePending } from '@/routes/route-pending'
@@ -65,7 +66,8 @@ const deploymentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments',
   component: lazyRouteComponent(() => import('@/routes/deployments'), 'DeploymentsPage'),
-  staticData: { nav: 'deployments', crumb: 'Deployments' },
+  validateSearch: deploymentsSearchSchema,
+  staticData: { nav: 'deployments', crumb: 'Deployments', layout: 'split' },
 })
 
 const deploymentRoute = createRoute({

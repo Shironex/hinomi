@@ -86,10 +86,7 @@ export function KeyValues({
           <dt className="text-muted-foreground">{item.label}</dt>
           <dd
             title={item.title ?? (typeof item.value === 'string' ? item.value : undefined)}
-            className={cn(
-              'm-0 min-w-0 truncate text-right',
-              item.mono && 'font-mono text-[12.5px]',
-            )}
+            className={cn('m-0 min-w-0 truncate text-right', item.mono && 'font-mono text-xs')}
           >
             {item.value}
           </dd>
