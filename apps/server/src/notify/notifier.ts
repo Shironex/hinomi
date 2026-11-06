@@ -59,6 +59,9 @@ const DIGEST_EVENTS: Record<string, ItemEvent> = {
   acceptance_expired: 'expired',
 }
 
+/** Not reported, but they end a story: a finding dismissed upstream must not be announced as new. */
+const SILENCING_EVENT = 'dismissed_upstream'
+
 const isAnnouncement = (type: string) => type === 'opened' || type === 'reopened'
 
 /**
@@ -140,8 +143,12 @@ export function createNotifier(options: NotifierOptions) {
   async function notifyImmediate(summary: ScanSummary): Promise<void> {
     const enabled = channels.resolve({ onlyEnabled: true })
     if (enabled.length === 0) return
+    // A dismissal never seen before emits `opened` first: the dismissal in the same summary wins.
+    const dismissed = new Set(
+      summary.changes.filter((c) => c.change === 'dismissed_upstream').map((c) => c.findingId),
+    )
     const candidates = summary.changes.filter(
-      (c) => c.change === 'opened' || c.change === 'reopened',
+      (c) => (c.change === 'opened' || c.change === 'reopened') && !dismissed.has(c.findingId),
     )
     if (candidates.length === 0) return
 
@@ -201,11 +208,12 @@ export function createNotifier(options: NotifierOptions) {
   ): NotificationItem[] {
     const items: NotificationItem[] = []
     for (const { finding, events } of findingChangesSince(repositories, since)) {
-      const relevant = events.filter((e) => e.type in DIGEST_EVENTS)
+      const relevant = events.filter((e) => e.type in DIGEST_EVENTS || e.type === SILENCING_EVENT)
       const first = relevant[0]
       const last = relevant.at(-1)
       const found = ranked.get(finding.id)
       if (!first || !last || !found) continue
+      if (last.type === SILENCING_EVENT) continue
       const event = DIGEST_EVENTS[last.type] as ItemEvent
       // Opened and gone again within the window: nothing changed on net.
       if (first.type === 'opened' && (event === 'fixed' || event === 'resolved')) continue

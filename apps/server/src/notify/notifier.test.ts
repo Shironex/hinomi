@@ -4,7 +4,7 @@ import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories, TEST_SECRET } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, ScanSummary } from '../scan/index.js'
-import { markFixed, reopenIfFixed } from '../scan/state.js'
+import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
 import { maskWebhookUrl } from './channels.js'
 import { createNotifier } from './notifier.js'
 import { msUntilNextDigest } from './schedule.js'
@@ -285,6 +285,31 @@ describe('immediate messages', () => {
     expect(calls).toHaveLength(2)
     expect(calls[1]?.body.type).toBe('digest')
     expect(calls[1]?.body.items[0]?.findingId).toBe(finding.id)
+  })
+})
+
+describe('findings dismissed upstream', () => {
+  it('are not announced, nor put in the digest, when first seen already dismissed', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    await n.sendDigest()
+    advance(10)
+    const finding = seedAdvisoryFinding(seedDeployedRepo().id, 'critical')
+    advance(1)
+    markDismissedUpstream(repos.findings, repos.findings.get(finding.id)!, clock, {
+      dismissedAt: clock.toISOString(),
+      reason: 'tolerable_risk',
+      comment: null,
+      alertNumbers: [1],
+    })
+
+    await n.handleScanFinished(
+      summary([opened(finding.id), { findingId: finding.id, change: 'dismissed_upstream' }]),
+    )
+    advance(10)
+    await n.sendDigest()
+
+    expect(calls).toHaveLength(0)
   })
 })
 
