@@ -103,7 +103,10 @@ export const deployments = sqliteTable(
     server: text('server'),
     status: text('status'),
     image: text('image'),
-    /** Git repository as the source reports it, before mapping. */
+    /**
+     * Git repository as `owner/name`, or as the source reports it when that
+     * cannot be parsed. Null when the deployment has no git source at all.
+     */
     gitRepository: text('git_repository'),
     gitBranch: text('git_branch'),
     /** Watch paths for monorepos, null when the source does not expose them. */

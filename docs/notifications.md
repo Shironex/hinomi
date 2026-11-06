@@ -9,6 +9,8 @@ Hinomi can post to a Discord channel, to any HTTP endpoint (a generic webhook) o
 - a new or reopened `critical` or `high` advisory finding on a repo that is deployed
 - a new or reopened blind spot on something that is deployed
 
+Coverage notes (a deployment with no git source, covered by the image scan later) are never sent, right away or in the digest.
+
 **Daily digest**, once a day at the configured hour (server local time, default 08:00), only if something changed since the last digest: new and reopened findings that were not announced already, fixed findings, resolved blind spots and ended snoozes or acceptances. A digest carries at most 30 items (most severe first); the summary says how many were left out.
 
 A finding is never announced twice. Each channel remembers which `opened` or `reopened` event it announced; the same event is never sent again, a new `reopened` event is. If an immediate message could not be delivered, the finding is not marked as sent, so the next digest carries it.

@@ -16,7 +16,7 @@ import {
 import { Hono } from 'hono'
 import type { DeploymentRow, RepoRow } from '../../db/schema.js'
 import type { Repositories, Source } from '../../repository/index.js'
-import { needsRepoMapping } from '../../scan/deployments.js'
+import { isImageOnly, needsRepoMapping } from '../../scan/deployments.js'
 import { isExposed, listRankedFindings, type RankedFinding } from '../../scan/index.js'
 import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
@@ -74,6 +74,7 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
   ]
   const source = ctx.sources.get(deployment.sourceId)
   const mapped = repos.length > 0 || !needsRepoMapping(deployment)
+  const imageOnly = repos.length === 0 && isImageOnly(deployment)
   return {
     ...toDeploymentRef(deployment),
     source: {
@@ -94,7 +95,8 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
     coverage: {
       alerts: alertsCoverage(repos),
       blindSpots,
-      covered: mapped && blindSpots.length === 0,
+      covered: mapped && !imageOnly && blindSpots.length === 0,
+      imageOnly,
     },
     openFindings: bySeverity(open),
     exposed: open.filter(isExposed).length,

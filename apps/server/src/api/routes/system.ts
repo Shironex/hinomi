@@ -74,6 +74,7 @@ function sourceHealth(source: Source): SourceHealth {
 
 function findingTitle(r: RankedFinding): string {
   if (r.advisory) return `${r.advisory.packageName} ${r.advisory.advisoryKey}`
+  if (r.kind === 'coverage_note') return 'image only'
   return (r.finding.blindSpotType ?? 'blind spot').replaceAll('_', ' ')
 }
 

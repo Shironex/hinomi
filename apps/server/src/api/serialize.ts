@@ -67,6 +67,7 @@ export function toAdvisorySummary(advisory: AdvisoryRow): AdvisorySummary {
 /** Display tier of a ranked finding (see FINDING_TIERS in the shared contract). */
 export function tierOf(ranked: Pick<RankedFinding, 'kind' | 'factors'>): FindingTier {
   if (ranked.kind === 'blind_spot') return 'blind_spot'
+  if (ranked.kind === 'coverage_note') return 'coverage'
   const { factors } = ranked
   if (!factors.deployed) return 'not_deployed'
   if (!factors.runtime) return 'dev'
@@ -91,6 +92,7 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     scope: finding.scope,
     sources: finding.reportedBy,
     blindSpotType: finding.blindSpotType,
+    coverageNote: finding.kind === 'coverage_note' ? 'image_only' : null,
     advisory: ranked.advisory ? toAdvisorySummary(ranked.advisory) : null,
     installedVersion: finding.installedVersion,
     repo: ranked.repo ? toRepoRef(ranked.repo) : null,

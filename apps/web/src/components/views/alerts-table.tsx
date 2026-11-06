@@ -4,7 +4,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { FindingStateText } from '@/components/findings/finding-state'
 import { DECIDED_FILL } from '@/components/findings/finding-row'
 import { RankMarker } from '@/components/findings/rank-marker'
-import { BlindSpotBadge, SeverityBadge } from '@/components/findings/severity-badge'
+import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from '@/components/findings/severity-badge'
 import {
   blindSpotSubject,
   factorFlags,
@@ -95,7 +95,7 @@ function AlertRow({
   const decided = isDecided(item.state)
   const SourceIcon = SOURCE_ICON[sourceKey(item.sources)]
   const name =
-    item.kind === 'blind_spot' ? blindSpotSubject(item) : (advisory?.packageName ?? 'Advisory')
+    item.kind === 'advisory' ? (advisory?.packageName ?? 'Advisory') : blindSpotSubject(item)
   return (
     <tr
       data-row
@@ -127,7 +127,9 @@ function AlertRow({
         />
       </td>
       <td className={cn(TD, 'max-tab:row-start-1')}>
-        {item.kind === 'blind_spot' ? (
+        {item.kind === 'coverage_note' ? (
+          <ImageOnlyBadge />
+        ) : item.kind === 'blind_spot' ? (
           <BlindSpotBadge />
         ) : (
           <SeverityBadge severity={item.factors.severity} />
@@ -182,7 +184,7 @@ function AlertRow({
         ) : null}
       </td>
       <td className={cn(TD, HIDE_CARD, HIDE_MID, 'text-sm')}>
-        {item.kind === 'blind_spot' ? 'Coverage' : SCOPE_LABEL[item.scope]}
+        {item.kind === 'advisory' ? SCOPE_LABEL[item.scope] : 'Coverage'}
       </td>
       <td className={cn(TD, HIDE_CARD, HIDE_MID)} title={sourcesTitle(item.sources)}>
         <SourceIcon

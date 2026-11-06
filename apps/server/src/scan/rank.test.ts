@@ -114,6 +114,20 @@ describe('rankExposure', () => {
     expect(() => rankExposure({ kind: 'blind_spot', scope: 'unknown', reach: 'none' })).toThrow()
   })
 
+  it('ranks a coverage note below every advisory, public before internal', () => {
+    const note = (reach: ExposureReach) =>
+      rankExposure({ kind: 'coverage_note', scope: 'unknown', reach })
+    const lowest = advisory('low', 'dev', 'none')
+    expect(note('public').rank).toBeLessThan(lowest.rank)
+    expect(note('public').rank).toBeGreaterThan(note('internal').rank)
+    expect(note('public').factors).toEqual({
+      severity: 'low',
+      runtime: true,
+      deployed: true,
+      public: true,
+    })
+  })
+
   it('sorts most urgent first', () => {
     const list = [advisory('low', 'dev', 'none'), advisory('critical', 'runtime', 'public')]
     expect(list.sort(compareByRank)[0]!.factors.severity).toBe('critical')
@@ -219,6 +233,23 @@ describe('countFindings', () => {
       dismissedUpstream: 1,
     })
     expect(isExposed(item('critical', 'runtime', 'public', 'dismissed_upstream'))).toBe(false)
+  })
+
+  it('leaves coverage notes out of every count', () => {
+    const counts = countFindings(
+      [
+        {
+          kind: 'coverage_note',
+          state: 'open',
+          stateUntil: null,
+          factors: rankExposure({ kind: 'coverage_note', scope: 'unknown', reach: 'public' })
+            .factors,
+        },
+      ],
+      now,
+    )
+    expect(counts.advisories.total).toBe(0)
+    expect(counts.blindSpots.total).toBe(0)
   })
 
   it('counts blind spots separately', () => {

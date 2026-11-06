@@ -67,7 +67,7 @@ export function CoverageCell({ d }: { d: DeploymentItem }) {
   if (d.coverage.alerts === 'none') {
     return (
       <span className="text-sm text-muted-foreground">
-        {d.kind === 'database' ? 'Not needed' : 'No repo'}
+        {d.kind === 'database' ? 'Not needed' : d.coverage.imageOnly ? 'Image only' : 'No repo'}
       </span>
     )
   }
@@ -127,7 +127,9 @@ export function JoinStrip({
           : 'GitHub alerts and OSV lockfile scan'
         : d.kind === 'database'
           ? 'Databases need no repo'
-          : 'Registry image, no source',
+          : d.coverage.imageOnly
+            ? 'Image only, the image scan covers it later'
+            : 'Git source not matched to a repo',
     },
     {
       label: 'Open alerts',

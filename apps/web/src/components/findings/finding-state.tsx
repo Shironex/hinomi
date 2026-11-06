@@ -8,7 +8,7 @@ import {
   IconShieldOff,
   type Icon,
 } from '@tabler/icons-react'
-import { BLIND_SPOT_INFO, decisionLabel } from '@/lib/finding-meta'
+import { decisionLabel, gapInfo } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
 
 export type StatusTone = 'neutral' | 'ok' | 'bad' | 'wait' | 'run'
@@ -63,7 +63,10 @@ export function FindingStateText({
   className,
   table = false,
 }: {
-  item: Pick<FindingListItem, 'state' | 'stateUntil' | 'stateReason' | 'kind' | 'blindSpotType'>
+  item: Pick<
+    FindingListItem,
+    'state' | 'stateUntil' | 'stateReason' | 'kind' | 'blindSpotType' | 'coverageNote'
+  >
   className?: string
   /** Table cells say a plain "Open"; ranked rows say what is missing. */
   table?: boolean
@@ -93,18 +96,25 @@ export function FindingStateText({
     case 'fixed':
       return (
         <StatusText
-          icon={item.kind === 'blind_spot' ? IconCircleCheck : IconShieldCheck}
+          icon={item.kind === 'advisory' ? IconShieldCheck : IconCircleCheck}
           tone="ok"
           className={className}
         >
-          {item.kind === 'blind_spot' ? 'Resolved' : 'Fixed'}
+          {item.kind === 'advisory' ? 'Fixed' : 'Resolved'}
         </StatusText>
       )
     case 'open':
+      if (item.kind === 'coverage_note') {
+        return (
+          <span className={cn('text-xs text-muted-foreground', className)}>
+            {gapInfo(item)?.short ?? 'Open'}
+          </span>
+        )
+      }
       if (item.kind === 'blind_spot') {
         return (
           <StatusText icon={IconEyeOff} tone="bad" className={className}>
-            {item.blindSpotType ? BLIND_SPOT_INFO[item.blindSpotType].short : 'Open'}
+            {gapInfo(item)?.short ?? 'Open'}
           </StatusText>
         )
       }

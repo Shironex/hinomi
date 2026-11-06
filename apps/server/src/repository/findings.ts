@@ -1,5 +1,6 @@
 import type {
   BlindSpotType,
+  CoverageNoteType,
   FindingKind,
   FindingScope,
   FindingState,
@@ -30,6 +31,11 @@ export function blindSpotFindingKey(
     : `blind:${type}:deployment:${subject.deploymentId}`
 }
 
+/** Dedupe key of a coverage note: one row per type and deployment. */
+export function coverageNoteFindingKey(type: CoverageNoteType, deploymentId: number): string {
+  return `note:${type}:deployment:${deploymentId}`
+}
+
 export type ObserveFindingInput =
   | {
       kind: Extract<FindingKind, 'advisory'>
@@ -47,6 +53,11 @@ export type ObserveFindingInput =
       blindSpotType: BlindSpotType
       repoId?: number
       deploymentId?: number
+    }
+  | {
+      kind: Extract<FindingKind, 'coverage_note'>
+      coverageNoteType: CoverageNoteType
+      deploymentId: number
     }
 
 export interface ChangeStateInput {
@@ -73,6 +84,8 @@ export type FindingsRepository = ReturnType<typeof createFindingsRepository>
 
 function keyFor(input: ObserveFindingInput): string {
   if (input.kind === 'advisory') return advisoryFindingKey(input.advisoryId, input.repoId)
+  if (input.kind === 'coverage_note')
+    return coverageNoteFindingKey(input.coverageNoteType, input.deploymentId)
   if (input.repoId !== undefined)
     return blindSpotFindingKey(input.blindSpotType, { repoId: input.repoId })
   if (input.deploymentId !== undefined)
@@ -153,11 +166,13 @@ export function createFindingsRepository(db: Db) {
                     installedVersion: input.installedVersion ?? null,
                     dependencyPath: input.dependencyPath ?? null,
                   }
-                : {
-                    blindSpotType: input.blindSpotType,
-                    repoId: input.repoId ?? null,
-                    deploymentId: input.deploymentId ?? null,
-                  }),
+                : input.kind === 'coverage_note'
+                  ? { deploymentId: input.deploymentId }
+                  : {
+                      blindSpotType: input.blindSpotType,
+                      repoId: input.repoId ?? null,
+                      deploymentId: input.deploymentId ?? null,
+                    }),
             })
             .returning()
             .get()

@@ -49,6 +49,7 @@ describe('fetchCoolifyInventory', () => {
       source: 'main',
       kind: 'application',
       repo: 'kestrel-co/web',
+      gitRepository: expect.stringContaining('kestrel-co/web') as unknown,
       branch: 'main',
       domains: ['https://www.example.dev', 'https://example.dev'],
       isPublic: true,
@@ -76,6 +77,7 @@ describe('fetchCoolifyInventory', () => {
     expect(byId['app-img-004']).toMatchObject({
       repo: null,
       branch: null,
+      gitRepository: null,
       image: 'ghcr.io/kestrel-co/docs:1.4.2',
       domains: ['docs.example.dev'],
       isPublic: false,
@@ -83,6 +85,7 @@ describe('fetchCoolifyInventory', () => {
     // service takes domains and images from sub applications
     expect(byId['svc-wiki-001']).toMatchObject({
       kind: 'service',
+      gitRepository: null,
       domains: ['https://wiki.example.dev'],
       isPublic: true,
       image: 'example/wiki:3.1, redis:7',

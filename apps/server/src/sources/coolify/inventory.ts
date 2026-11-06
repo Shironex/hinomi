@@ -82,6 +82,7 @@ function base(
     kind,
     repo: null,
     branch: null,
+    gitRepository: null,
     domains,
     isPublic: hasPublicDomain(domains),
     server: serverName(raw, servers),
@@ -104,6 +105,8 @@ function applicationRecord(
     ...b,
     repo: normalizeRepo(raw.git_repository),
     branch: str(raw.git_branch),
+    // Services have no git source in the API; an app has one when this is set.
+    gitRepository: str(raw.git_repository),
     image: joinImage(raw.docker_registry_image_name, raw.docker_registry_image_tag),
     watchPaths: parseWatchPaths(raw.watch_paths),
   }

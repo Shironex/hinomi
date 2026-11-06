@@ -42,8 +42,12 @@ export const FINDING_STATES = [
 export const findingStateSchema = z.enum(FINDING_STATES)
 export type FindingState = z.infer<typeof findingStateSchema>
 
-/** An advisory on a repo, or a blind spot (missing coverage) on a repo or deployment. */
-export const FINDING_KINDS = ['advisory', 'blind_spot'] as const
+/**
+ * An advisory on a repo, a blind spot (missing coverage) on a repo or
+ * deployment, or a coverage note: something Hinomi does not check yet but
+ * knows about (see COVERAGE_NOTE_TYPES). Notes rank below every advisory.
+ */
+export const FINDING_KINDS = ['advisory', 'blind_spot', 'coverage_note'] as const
 export const findingKindSchema = z.enum(FINDING_KINDS)
 export type FindingKind = z.infer<typeof findingKindSchema>
 
@@ -62,6 +66,16 @@ export const BLIND_SPOT_TYPES = [
 ] as const
 export const blindSpotTypeSchema = z.enum(BLIND_SPOT_TYPES)
 export type BlindSpotType = z.infer<typeof blindSpotTypeSchema>
+
+/**
+ * Coverage notes. `image_only` is a deployment with no git source (a service
+ * from a template, an app deployed from a registry image): there is no repo
+ * to map, and the phase 2 image scan will cover what it runs. The type is
+ * part of the finding's dedupe key; every coverage note today is `image_only`.
+ */
+export const COVERAGE_NOTE_TYPES = ['image_only'] as const
+export const coverageNoteTypeSchema = z.enum(COVERAGE_NOTE_TYPES)
+export type CoverageNoteType = z.infer<typeof coverageNoteTypeSchema>
 
 /** How reachable a deployment is: a public domain, internal only, or unknown. */
 export const DEPLOYMENT_REACHES = ['public', 'internal', 'unknown'] as const

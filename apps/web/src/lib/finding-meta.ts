@@ -1,5 +1,6 @@
 import type {
   BlindSpotType,
+  CoverageNoteType,
   DeploymentItem,
   DeploymentReach,
   ExposureFactorsDto,
@@ -58,6 +59,11 @@ export const TIER_INFO: Record<FindingTier, { name: string; hint: string; number
     name: 'Not deployed anywhere',
     hint: 'Repos with no matching deployment. Lowest rank, still listed.',
     number: 5,
+  },
+  coverage: {
+    name: 'Image only',
+    hint: 'Services and apps deployed from an image, with no git source. Not a blind spot: the image scan (phase 2) will cover them.',
+    number: 0,
   },
 }
 
@@ -148,6 +154,37 @@ export const BLIND_SPOT_INFO: Record<
   },
 }
 
+type GapInfo = { title: string; short: string; explain: string; fix: readonly [string, string][] }
+
+export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
+  image_only: {
+    title: 'Runs an image with no git source',
+    short: 'Image only',
+    explain:
+      'This service or app is deployed from a container image, not built from a repo, so there is no repo to map and no lockfile to read. It is not a blind spot: the image scan (phase 2) will check what the image contains.',
+    fix: [
+      [
+        'Nothing to do for now',
+        'The image scan in phase 2 covers it. It stays ranked low until then.',
+      ],
+      [
+        'Built from a repo you own?',
+        'Add a repo override on the deployment page: its alerts and lockfile then count for this deployment.',
+      ],
+    ],
+  },
+}
+
+/** What a blind spot or a coverage note is about; null for advisories. */
+export function gapInfo(
+  item: Pick<FindingListItem, 'kind' | 'blindSpotType' | 'coverageNote'>,
+): GapInfo | null {
+  if (item.kind === 'coverage_note') return COVERAGE_NOTE_INFO[item.coverageNote ?? 'image_only']
+  return item.kind === 'blind_spot' && item.blindSpotType
+    ? BLIND_SPOT_INFO[item.blindSpotType]
+    : null
+}
+
 export const SOURCE_LABEL: Record<Reporter, string> = { github: 'GitHub', osv: 'OSV' }
 
 export function sourcesLabel(sources: readonly Reporter[]): string {
@@ -182,10 +219,10 @@ export function isDecided(state: FindingState): boolean {
 
 const FACTOR_NAMES = ['Critical or high', 'Runtime dependency', 'Deployed', 'Public'] as const
 
-/** Which of the four rank factors are on; blind spots have unknown severity and runtime. */
+/** Which of the four rank factors are on; blind spots and coverage notes have unknown severity and runtime. */
 export function factorFlags(item: Pick<FindingListItem, 'kind' | 'factors'>) {
   const { factors } = item
-  if (item.kind === 'blind_spot') {
+  if (item.kind !== 'advisory') {
     return [null, null, factors.deployed, factors.public] as const
   }
   return [
@@ -205,11 +242,9 @@ export function factorsText(flags: readonly (boolean | null)[]): string {
   return on.length ? on.join(', ') : 'No exposure factors'
 }
 
-/** Package and advisory, or the blind spot, in one line. */
+/** Package and advisory, or the blind spot or coverage note, in one line. */
 export function findingTitle(item: FindingListItem): string {
-  if (item.kind === 'blind_spot') {
-    return item.blindSpotType ? BLIND_SPOT_INFO[item.blindSpotType].title : 'Blind spot'
-  }
+  if (item.kind !== 'advisory') return gapInfo(item)?.title ?? 'Blind spot'
   return item.advisory?.summary ?? item.advisory?.advisoryKey ?? 'Advisory'
 }
 
@@ -329,9 +364,9 @@ export function eventSentence(event: FindingEvent): string {
   }
 }
 
-/** A deployment that should map to a repo but does not (databases need none). */
-export function needsRepo(d: Pick<DeploymentItem, 'kind' | 'repos'>): boolean {
-  return d.kind !== 'database' && d.repos.length === 0
+/** A deployment that should map to a repo but does not (databases and image only ones need none). */
+export function needsRepo(d: Pick<DeploymentItem, 'kind' | 'repos' | 'coverage'>): boolean {
+  return d.kind !== 'database' && d.repos.length === 0 && !d.coverage.imageOnly
 }
 
 export function repoLabel(d: DeploymentItem): string | null {

@@ -14,6 +14,12 @@ export const deploymentRecordSchema = z.object({
   /** Git repository as `owner/name`, or null when the resource has none (images, databases). */
   repo: z.string().nullable(),
   branch: z.string().nullable(),
+  /**
+   * The git repository exactly as the source reports it, null when the
+   * resource has no git source at all (services, registry images). Set even
+   * when `repo` could not be parsed from it.
+   */
+  gitRepository: z.string().nullable().optional(),
   /** Domains as configured, with scheme, trimmed and deduplicated. */
   domains: z.array(z.string()),
   /** True when at least one domain is an http(s) URL. */

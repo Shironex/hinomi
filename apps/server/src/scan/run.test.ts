@@ -12,7 +12,8 @@ import { findingChangesSince, findingCounts, listRankedFindings } from './views.
 // harbor-web  public, alerts on: GitHub and OSV both report GHSA-hw (deduped)
 // lantern-api public, alerts off: only OSV finds the critical GHSA-la
 // dock-worker internal, alerts on, no lockfile (blind spot until one appears)
-// static-docs image only, no repo (blind spot)
+// static-docs image only, no git source (coverage note, not a blind spot)
+// legacy-cron git source Hinomi cannot match to a repo (blind spot)
 
 const COOLIFY = 'https://coolify.example.dev'
 const GITHUB = 'https://api.github.com'
@@ -88,6 +89,14 @@ function coolifyResponse(world: World, path: string): Response {
         name: 'static-docs',
         docker_registry_image_name: 'ghcr.io/kestrel-co/docs',
         fqdn: 'https://docs.example.dev',
+        status: 'running:healthy',
+      },
+      {
+        uuid: 'app-5',
+        name: 'legacy-cron',
+        git_repository: 'git@git.example.dev:legacy',
+        git_branch: 'main',
+        fqdn: null,
         status: 'running:healthy',
       },
     ])
@@ -273,7 +282,7 @@ describe('runScan', () => {
     expect(summary.errors).toEqual([])
     expect(summary.sourceResults.coolify).toMatchObject({
       status: 'ok',
-      counts: { deployments: 5 },
+      counts: { deployments: 6 },
     })
     expect(summary.sourceResults.github).toMatchObject({ status: 'ok', counts: { repos: 3 } })
     expect(summary.sourceResults.osv).toMatchObject({ status: 'ok', counts: { matches: 2 } })
@@ -306,10 +315,18 @@ describe('runScan', () => {
       'lockfile_missing:open',
       'no_repo_mapping:open',
     ])
-    expect(summary.findingsOpened).toBe(5)
+    // The blind spot is legacy-cron (a git source); static-docs gets a coverage note instead.
+    const docs = repos.deployments.list().find((d) => d.name === 'static-docs')!
+    const cron = repos.deployments.list().find((d) => d.name === 'legacy-cron')!
+    expect(cron.gitRepository).toBe('git@git.example.dev:legacy')
+    expect(repos.findings.list({ kind: 'blind_spot', deploymentId: cron.id })).toHaveLength(1)
+    expect(repos.findings.list({ deploymentId: docs.id })).toMatchObject([
+      { kind: 'coverage_note', state: 'open', dedupeKey: `note:image_only:deployment:${docs.id}` },
+    ])
+    expect(summary.findingsOpened).toBe(6)
 
     const scanRun = repos.scanRuns.get(summary.scanRunId)
-    expect(scanRun).toMatchObject({ status: 'succeeded', findingsOpened: 5 })
+    expect(scanRun).toMatchObject({ status: 'succeeded', findingsOpened: 6 })
     expect(repos.sources.listByKind('coolify')[0]?.lastOkAt).not.toBeNull()
 
     // Ranked: the critical on a public app and the alerts-off blind spot lead.
@@ -424,11 +441,37 @@ describe('runScan', () => {
     ])
     expect(summary.findingsFixed).toBe(2)
 
-    // A manual override maps static-docs to a repo: its blind spot resolves too.
-    const docs = repos.deployments.list().find((d) => d.name === 'static-docs')!
-    repos.deployments.addRepoOverride(docs.id, repoId('harbor-web'), 'docs ship from harbor-web')
+    // A manual override maps legacy-cron to a repo: its blind spot resolves too.
+    const cron = repos.deployments.list().find((d) => d.name === 'legacy-cron')!
+    repos.deployments.addRepoOverride(cron.id, repoId('harbor-web'), 'cron ships from harbor-web')
     await scan(2)
     expect(blindSpots()).toContain('no_repo_mapping:fixed')
+  })
+
+  it('moves an image only deployment from a blind spot to a coverage note', async () => {
+    await scan(0)
+    const docs = repos.deployments.list().find((d) => d.name === 'static-docs')!
+    // What an earlier version stored: a no_repo_mapping blind spot on the image only app.
+    const old = repos.findings.observe(
+      { kind: 'blind_spot', blindSpotType: 'no_repo_mapping', deploymentId: docs.id },
+      new Date(t0),
+    ).finding
+    const summary = await scan(1)
+    expect(repos.findings.get(old.id)?.state).toBe('fixed')
+    expect(repos.findings.listEvents(old.id)[0]).toMatchObject({
+      type: 'resolved',
+      data: { reason: 'reclassified', as: 'image_only' },
+    })
+    expect(summary.changes).toContainEqual({ findingId: old.id, change: 'fixed' })
+
+    // The note ranks below every advisory, and a mapping clears it.
+    const ranked = listRankedFindings(repos).filter((r) => r.state !== 'fixed')
+    expect(ranked.at(-1)).toMatchObject({ kind: 'coverage_note' })
+    const note = ranked.at(-1)!.finding
+    repos.deployments.addRepoOverride(docs.id, repoId('harbor-web'), 'docs ship from harbor-web')
+    await scan(2)
+    expect(repos.findings.get(note.id)).toMatchObject({ state: 'fixed' })
+    expect(repos.findings.listEvents(note.id)[0]?.type).toBe('resolved')
   })
 
   it('keeps blind spots untouched when the check could not run', async () => {
@@ -491,7 +534,7 @@ describe('runScan', () => {
     const changed = findingChangesSince(repos, second.startedAt)
     expect(changed.map((c) => c.finding.id)).toEqual([id])
     expect(changed[0]!.events.map((e) => e.type)).toEqual(['snooze_expired'])
-    expect(findingChangesSince(repos, first.startedAt).length).toBe(5)
+    expect(findingChangesSince(repos, first.startedAt).length).toBe(6)
   })
 
   describe('dismissed on GitHub', () => {
