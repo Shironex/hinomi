@@ -22,6 +22,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
+    HINOMI_DATA_DIR=/data \
     PORT=3000
 
 # A fixed high uid/gid so files on the volume never map to a real host user.

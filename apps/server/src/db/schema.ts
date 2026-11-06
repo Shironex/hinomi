@@ -1,0 +1,287 @@
+import {
+  BLIND_SPOT_TYPES,
+  DEPLOYMENT_REACHES,
+  FINDING_KINDS,
+  FINDING_SCOPES,
+  FINDING_STATES,
+  SCAN_RUN_STATUSES,
+  SCAN_TRIGGERS,
+  SOURCE_KINDS,
+  type AdvisorySeverity,
+  type DeploymentKind,
+  type Reporter,
+  type SourceKind,
+} from '@hinomi/shared'
+import { sql } from 'drizzle-orm'
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
+
+// Conventions:
+// - Integer autoincrement ids, timestamps as unix milliseconds (`Date` in TS).
+// - Enum-like columns are text constrained in TypeScript by the shared zod enums.
+// - JSON columns are text with a typed shape.
+// - Repo owner and name are stored lowercased (GitHub treats them case-insensitively).
+
+const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' })
+const nowMs = sql`(cast(unixepoch('subsec') * 1000 as integer))`
+const createdAt = () => timestamp('created_at').notNull().default(nowMs)
+const updatedAt = () =>
+  timestamp('updated_at')
+    .notNull()
+    .default(nowMs)
+    .$onUpdate(() => new Date())
+
+/** A connected integration: a Coolify instance, a GitHub account, OSV.dev. */
+export const sources = sqliteTable(
+  'sources',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    kind: text('kind', { enum: SOURCE_KINDS }).notNull(),
+    name: text('name').notNull(),
+    baseUrl: text('base_url'),
+    /** AES-256-GCM ciphertext (see crypto/secret-box.ts). Never leaves the server. */
+    tokenEncrypted: text('token_encrypted'),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    lastOkAt: timestamp('last_ok_at'),
+    lastErrorAt: timestamp('last_error_at'),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('sources_kind_name_unique').on(t.kind, t.name)],
+)
+
+/** A GitHub repository, whether or not anything deploys it. */
+export const repos = sqliteTable(
+  'repos',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    owner: text('owner').notNull(),
+    name: text('name').notNull(),
+    defaultBranch: text('default_branch'),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    /** Dependabot alerts switched on. Null until GitHub has been asked. */
+    alertsEnabled: integer('alerts_enabled', { mode: 'boolean' }),
+    lastScannedAt: timestamp('last_scanned_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('repos_owner_name_unique').on(t.owner, t.name)],
+)
+
+/** One running app (application, service or database) reported by a deployment source. */
+export const deployments = sqliteTable(
+  'deployments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sourceId: integer('source_id')
+      .notNull()
+      .references(() => sources.id, { onDelete: 'cascade' }),
+    /** The id the source uses for this deployment (a Coolify uuid). */
+    externalId: text('external_id').notNull(),
+    kind: text('kind').$type<DeploymentKind>().notNull(),
+    name: text('name').notNull(),
+    domains: text('domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    reach: text('reach', { enum: DEPLOYMENT_REACHES }).notNull().default('unknown'),
+    server: text('server'),
+    status: text('status'),
+    image: text('image'),
+    /** Git repository as the source reports it, before mapping. */
+    gitRepository: text('git_repository'),
+    gitBranch: text('git_branch'),
+    /** Watch paths for monorepos, null when the source does not expose them. */
+    watchPaths: text('watch_paths', { mode: 'json' }).$type<string[]>(),
+    /** Repo mapped automatically from gitRepository. Manual overrides live in deployment_repo_overrides. */
+    repoId: integer('repo_id').references(() => repos.id, { onDelete: 'set null' }),
+    lastDeployedAt: timestamp('last_deployed_at'),
+    firstSeenAt: timestamp('first_seen_at').notNull(),
+    lastSeenAt: timestamp('last_seen_at').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('deployments_source_external_unique').on(t.sourceId, t.externalId),
+    index('deployments_repo_idx').on(t.repoId),
+  ],
+)
+
+/**
+ * Manual repo mapping for a deployment (monorepos, renamed repos). When a
+ * deployment has overrides they replace its automatic repoId.
+ */
+export const deploymentRepoOverrides = sqliteTable(
+  'deployment_repo_overrides',
+  {
+    deploymentId: integer('deployment_id')
+      .notNull()
+      .references(() => deployments.id, { onDelete: 'cascade' }),
+    repoId: integer('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.deploymentId, t.repoId] }),
+    index('deployment_repo_overrides_repo_idx').on(t.repoId),
+  ],
+)
+
+/** A vulnerability advisory for one package in one ecosystem. */
+export const advisories = sqliteTable(
+  'advisories',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Primary advisory id: the GHSA id when there is one, otherwise the OSV id. */
+    advisoryKey: text('advisory_key').notNull(),
+    ghsaId: text('ghsa_id'),
+    cveIds: text('cve_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    /** Other ids the advisory is known by (OSV aliases). */
+    aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    ecosystem: text('ecosystem').notNull(),
+    packageName: text('package_name').notNull(),
+    severity: text('severity').$type<AdvisorySeverity>().notNull().default('unknown'),
+    cvssScore: real('cvss_score'),
+    cvssVector: text('cvss_vector'),
+    summary: text('summary'),
+    url: text('url'),
+    vulnerableRanges: text('vulnerable_ranges', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    firstPatchedVersion: text('first_patched_version'),
+    publishedAt: timestamp('published_at'),
+    withdrawnAt: timestamp('withdrawn_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('advisories_key_package_unique').on(t.advisoryKey, t.ecosystem, t.packageName),
+    index('advisories_ghsa_idx').on(t.ghsaId),
+  ],
+)
+
+/**
+ * Something to act on: an advisory on a repo, or a blind spot (missing
+ * coverage) on a repo or a deployment. `dedupeKey` keeps one row per subject;
+ * see repository/findings.ts for how it is built.
+ */
+export const findings = sqliteTable(
+  'findings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    dedupeKey: text('dedupe_key').notNull(),
+    kind: text('kind', { enum: FINDING_KINDS }).notNull(),
+    advisoryId: integer('advisory_id').references(() => advisories.id, { onDelete: 'cascade' }),
+    blindSpotType: text('blind_spot_type', { enum: BLIND_SPOT_TYPES }),
+    repoId: integer('repo_id').references(() => repos.id, { onDelete: 'cascade' }),
+    /** Set for blind spots about a deployment itself (no repo mapping). */
+    deploymentId: integer('deployment_id').references(() => deployments.id, {
+      onDelete: 'cascade',
+    }),
+    scope: text('scope', { enum: FINDING_SCOPES }).notNull().default('unknown'),
+    reportedBy: text('reported_by', { mode: 'json' }).$type<Reporter[]>().notNull().default([]),
+    manifestPaths: text('manifest_paths', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    installedVersion: text('installed_version'),
+    state: text('state', { enum: FINDING_STATES }).notNull().default('open'),
+    /** Why it was snoozed or accepted. */
+    stateReason: text('state_reason'),
+    /** When a snooze or acceptance expires. */
+    stateUntil: timestamp('state_until'),
+    firstSeenAt: timestamp('first_seen_at').notNull(),
+    lastSeenAt: timestamp('last_seen_at').notNull(),
+    fixedAt: timestamp('fixed_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('findings_dedupe_key_unique').on(t.dedupeKey),
+    index('findings_repo_idx').on(t.repoId),
+    index('findings_advisory_idx').on(t.advisoryId),
+    index('findings_deployment_idx').on(t.deploymentId),
+    index('findings_state_idx').on(t.state),
+  ],
+)
+
+/** History of a finding: every state change, who made it, and why. */
+export const findingEvents = sqliteTable(
+  'finding_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    findingId: integer('finding_id')
+      .notNull()
+      .references(() => findings.id, { onDelete: 'cascade' }),
+    /** What happened, for example opened, state_changed, fixed, reopened. */
+    type: text('type').notNull(),
+    fromState: text('from_state', { enum: FINDING_STATES }),
+    toState: text('to_state', { enum: FINDING_STATES }),
+    reason: text('reason'),
+    until: timestamp('until'),
+    /** `system` for scans and expiries, `user` for decisions made in the UI. */
+    actor: text('actor', { enum: ['system', 'user'] })
+      .notNull()
+      .default('system'),
+    data: text('data', { mode: 'json' }).$type<Record<string, unknown>>(),
+    at: timestamp('at').notNull(),
+  },
+  (t) => [index('finding_events_finding_idx').on(t.findingId, t.at)],
+)
+
+/** Outcome of one source within a scan run. */
+export interface ScanSourceResult {
+  status: 'ok' | 'error' | 'skipped'
+  /** Source specific counters, for example { deployments: 12 } or { repos: 30, alerts: 210 }. */
+  counts: Record<string, number>
+  error?: string
+  durationMs?: number
+}
+
+export const scanRuns = sqliteTable(
+  'scan_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    trigger: text('trigger', { enum: SCAN_TRIGGERS }).notNull(),
+    status: text('status', { enum: SCAN_RUN_STATUSES }).notNull().default('running'),
+    startedAt: timestamp('started_at').notNull(),
+    finishedAt: timestamp('finished_at'),
+    durationMs: integer('duration_ms'),
+    /** Per source counts and errors, keyed by source kind. */
+    sourceResults: text('source_results', { mode: 'json' })
+      .$type<Partial<Record<SourceKind, ScanSourceResult>>>()
+      .notNull()
+      .default({}),
+    findingsOpened: integer('findings_opened').notNull().default(0),
+    findingsFixed: integer('findings_fixed').notNull().default(0),
+    error: text('error'),
+  },
+  (t) => [index('scan_runs_started_idx').on(t.startedAt)],
+)
+
+/** Free-form key/value settings (scan interval, notification targets, ...). */
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value', { mode: 'json' }).$type<unknown>().notNull(),
+  updatedAt: updatedAt(),
+})
+
+export type SourceRow = typeof sources.$inferSelect
+export type RepoRow = typeof repos.$inferSelect
+export type NewRepoRow = typeof repos.$inferInsert
+export type DeploymentRow = typeof deployments.$inferSelect
+export type NewDeploymentRow = typeof deployments.$inferInsert
+export type DeploymentRepoOverrideRow = typeof deploymentRepoOverrides.$inferSelect
+export type AdvisoryRow = typeof advisories.$inferSelect
+export type NewAdvisoryRow = typeof advisories.$inferInsert
+export type FindingRow = typeof findings.$inferSelect
+export type NewFindingRow = typeof findings.$inferInsert
+export type FindingEventRow = typeof findingEvents.$inferSelect
+export type NewFindingEventRow = typeof findingEvents.$inferInsert
+export type ScanRunRow = typeof scanRuns.$inferSelect
+export type SettingRow = typeof settings.$inferSelect

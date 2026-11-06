@@ -11,3 +11,7 @@
 *.db-journal
 .DS_Store
 docs
+data/
+**/data/
+*.db-wal
+*.db-shm

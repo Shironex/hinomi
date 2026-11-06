@@ -1,0 +1,240 @@
+import type {
+  BlindSpotType,
+  FindingKind,
+  FindingScope,
+  FindingState,
+  Reporter,
+} from '@hinomi/shared'
+import { and, asc, desc, eq, type SQL } from 'drizzle-orm'
+import type { Db } from '../db/client.js'
+import {
+  findingEvents,
+  findings,
+  type FindingEventRow,
+  type FindingRow,
+  type NewFindingEventRow,
+} from '../db/schema.js'
+
+/** Dedupe key of an advisory finding: one row per advisory and repo. */
+export function advisoryFindingKey(advisoryId: number, repoId: number): string {
+  return `advisory:${advisoryId}:repo:${repoId}`
+}
+
+/** Dedupe key of a blind spot: one row per type and subject (a repo or a deployment). */
+export function blindSpotFindingKey(
+  type: BlindSpotType,
+  subject: { repoId: number } | { deploymentId: number },
+): string {
+  return 'repoId' in subject
+    ? `blind:${type}:repo:${subject.repoId}`
+    : `blind:${type}:deployment:${subject.deploymentId}`
+}
+
+export type ObserveFindingInput =
+  | {
+      kind: Extract<FindingKind, 'advisory'>
+      advisoryId: number
+      repoId: number
+      scope?: FindingScope
+      reportedBy: Reporter[]
+      manifestPaths?: string[]
+      installedVersion?: string | null
+    }
+  | {
+      kind: Extract<FindingKind, 'blind_spot'>
+      blindSpotType: BlindSpotType
+      repoId?: number
+      deploymentId?: number
+    }
+
+export interface ChangeStateInput {
+  state: FindingState
+  reason?: string | null
+  until?: Date | null
+  actor: 'system' | 'user'
+  /** Event type written to history. Defaults to `state_changed`. */
+  eventType?: string
+  data?: Record<string, unknown>
+}
+
+export interface ListFindingsFilter {
+  repoId?: number
+  deploymentId?: number
+  advisoryId?: number
+  kind?: FindingKind
+  state?: FindingState
+}
+
+export type FindingsRepository = ReturnType<typeof createFindingsRepository>
+
+function keyFor(input: ObserveFindingInput): string {
+  if (input.kind === 'advisory') return advisoryFindingKey(input.advisoryId, input.repoId)
+  if (input.repoId !== undefined)
+    return blindSpotFindingKey(input.blindSpotType, { repoId: input.repoId })
+  if (input.deploymentId !== undefined)
+    return blindSpotFindingKey(input.blindSpotType, { deploymentId: input.deploymentId })
+  throw new Error('A blind spot finding needs a repoId or a deploymentId')
+}
+
+function union<T>(a: readonly T[], b: readonly T[]): T[] {
+  return [...new Set([...a, ...b])]
+}
+
+/**
+ * Storage primitives for findings and their history. The state machine
+ * (when to reopen, expire or fix) lives with the finding logic; every state
+ * change made here writes a finding_events row in the same transaction.
+ */
+export function createFindingsRepository(db: Db) {
+  function get(id: number): FindingRow | undefined {
+    return db.select().from(findings).where(eq(findings.id, id)).get()
+  }
+
+  function addEvent(event: Omit<NewFindingEventRow, 'id'>): FindingEventRow {
+    return db.insert(findingEvents).values(event).returning().get()
+  }
+
+  return {
+    get,
+
+    getByKey(dedupeKey: string): FindingRow | undefined {
+      return db.select().from(findings).where(eq(findings.dedupeKey, dedupeKey)).get()
+    },
+
+    list(filter: ListFindingsFilter = {}): FindingRow[] {
+      const conditions: SQL[] = []
+      if (filter.repoId !== undefined) conditions.push(eq(findings.repoId, filter.repoId))
+      if (filter.deploymentId !== undefined)
+        conditions.push(eq(findings.deploymentId, filter.deploymentId))
+      if (filter.advisoryId !== undefined)
+        conditions.push(eq(findings.advisoryId, filter.advisoryId))
+      if (filter.kind !== undefined) conditions.push(eq(findings.kind, filter.kind))
+      if (filter.state !== undefined) conditions.push(eq(findings.state, filter.state))
+      return db
+        .select()
+        .from(findings)
+        .where(and(...conditions))
+        .orderBy(asc(findings.id))
+        .all()
+    },
+
+    /**
+     * Records that a scan saw this finding. A new finding is created as open
+     * with an `opened` event. An existing one gets lastSeenAt bumped, its
+     * reporters merged and its details refreshed; its state is left alone.
+     */
+    observe(
+      input: ObserveFindingInput,
+      seenAt: Date = new Date(),
+    ): { finding: FindingRow; created: boolean } {
+      const dedupeKey = keyFor(input)
+      return db.transaction(() => {
+        const existing = db.select().from(findings).where(eq(findings.dedupeKey, dedupeKey)).get()
+
+        if (!existing) {
+          const finding = db
+            .insert(findings)
+            .values({
+              dedupeKey,
+              kind: input.kind,
+              firstSeenAt: seenAt,
+              lastSeenAt: seenAt,
+              ...(input.kind === 'advisory'
+                ? {
+                    advisoryId: input.advisoryId,
+                    repoId: input.repoId,
+                    scope: input.scope ?? 'unknown',
+                    reportedBy: union([], input.reportedBy),
+                    manifestPaths: input.manifestPaths ?? [],
+                    installedVersion: input.installedVersion ?? null,
+                  }
+                : {
+                    blindSpotType: input.blindSpotType,
+                    repoId: input.repoId ?? null,
+                    deploymentId: input.deploymentId ?? null,
+                  }),
+            })
+            .returning()
+            .get()
+          addEvent({ findingId: finding.id, type: 'opened', toState: 'open', at: seenAt })
+          return { finding, created: true }
+        }
+
+        const finding = db
+          .update(findings)
+          .set({
+            lastSeenAt: seenAt,
+            ...(input.kind === 'advisory' && {
+              ...(input.scope !== undefined && { scope: input.scope }),
+              reportedBy: union(existing.reportedBy, input.reportedBy),
+              manifestPaths: union(existing.manifestPaths, input.manifestPaths ?? []),
+              ...(input.installedVersion !== undefined && {
+                installedVersion: input.installedVersion,
+              }),
+            }),
+          })
+          .where(eq(findings.id, existing.id))
+          .returning()
+          .get()
+        return { finding, created: false }
+      })
+    },
+
+    /** Replaces the set of sources that report a finding (for example after a rescan). */
+    setReportedBy(id: number, reportedBy: Reporter[]): void {
+      db.update(findings)
+        .set({ reportedBy: union([], reportedBy) })
+        .where(eq(findings.id, id))
+        .run()
+    },
+
+    /**
+     * Moves a finding to a new state and writes the history event in one
+     * transaction. Entering `fixed` sets fixedAt; leaving it clears fixedAt.
+     */
+    changeState(id: number, input: ChangeStateInput, at: Date = new Date()): FindingRow {
+      return db.transaction(() => {
+        const current = get(id)
+        if (!current) throw new Error(`Finding ${id} does not exist`)
+        const reason = input.reason ?? null
+        const until = input.until ?? null
+        const updated = db
+          .update(findings)
+          .set({
+            state: input.state,
+            stateReason: reason,
+            stateUntil: until,
+            fixedAt: input.state === 'fixed' ? (current.fixedAt ?? at) : null,
+          })
+          .where(eq(findings.id, id))
+          .returning()
+          .get()
+        addEvent({
+          findingId: id,
+          type: input.eventType ?? 'state_changed',
+          fromState: current.state,
+          toState: input.state,
+          reason,
+          until,
+          actor: input.actor,
+          data: input.data ?? null,
+          at,
+        })
+        return updated
+      })
+    },
+
+    /** Writes a history event that is not a state change (a note, a new reporter, ...). */
+    addEvent,
+
+    /** History of a finding, newest first. */
+    listEvents(findingId: number): FindingEventRow[] {
+      return db
+        .select()
+        .from(findingEvents)
+        .where(eq(findingEvents.findingId, findingId))
+        .orderBy(desc(findingEvents.at), desc(findingEvents.id))
+        .all()
+    },
+  }
+}
