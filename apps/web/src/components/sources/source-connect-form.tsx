@@ -1,44 +1,25 @@
 import type * as React from 'react'
 import { useRef, useState } from 'react'
-import { testTokenRequestSchema, type SourceDto, type SourceTestResult } from '@hinomi/shared'
+import { testTokenRequestSchema, type SourceAuth } from '@hinomi/shared'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { IconLoader2, IconPlugConnected } from '@tabler/icons-react'
 import { Field, FieldError } from '@/components/form/field'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { queryKeys } from '@/lib/queries'
 import { checkField, hostOf, isSecretKeyMissing, mutationMessage } from '@/lib/form'
-import { createSource, settingsKeys, testSourceCredentials, updateSource } from '@/lib/settings-api'
+import { createSource, testSourceCredentials, updateSource } from '@/lib/settings-api'
+import {
+  ConnectionTestFailed,
+  TOKEN_CODES,
+  refreshAfterConnect,
+  sentence,
+  urlSchema,
+  type ConnectFormProps,
+} from './connect-shared'
+import { GithubAppConnectForm, GithubAuthChoice } from './github-app-connect-form'
 import { SecretKeyCallout } from './secret-key-callout'
 
-export type ConnectableKind = 'coolify' | 'github'
-
-type SuccessfulTest = Extract<SourceTestResult, { ok: true }>
-
-export interface ConnectResult {
-  source: SourceDto
-  test: SuccessfulTest
-}
-
-interface SourceConnectFormProps {
-  kind: ConnectableKind
-  /** A saved source to give a new token (and for Coolify, maybe a new URL). Omit to create one. */
-  source?: SourceDto
-  onConnected: (result: ConnectResult) => void
-  onCancel?: () => void
-}
-
-/** A failed connection test, carried through the mutation so it lands by the right field. */
-class ConnectionTestFailed extends Error {
-  readonly code: string
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-  }
-}
-
-// Codes from the Coolify and GitHub testers that mean the token is the problem.
-const TOKEN_CODES = new Set(['unauthorized', 'forbidden', 'auth', 'permission'])
+export type { ConnectableKind, ConnectResult } from './connect-shared'
 
 const COPY = {
   coolify: {
@@ -60,14 +41,28 @@ const COPY = {
   },
 } as const
 
-const urlSchema = testTokenRequestSchema.shape.baseUrl.unwrap().unwrap()
-
 /**
  * Tests Coolify or GitHub credentials with the server, then saves them. Used
- * by onboarding (create) and settings (replace the token). The token never
- * comes back from the server, so the field always starts empty.
+ * by onboarding (create) and settings (replace the credentials). GitHub can
+ * connect with a token or as a GitHub App.
  */
-export function SourceConnectForm({ kind, source, onConnected, onCancel }: SourceConnectFormProps) {
+export function SourceConnectForm(props: ConnectFormProps) {
+  const [auth, setAuth] = useState<SourceAuth>(props.source?.auth ?? 'token')
+  if (props.kind !== 'github') return <TokenConnectForm {...props} />
+  return (
+    <div className="flex flex-col gap-3.5">
+      <GithubAuthChoice value={auth} onChange={setAuth} />
+      {auth === 'github_app' ? (
+        <GithubAppConnectForm {...props} />
+      ) : (
+        <TokenConnectForm {...props} />
+      )}
+    </div>
+  )
+}
+
+/** The token never comes back from the server, so the field always starts empty. */
+function TokenConnectForm({ kind, source, onConnected, onCancel }: ConnectFormProps) {
   const copy = COPY[kind]
   const queryClient = useQueryClient()
   const replacing = source !== undefined
@@ -92,6 +87,8 @@ export function SourceConnectForm({ kind, source, onConnected, onCancel }: Sourc
         ? await updateSource(source.id, {
             token,
             ...(baseUrl !== source.baseUrl && { baseUrl }),
+            // A GitHub App source switching back to a token.
+            ...(source.auth !== 'token' && { auth: 'token' }),
           })
         : await createSource({
             kind,
@@ -103,15 +100,12 @@ export function SourceConnectForm({ kind, source, onConnected, onCancel }: Sourc
     },
     onSuccess: async (result) => {
       setToken('')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: settingsKeys.sources }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.scanStatus }),
-      ])
+      await refreshAfterConnect(queryClient)
       onConnected(result)
     },
     onError: (error) => {
       if (error instanceof ConnectionTestFailed) {
-        const message = error.message.endsWith('.') ? error.message : `${error.message}.`
+        const message = sentence(error.message)
         if (TOKEN_CODES.has(error.code) || !showUrl) {
           setTokenError(message)
           tokenRef.current?.focus()

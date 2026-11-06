@@ -162,6 +162,7 @@ function SourceCard({
   const synced = source.lastOkAt ? `synced ${formatRelative(source.lastOkAt)}` : 'not synced yet'
   const enabled = toggle.isPending ? (toggle.variables ?? source.enabled) : source.enabled
   const lastErrorIsCurrent = health.variant === 'critical' && source.lastError
+  const isApp = source.auth === 'github_app'
 
   return (
     <Panel>
@@ -189,7 +190,15 @@ function SourceCard({
         <dd className="truncate font-mono text-[0.92em]">
           {source.baseUrl ?? (kind === 'github' ? 'github.com' : 'Not set')}
         </dd>
-        <dt className="text-muted-foreground">Token</dt>
+        {isApp ? (
+          <>
+            <dt className="text-muted-foreground">Signs in as</dt>
+            <dd className="truncate font-mono text-[0.92em]">
+              App {source.appId}, installation {source.installationId}
+            </dd>
+          </>
+        ) : null}
+        <dt className="text-muted-foreground">{isApp ? 'Private key' : 'Token'}</dt>
         <dd>
           {source.hasToken ? (
             <Badge variant="outline">
@@ -199,7 +208,7 @@ function SourceCard({
           ) : (
             <Badge variant="high">Not set</Badge>
           )}
-          <span className="sr-only">. Tokens are never shown again.</span>
+          <span className="sr-only">. Secrets are never shown again.</span>
         </dd>
       </dl>
 
@@ -209,9 +218,10 @@ function SourceCard({
             kind={kind}
             source={source}
             onCancel={() => setReplacing(false)}
-            onConnected={({ test: result }) => {
+            onConnected={({ source: saved, test: result }) => {
               setReplacing(false)
-              setReplacedMessage(`Token replaced. ${result.message}.`)
+              const what = saved.auth === 'github_app' ? 'GitHub App saved' : 'Token replaced'
+              setReplacedMessage(`${what}. ${result.message}.`)
             }}
           />
         </div>
@@ -244,7 +254,7 @@ function SourceCard({
               }}
               disabled={!canStoreTokens}
             >
-              Replace token
+              {isApp ? 'Replace credentials' : 'Replace token'}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
               <IconTrash aria-hidden="true" />
