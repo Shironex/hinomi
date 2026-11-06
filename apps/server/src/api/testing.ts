@@ -295,3 +295,137 @@ export function seedWorld(repos: Repositories) {
   ).finding
   return { coolify, repo, other, web, proxy, advisory, critical, lowDev, undeployed, blind }
 }
+
+/**
+ * A fictional org for fix grouping: a public storefront, an internal ledger API and a repo
+ * nothing deploys. `kestrel-http` needs different versions in each repo (mixed targets),
+ * `pad-ng` has no patch yet, and several findings are left out of every fix: snoozed,
+ * accepted, dismissed upstream, fixed, patched in the lockfile, a blind spot and a coverage note.
+ */
+export function seedFixWorld(repos: Repositories) {
+  const now = new Date()
+  const source = repos.sources.create({
+    kind: 'coolify',
+    name: 'main',
+    baseUrl: 'https://coolify.example.dev',
+    token: 'coolify-token-fictional-0001',
+  })
+  const storefront = repos.repos.upsert({ owner: 'kestrel-co', name: 'storefront' })
+  const ledger = repos.repos.upsert({ owner: 'kestrel-co', name: 'ledger' })
+  const docs = repos.repos.upsert({ owner: 'kestrel-co', name: 'docs' })
+  const web = repos.deployments.upsert(
+    {
+      sourceId: source.id,
+      externalId: 'app-web',
+      kind: 'application',
+      name: 'storefront-web',
+      domains: ['https://shop.example.dev'],
+      reach: 'public',
+      status: 'running:healthy',
+      repoId: storefront.id,
+    },
+    now,
+  )
+  const api = repos.deployments.upsert(
+    {
+      sourceId: source.id,
+      externalId: 'app-api',
+      kind: 'application',
+      name: 'ledger-api',
+      domains: [],
+      reach: 'internal',
+      status: 'running:healthy',
+      repoId: ledger.id,
+    },
+    now,
+  )
+  const imageOnly = repos.deployments.upsert(
+    {
+      sourceId: source.id,
+      externalId: 'svc-cache',
+      kind: 'service',
+      name: 'cache',
+      domains: [],
+      reach: 'internal',
+      status: 'running',
+    },
+    now,
+  )
+
+  const advisory = (
+    packageName: string,
+    key: string,
+    severity: 'critical' | 'high' | 'moderate' | 'low',
+    firstPatchedVersion: string | null,
+    ecosystem = 'npm',
+  ) =>
+    repos.advisories.upsert({
+      advisoryKey: `GHSA-${key}`,
+      ecosystem,
+      packageName,
+      severity,
+      firstPatchedVersion,
+    })
+  const open = (
+    advisoryId: number,
+    repoId: number,
+    scope: 'runtime' | 'dev' = 'runtime',
+    patchedInLockfile = false,
+  ) =>
+    repos.findings.observe(
+      {
+        kind: 'advisory',
+        advisoryId,
+        repoId,
+        scope,
+        reportedBy: ['github'],
+        ...(patchedInLockfile && { patchedInLockfile }),
+      },
+      now,
+    ).finding
+
+  const httpCritical = advisory('kestrel-http', 'http1-aaaa-0001', 'critical', '2.0.1')
+  const httpHigh = advisory('kestrel-http', 'http2-aaaa-0002', 'high', '2.1.0')
+  const httpModerate = advisory('kestrel-http', 'http3-aaaa-0003', 'moderate', '2.0.4')
+  const globOld = advisory('tiny-glob', 'glob1-aaaa-0004', 'low', '1.4.0')
+  const globNew = advisory('tiny-glob', 'glob2-aaaa-0005', 'moderate', '1.10.0')
+  const padNg = advisory('pad-ng', 'pad1-aaaa-0006', 'critical', null)
+  const hyperOpen = advisory('hyper-lite', 'hyp1-aaaa-0007', 'high', '0.14.9', 'cargo')
+  const hyperStale = advisory('hyper-lite', 'hyp2-aaaa-0008', 'critical', '0.14.10', 'cargo')
+  const xmlSnoozed = advisory('xml-lite', 'xml1-aaaa-0009', 'high', '3.2.0')
+  const xmlAccepted = advisory('xml-lite', 'xml2-aaaa-0010', 'high', '3.3.0')
+  const xmlDismissed = advisory('xml-lite', 'xml3-aaaa-0011', 'high', '3.4.0')
+  const xmlFixed = advisory('xml-lite', 'xml4-aaaa-0012', 'high', '3.5.0')
+
+  const findings = {
+    httpCriticalStorefront: open(httpCritical.id, storefront.id),
+    httpHighStorefront: open(httpHigh.id, storefront.id),
+    httpModerateStorefront: open(httpModerate.id, storefront.id),
+    httpCriticalLedger: open(httpCritical.id, ledger.id),
+    httpModerateDocs: open(httpModerate.id, docs.id),
+    globOldStorefront: open(globOld.id, storefront.id, 'dev'),
+    globNewStorefront: open(globNew.id, storefront.id),
+    padStorefront: open(padNg.id, storefront.id),
+    hyperLedger: open(hyperOpen.id, ledger.id),
+    hyperStaleLedger: open(hyperStale.id, ledger.id, 'runtime', true),
+    xmlSnoozed: open(xmlSnoozed.id, storefront.id),
+    xmlAccepted: open(xmlAccepted.id, storefront.id),
+    xmlDismissed: open(xmlDismissed.id, storefront.id),
+    xmlFixed: open(xmlFixed.id, storefront.id),
+  }
+  const decide = (state: 'snoozed' | 'accepted' | 'dismissed_upstream' | 'fixed', id: number) =>
+    repos.findings.changeState(id, { state, actor: state === 'fixed' ? 'system' : 'user' }, now)
+  decide('snoozed', findings.xmlSnoozed.id)
+  decide('accepted', findings.xmlAccepted.id)
+  decide('dismissed_upstream', findings.xmlDismissed.id)
+  decide('fixed', findings.xmlFixed.id)
+  const blind = repos.findings.observe(
+    { kind: 'blind_spot', blindSpotType: 'lockfile_missing', repoId: docs.id },
+    now,
+  ).finding
+  const coverage = repos.findings.observe(
+    { kind: 'coverage_note', coverageNoteType: 'image_only', deploymentId: imageOnly.id },
+    now,
+  ).finding
+  return { storefront, ledger, docs, web, api, imageOnly, findings, blind, coverage }
+}
