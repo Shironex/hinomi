@@ -1,6 +1,6 @@
 import type * as React from 'react'
 import { useRef, useState } from 'react'
-import { testSourceRequestSchema, type SourceDto, type SourceTestResult } from '@hinomi/shared'
+import { testTokenRequestSchema, type SourceDto, type SourceTestResult } from '@hinomi/shared'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { IconLoader2, IconPlugConnected } from '@tabler/icons-react'
 import { Field, FieldError } from '@/components/form/field'
@@ -60,7 +60,7 @@ const COPY = {
   },
 } as const
 
-const urlSchema = testSourceRequestSchema.shape.baseUrl.unwrap().unwrap()
+const urlSchema = testTokenRequestSchema.shape.baseUrl.unwrap().unwrap()
 
 /**
  * Tests Coolify or GitHub credentials with the server, then saves them. Used
@@ -139,7 +139,7 @@ export function SourceConnectForm({ kind, source, onConnected, onCancel }: Sourc
             : 'Enter the API URL, or switch back to github.com.',
         )
       : null
-    const nextTokenError = checkField(testSourceRequestSchema.shape.token, token, copy.tokenEmpty)
+    const nextTokenError = checkField(testTokenRequestSchema.shape.token, token, copy.tokenEmpty)
     setUrlError(nextUrlError)
     setTokenError(nextTokenError)
     if (nextUrlError) return urlRef.current?.focus()

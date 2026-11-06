@@ -8,6 +8,7 @@ import {
   reporterSchema,
   scanRunStatusSchema,
   scanTriggerSchema,
+  sourceAuthSchema,
   sourceKindSchema,
 } from './model.js'
 import { deploymentKindSchema } from './sources/coolify.js'
@@ -221,13 +222,20 @@ export type ScanRun = z.infer<typeof scanRunSchema>
 // ---------------------------------------------------------------------------
 // Sources
 
-/** A connected source. Tokens are never sent: only whether one is stored. */
+/** A connected source. Secrets are never sent: only whether one is stored. */
 export const sourceSchema = z.object({
   id,
   kind: sourceKindSchema,
   name: z.string(),
   baseUrl: z.string().nullable(),
   enabled: z.boolean(),
+  /** `github_app` only for GitHub sources connected through a GitHub App. */
+  auth: sourceAuthSchema,
+  /** GitHub App ID or Client ID. Null unless `auth` is `github_app`. */
+  appId: z.string().nullable(),
+  /** GitHub App installation ID. Null unless `auth` is `github_app`. */
+  installationId: z.string().nullable(),
+  /** The secret is stored: the token, or for a GitHub App its private key. */
   hasToken: z.boolean(),
   lastOkAt: isoDate.nullable(),
   lastErrorAt: isoDate.nullable(),
@@ -246,6 +254,26 @@ export type SourcesResponse = z.infer<typeof sourcesResponseSchema>
 
 const sourceName = z.string().trim().min(1).max(100)
 const token = z.string().trim().min(1).max(500)
+/** The App ID (a number) or the Client ID (`Iv23...`); GitHub accepts either as the JWT issuer. */
+const appId = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9._-]+$/, 'Must be the App ID or the Client ID of the GitHub App')
+const installationId = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]{0,19}$/, 'Must be the installation ID, a number')
+/** The .pem file GitHub hands out for the app, PKCS#1 or PKCS#8. */
+const privateKey = z
+  .string()
+  .trim()
+  .max(16_000)
+  .regex(
+    /^-----BEGIN (RSA )?PRIVATE KEY-----[A-Za-z0-9+/=\s]+-----END (RSA )?PRIVATE KEY-----$/,
+    'Must be the private key (.pem) of the GitHub App',
+  )
 const httpUrl = z
   .string()
   .trim()
@@ -257,9 +285,15 @@ export const createSourceRequestSchema = z.strictObject({
   name: sourceName,
   /** Coolify: required. GitHub: optional, for GitHub Enterprise. OSV: not used. */
   baseUrl: httpUrl.nullable().optional(),
-  /** Coolify and GitHub: required. Encrypted before it is stored. */
+  /** Coolify and GitHub with token auth: required. Encrypted before it is stored. */
   token: token.optional(),
   enabled: z.boolean().optional(),
+  /** GitHub only. Defaults to `token`. */
+  auth: sourceAuthSchema.optional(),
+  /** GitHub App: all three are required. The private key is encrypted before it is stored. */
+  appId: appId.optional(),
+  installationId: installationId.optional(),
+  privateKey: privateKey.optional(),
 })
 export type CreateSourceRequest = z.infer<typeof createSourceRequestSchema>
 
@@ -270,16 +304,39 @@ export const updateSourceRequestSchema = z
     /** A new token replaces the stored one. */
     token: token.optional(),
     enabled: z.boolean().optional(),
+    /** GitHub: switching how it signs in also needs the new secret (token or private key). */
+    auth: sourceAuthSchema.optional(),
+    appId: appId.optional(),
+    installationId: installationId.optional(),
+    /** A new private key replaces the stored one. */
+    privateKey: privateKey.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateSourceRequest = z.infer<typeof updateSourceRequestSchema>
 
-/** Test credentials before saving them (onboarding). */
-export const testSourceRequestSchema = z.strictObject({
+/** Test a Coolify or GitHub token before saving it. */
+export const testTokenRequestSchema = z.strictObject({
   kind: z.enum(['coolify', 'github']),
+  auth: z.literal('token').optional(),
   baseUrl: httpUrl.nullable().optional(),
   token,
 })
+
+/** Test GitHub App credentials before saving them. */
+export const testGithubAppRequestSchema = z.strictObject({
+  kind: z.literal('github'),
+  auth: z.literal('github_app'),
+  baseUrl: httpUrl.nullable().optional(),
+  appId,
+  installationId,
+  privateKey,
+})
+
+/** Test credentials before saving them (onboarding). */
+export const testSourceRequestSchema = z.discriminatedUnion('auth', [
+  testTokenRequestSchema,
+  testGithubAppRequestSchema,
+])
 export type TestSourceRequest = z.infer<typeof testSourceRequestSchema>
 
 export const sourceTestResultSchema = z.discriminatedUnion('ok', [
@@ -293,6 +350,14 @@ export const sourceTestResultSchema = z.discriminatedUnion('ok', [
     login: z.string().optional(),
     /** Classic token scopes; null for fine-grained tokens. */
     scopes: z.array(z.string()).nullable().optional(),
+    /** GitHub App: the user or organization the app is installed on. */
+    account: z.string().optional(),
+    /** GitHub App: every repo of the account, or only the selected ones. */
+    repositorySelection: z.enum(['all', 'selected']).optional(),
+    /** GitHub App: repos the installation can read. */
+    repoCount: z.number().int().optional(),
+    /** GitHub App: permissions Hinomi needs that the installation lacks, like `dependabot_alerts`. */
+    missingPermissions: z.array(z.string()).optional(),
   }),
   z.object({ ok: z.literal(false), code: z.string(), message: z.string() }),
 ])

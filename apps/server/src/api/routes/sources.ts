@@ -6,12 +6,14 @@ import {
   sourceTestResultSchema,
   testSourceRequestSchema,
   updateSourceRequestSchema,
+  type SourceAuth,
   type SourceKind,
   type SourceTestResult,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Repositories, Source } from '../../repository/index.js'
+import { isGithubError, readAppPrivateKey } from '../../sources/github/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, send } from '../http.js'
 import { toSourceDto } from '../serialize.js'
@@ -67,12 +69,64 @@ function checkShape({ kind, baseUrl, hasToken }: SourceShape): void {
   }
 }
 
+function invalid(message: string): HttpError {
+  return new HttpError(400, 'validation_failed', message)
+}
+
+/** Refuses a PEM node:crypto cannot read, so a broken key is caught when it is entered. */
+function requireReadableKey(privateKey: string): void {
+  try {
+    readAppPrivateKey(privateKey)
+  } catch (error) {
+    if (isGithubError(error)) throw invalid(error.message)
+    throw error
+  }
+}
+
+interface AppFields {
+  token?: string | undefined
+  appId?: string | undefined
+  installationId?: string | undefined
+  privateKey?: string | undefined
+}
+
+/**
+ * Checks that the fields sent fit the auth kind and returns the secret to store, if any:
+ * the token for token auth, the private key for a GitHub App.
+ */
+function secretFor(kind: SourceKind, auth: SourceAuth, body: AppFields): string | undefined {
+  if (auth === 'github_app') {
+    if (kind !== 'github') throw invalid('Only GitHub sources can sign in as a GitHub App')
+    if (body.token !== undefined) {
+      throw invalid('A GitHub App source takes a private key, not a token')
+    }
+    if (body.privateKey !== undefined) requireReadableKey(body.privateKey)
+    return body.privateKey
+  }
+  if (body.appId !== undefined || body.installationId !== undefined) {
+    throw invalid('App and installation IDs only apply to a GitHub App source')
+  }
+  if (body.privateKey !== undefined) {
+    throw invalid('A private key only applies to a GitHub App source')
+  }
+  return body.token
+}
+
+type TestCredentials =
+  | { auth: 'token'; token: string }
+  | { auth: 'github_app'; appId: string; installationId: string; privateKey: string }
+
 async function runTest(
   deps: ApiDeps,
   kind: SourceKind,
   baseUrl: string | null,
-  token: string,
+  credentials: TestCredentials,
 ): Promise<SourceTestResult> {
+  if (credentials.auth === 'github_app') {
+    const { appId, installationId, privateKey } = credentials
+    return deps.testers.githubApp({ baseUrl, appId, installationId, privateKey })
+  }
+  const { token } = credentials
   if (kind === 'coolify') {
     if (!baseUrl) throw new HttpError(400, 'validation_failed', 'A Coolify source needs its URL')
     return deps.testers.coolify({ baseUrl, token })
@@ -100,15 +154,29 @@ export function sourcesRoutes(deps: ApiDeps) {
   app.post('/', async (c) => {
     const body = await readJson(c, createSourceRequestSchema)
     const baseUrl = body.baseUrl ?? null
-    checkShape({ kind: body.kind, baseUrl, hasToken: body.token !== undefined })
-    if (body.token !== undefined) requireTokenStorage(repositories)
+    const auth = body.auth ?? 'token'
+    const secret = secretFor(body.kind, auth, body)
+    if (auth === 'github_app') {
+      if (body.appId === undefined || body.installationId === undefined || secret === undefined) {
+        throw invalid(
+          'A GitHub App source needs the App ID, the installation ID and the private key',
+        )
+      }
+    }
+    checkShape({ kind: body.kind, baseUrl, hasToken: secret !== undefined })
+    if (secret !== undefined) requireTokenStorage(repositories)
     requireUniqueName(repositories, body.kind, body.name)
     const source = repositories.sources.create({
       kind: body.kind,
       name: body.name,
       baseUrl,
       ...(body.enabled !== undefined && { enabled: body.enabled }),
-      ...(body.token !== undefined && { token: body.token }),
+      ...(secret !== undefined && { token: secret }),
+      ...(auth === 'github_app' && {
+        auth,
+        appId: body.appId ?? null,
+        installationId: body.installationId ?? null,
+      }),
     })
     scheduler.reschedule()
     return send(c, sourceSchema, toSourceDto(source), 201)
@@ -119,21 +187,43 @@ export function sourcesRoutes(deps: ApiDeps) {
     const current = requireSource(repositories, id)
     const body = await readJson(c, updateSourceRequestSchema)
     const baseUrl = body.baseUrl === undefined ? current.baseUrl : body.baseUrl
+    const auth = body.auth ?? current.auth
+    const switching = auth !== current.auth
+    const secret = secretFor(current.kind, auth, body)
+    // The old secret belongs to the other way of signing in, so a switch brings its own.
+    if (switching && secret === undefined) {
+      throw invalid(
+        auth === 'github_app'
+          ? 'Switching to a GitHub App needs its private key'
+          : 'Switching to a token needs the token',
+      )
+    }
+    const appId = auth === 'github_app' ? (body.appId ?? current.appId) : null
+    const installationId =
+      auth === 'github_app' ? (body.installationId ?? current.installationId) : null
+    if (auth === 'github_app' && (appId === null || installationId === null)) {
+      throw invalid('A GitHub App source needs the App ID and the installation ID')
+    }
     checkShape({
       kind: current.kind,
       baseUrl,
-      hasToken: body.token !== undefined || current.hasToken,
+      hasToken: secret !== undefined || current.hasToken,
     })
-    if (body.token !== undefined) requireTokenStorage(repositories)
+    if (secret !== undefined) requireTokenStorage(repositories)
     if (body.name !== undefined) requireUniqueName(repositories, current.kind, body.name, id)
     repositories.db.transaction(() => {
       const fields = {
         ...(body.name !== undefined && { name: body.name }),
         ...(body.baseUrl !== undefined && { baseUrl: body.baseUrl }),
         ...(body.enabled !== undefined && { enabled: body.enabled }),
+        ...((switching || body.appId !== undefined || body.installationId !== undefined) && {
+          auth,
+          appId,
+          installationId,
+        }),
       }
       if (Object.keys(fields).length > 0) repositories.sources.update(id, fields)
-      if (body.token !== undefined) repositories.sources.setToken(id, body.token)
+      if (secret !== undefined) repositories.sources.setToken(id, secret)
     })
     scheduler.reschedule()
     return send(c, sourceSchema, toSourceDto(requireSource(repositories, id)))
@@ -150,7 +240,16 @@ export function sourcesRoutes(deps: ApiDeps) {
   /** Tests credentials that are not saved yet (onboarding). Nothing is stored. */
   app.post('/test', async (c) => {
     const body = await readJson(c, testSourceRequestSchema)
-    const result = await runTest(deps, body.kind, body.baseUrl ?? null, body.token)
+    const credentials: TestCredentials =
+      body.auth === 'github_app'
+        ? {
+            auth: 'github_app',
+            appId: body.appId,
+            installationId: body.installationId,
+            privateKey: body.privateKey,
+          }
+        : { auth: 'token', token: body.token }
+    const result = await runTest(deps, body.kind, body.baseUrl ?? null, credentials)
     return send(c, sourceTestResultSchema, result)
   })
 
@@ -163,9 +262,18 @@ export function sourcesRoutes(deps: ApiDeps) {
       throw new HttpError(400, 'not_supported', 'OSV.dev needs no connection test')
     }
     if (!source.hasToken) throw new HttpError(400, 'bad_request', 'This source has no token')
-    const token = repositories.sources.getToken(id)
-    if (!token) throw new HttpError(400, 'bad_request', 'This source has no token')
-    const result = await runTest(deps, source.kind, source.baseUrl, token)
+    const secret = repositories.sources.getToken(id)
+    if (!secret) throw new HttpError(400, 'bad_request', 'This source has no token')
+    const credentials: TestCredentials =
+      source.auth === 'github_app' && source.appId !== null && source.installationId !== null
+        ? {
+            auth: 'github_app',
+            appId: source.appId,
+            installationId: source.installationId,
+            privateKey: secret,
+          }
+        : { auth: 'token', token: secret }
+    const result = await runTest(deps, source.kind, source.baseUrl, credentials)
     return send(c, sourceTestResultSchema, result)
   })
 

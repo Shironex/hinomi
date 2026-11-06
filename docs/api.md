@@ -102,15 +102,15 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 
 | Method and path | Does |
 |---|---|
-| `GET /api/sources` | `{ sources, canStoreTokens }` |
+| `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens) and `hasToken` (the token or the app's private key is stored) |
 | `GET /api/sources/:id` | One source |
-| `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, GitHub a token (URL only for Enterprise), OSV neither |
-| `PATCH /api/sources/:id` | Any of `name`, `baseUrl`, `token` (replaces the stored one), `enabled` |
+| `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, GitHub a token (URL only for Enterprise), OSV neither. A GitHub App instead sends `auth: "github_app"`, `appId`, `installationId` and `privateKey` (PEM) |
+| `PATCH /api/sources/:id` | Any of `name`, `baseUrl`, `token` (replaces the stored one), `enabled`; for a GitHub App `appId`, `installationId`, `privateKey`. Changing `auth` also needs the new token or private key |
 | `DELETE /api/sources/:id` | Removes it and its deployments |
-| `POST /api/sources/test` | `{ kind, baseUrl?, token }`: tests credentials before saving them |
-| `POST /api/sources/:id/test` | Tests a saved source with its stored token |
+| `POST /api/sources/test` | `{ kind, baseUrl?, token }` or `{ kind: "github", auth: "github_app", baseUrl?, appId, installationId, privateKey }`: tests credentials before saving them |
+| `POST /api/sources/:id/test` | Tests a saved source with its stored token or private key |
 
-A test answers `{ ok: true, message, version?, login?, scopes? }` or `{ ok: false, code, message }`.
+A test answers `{ ok: true, message, version?, login?, scopes?, account?, repositorySelection?, repoCount?, missingPermissions? }` or `{ ok: false, code, message }`. A GitHub App test fails with code `permission` when a required permission is missing. See [github.md](github.md) for setting up the app.
 
 ### Settings and scans
 

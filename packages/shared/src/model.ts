@@ -9,6 +9,14 @@ export const SOURCE_KINDS = ['coolify', 'github', 'osv'] as const
 export const sourceKindSchema = z.enum(SOURCE_KINDS)
 export type SourceKind = z.infer<typeof sourceKindSchema>
 
+/**
+ * How a source signs in. Coolify and GitHub tokens use `token`; GitHub can
+ * also use `github_app` (App ID, installation ID and a private key).
+ */
+export const SOURCE_AUTHS = ['token', 'github_app'] as const
+export const sourceAuthSchema = z.enum(SOURCE_AUTHS)
+export type SourceAuth = z.infer<typeof sourceAuthSchema>
+
 /** Sources that can report an advisory finding. */
 export const REPORTERS = ['github', 'osv'] as const
 export const reporterSchema = z.enum(REPORTERS)
