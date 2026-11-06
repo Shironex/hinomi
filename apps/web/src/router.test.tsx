@@ -20,7 +20,6 @@ describe('routes', () => {
     ['/fix-runs', 'Fix runs'],
     ['/drift', 'Drift guards'],
     ['/settings', 'Settings'],
-    ['/onboarding', 'Find what is exposed, not just what is vulnerable'],
     ['/no-such-page', 'Page not found'],
   ])('%s renders its page inside the shell', async (path, heading) => {
     vi.stubGlobal(
@@ -31,6 +30,18 @@ describe('routes', () => {
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
     expect(screen.getByRole('main')).toBeInTheDocument()
     expect(screen.getAllByRole('navigation', { name: 'Main' }).length).toBeGreaterThan(0)
+  })
+
+  it('draws setup on its own, without the rail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(Response.json({ status: 'ok' }))),
+    )
+    await renderApp('/onboarding')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Set up Hinomi' })).toBeVisible()
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Setup' })).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Rail' })).not.toBeInTheDocument()
   })
 
   it('marks the list view current on a detail route', async () => {

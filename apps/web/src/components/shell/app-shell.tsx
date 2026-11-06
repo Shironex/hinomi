@@ -60,6 +60,30 @@ export function AppShell() {
   })
 
   const shell: ShellState = { meta, counts, scan, startScan, openHelp }
+  const dialogs = (
+    <>
+      <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+    </>
+  )
+
+  if (meta.layout === 'setup') {
+    // First run: the setup page draws its own steps pane; no rail, bars or tabs to wander off to.
+    return (
+      <ShellContext.Provider value={shell}>
+        <div className="flex min-h-svh flex-col">
+          <PublicAccessBanner />
+          <main id="main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+            <Outlet />
+          </main>
+          {dialogs}
+        </div>
+      </ShellContext.Provider>
+    )
+  }
+
   const split = meta.layout === 'split'
   // From 1100 px a split view draws the top bar and key bar inside its detail pane.
   const splitWide = split && wide
@@ -92,10 +116,7 @@ export function AppShell() {
           {split ? null : <KeyHintBar hints={PAGE_KEY_HINTS} className="sticky bottom-0 z-10" />}
         </div>
         <MobileTabs current={meta.nav} needsAction={counts.needsAction} />
-        <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
-        <p aria-live="polite" className="sr-only">
-          {announcement}
-        </p>
+        {dialogs}
       </div>
     </ShellContext.Provider>
   )
