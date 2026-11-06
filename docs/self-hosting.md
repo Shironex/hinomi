@@ -8,8 +8,8 @@ Contents: [Image or source](#get-the-image) | [Docker compose](#plain-docker-com
 
 There are two ways to run it:
 
-- **The published image**, `ghcr.io/shironex/hinomi`. Images are published from the first release on, so until a version is tagged there is nothing to pull; build from source meanwhile. Pin a version tag in production rather than following `latest`.
-- **Build from source**. The repo has a `Dockerfile` (Node 22 on Alpine, runs as uid 10001) and a `docker-compose.yml` that builds it.
+- **The published image**, `ghcr.io/shironex/hinomi`. Images for `linux/amd64` and `linux/arm64` are published on every release, tagged `X.Y.Z`, `X.Y` and `latest`, with an SBOM and build provenance. Pin a version tag in production rather than following `latest`. Until the first release is tagged there is nothing to pull; build from source meanwhile.
+- **Build from source**. The repo has a `Dockerfile` (Node 22 on Alpine, runs as uid 10001) and a `docker-compose.yml` with the build lines commented in the file.
 
 ```sh
 git clone https://github.com/Shironex/hinomi.git
@@ -45,16 +45,16 @@ Create a `.env` next to `docker-compose.yml` (compose reads it when present):
 HINOMI_SECRET_KEY=<output of openssl rand -base64 32>
 ```
 
-Then, from a clone of the repo:
+Then, next to the `docker-compose.yml` from the repo (or a clone of it):
 
 ```sh
-docker compose up -d --build
+docker compose up -d   # HINOMI_VERSION=0.1.0 docker compose up -d pins a release
 curl http://127.0.0.1:3000/api/health   # {"status":"ok"}
 ```
 
-The bundled compose file builds from source, keeps the database in the `hinomi-data` volume at `/data`, and sets `stop_grace_period: 30s`.
+The bundled compose file pulls `ghcr.io/shironex/hinomi` (`latest` unless `HINOMI_VERSION` is set), keeps the database in the `hinomi-data` volume at `/data`, and sets `stop_grace_period: 30s`.
 
-To run the published image instead, use a compose file like this (images exist from the first release on):
+To build from source instead, switch to the commented `build: .` lines in the compose file and run `docker compose up -d --build`. To customise the published image, for example to bind only to a tailnet address, use a compose file like this:
 
 ```yaml
 services:

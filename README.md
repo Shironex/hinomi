@@ -25,12 +25,31 @@ pnpm build
 
 The full guide, including Coolify, access, tokens, upgrades and backups, is [docs/self-hosting.md](docs/self-hosting.md).
 
+Images are published for `linux/amd64` and `linux/arm64` to `ghcr.io/shironex/hinomi` on every release, tagged `X.Y.Z`, `X.Y` and `latest` (pre-releases only get their exact tag).
+
 ```sh
-docker compose up -d --build
+curl -O https://raw.githubusercontent.com/Shironex/hinomi/main/docker-compose.yml
+docker compose up -d
 curl localhost:3000/api/health
 ```
 
+Pin a release with `HINOMI_VERSION=0.1.0 docker compose up -d`. Without it Compose follows `latest`; run `docker compose pull` to update.
+
 The container runs as uid 10001 and keeps its SQLite database in the `hinomi-data` volume at `/data`. Migrations run on boot.
+
+Each image carries an SBOM and build provenance. To verify where an image came from:
+
+```sh
+gh attestation verify oci://ghcr.io/shironex/hinomi:latest -R Shironex/hinomi
+```
+
+### Build from source
+
+Clone the repository, switch `docker-compose.yml` to the `build: .` lines (see the comments in the file), then:
+
+```sh
+docker compose up -d --build
+```
 
 ## Configuration
 
