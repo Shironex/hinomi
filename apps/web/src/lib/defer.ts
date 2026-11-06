@@ -9,9 +9,20 @@ export const EXPIRY_CHOICES = [
   { value: '30', label: 'In 30 days' },
   { value: '90', label: 'In 90 days' },
   { value: 'date', label: 'On a date' },
+  { value: 'advisory', label: 'Until a new advisory' },
 ] as const
 
 export type ExpiryChoice = (typeof EXPIRY_CHOICES)[number]['value']
+
+/** The expiry part of a snooze or accept request: a date, or until a new advisory. */
+export type DeferExpiry = { until: string } | { untilNewAdvisory: true }
+
+/** The expiry for the request, or null when the picked date is not valid. */
+export function expiryOf(choice: ExpiryChoice, date: string, now: number): DeferExpiry | null {
+  if (choice === 'advisory') return { untilNewAdvisory: true }
+  const until = expiryToIso(choice, date, now)
+  return until === null ? null : { until }
+}
 
 /** "2026-11-07" for a date input, in local time. */
 export function localDay(time: number): string {
@@ -21,7 +32,11 @@ export function localDay(time: number): string {
 }
 
 /** The expiry as an ISO timestamp: n days from now, or the end of the picked day. */
-export function expiryToIso(choice: ExpiryChoice, date: string, now: number): string | null {
+export function expiryToIso(
+  choice: Exclude<ExpiryChoice, 'advisory'>,
+  date: string,
+  now: number,
+): string | null {
   if (choice !== 'date') return new Date(now + Number(choice) * DAY_MS).toISOString()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
   const end = new Date(`${date}T23:59:00`)

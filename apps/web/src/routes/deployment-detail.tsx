@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { JoinStrip, ReachBadge, RunStatus } from '@/components/views/deployment-bits'
+import { DeploysPanel } from '@/components/views/deploys-panel'
 import { KeyValues, Panel, PanelBody, PanelHeader, Section } from '@/components/views/panel'
 import { RepoMappingPanel } from '@/components/views/repo-mapping'
 import { ApiError } from '@/lib/api'
@@ -325,6 +326,7 @@ export function DeploymentDetailPage() {
         </div>
         <div className="flex flex-col gap-4">
           <Join d={d} />
+          {d.kind === 'application' ? <DeploysPanel d={d} /> : null}
           <Coverage d={d} />
         </div>
       </div>

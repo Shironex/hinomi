@@ -1,14 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  blindSpotItem,
-  findingDetail,
-  findingItem,
-  findingsResponse,
-  apiError,
-  mockViews,
-} from '@/test/fixtures'
+import { blindSpotItem, findingItem, findingsResponse, mockViews } from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -84,6 +77,29 @@ describe('all alerts', () => {
     await waitFor(() => expect(router.state.location.search).not.toHaveProperty('severity'))
   })
 
+  it('filters on findings reported by both GitHub and OSV', async () => {
+    const api = mockViews({ 'GET /findings': grouped })
+    const user = userEvent.setup()
+    const { router } = await renderApp('/alerts')
+    await screen.findByText('Tier 2: Deployed, internal only')
+    await user.selectOptions(screen.getByLabelText('Source'), 'Reported by both')
+    await waitFor(() => {
+      const search = api.called('GET', '/findings').at(-1)?.search
+      expect(search?.get('source')).toBe('github,osv')
+      expect(search?.get('sourceMatch')).toBe('all')
+    })
+    expect(router.state.location.search).toMatchObject({
+      source: ['github', 'osv'],
+      sourceMatch: 'all',
+    })
+    expect(screen.getByLabelText('Source')).toHaveValue('both')
+
+    await user.selectOptions(screen.getByLabelText('Source'), 'Reported by OSV')
+    await waitFor(() =>
+      expect(api.called('GET', '/findings').at(-1)?.search.has('sourceMatch')).toBe(false),
+    )
+  })
+
   it('searches after typing stops', async () => {
     const api = mockViews({ 'GET /findings': grouped })
     const user = userEvent.setup()
@@ -92,12 +108,21 @@ describe('all alerts', () => {
     await waitFor(() => expect(api.called('GET', '/findings').at(-1)?.search.get('q')).toBe('yaml'))
   })
 
-  it('snoozes the selected rows with one reason and reports any that fail', async () => {
+  it('snoozes the selected rows in one call and reports any that fail', async () => {
     const api = mockViews({
       'GET /findings': grouped,
-      'POST /findings/4/snooze': findingDetail({ id: 4, state: 'snoozed' }),
-      'POST /findings/5/snooze': () =>
-        apiError(409, 'conflict', 'A fixed finding cannot be moved to snoozed'),
+      'POST /findings/bulk': {
+        results: [
+          { id: 4, ok: true, state: 'snoozed' },
+          {
+            id: 5,
+            ok: false,
+            error: { code: 'conflict', message: 'A fixed finding cannot be moved to snoozed' },
+          },
+        ],
+        ok: 1,
+        failed: 1,
+      },
     })
     const user = userEvent.setup()
     await renderApp('/alerts')
@@ -118,14 +143,79 @@ describe('all alerts', () => {
     expect(await within(bar).findByRole('alert')).toHaveTextContent(
       '1 of 2 saved. Not saved: minirouter in kestrel-co/storefront',
     )
-    const body = api.called('POST', '/findings/4/snooze')[0]?.body as {
-      reason: string
-      until: string
-    }
+    const calls = api.called('POST', '/findings/bulk')
+    expect(calls).toHaveLength(1)
+    const body = calls[0]?.body as { action: string; ids: number[]; reason: string; until: string }
+    expect(body.action).toBe('snooze')
+    expect(body.ids.sort()).toEqual([4, 5])
     expect(body.reason).toBe('Internal only, behind the VPN')
     expect(Date.parse(body.until)).toBeGreaterThan(Date.now())
     // Only the failed row stays selected.
     expect(within(bar).getByText('1 selected')).toBeInTheDocument()
+  })
+
+  it('snoozes advisories until a new advisory in bulk', async () => {
+    const api = mockViews({
+      'GET /findings': grouped,
+      'POST /findings/bulk': { results: [], ok: 2, failed: 0 },
+    })
+    const user = userEvent.setup()
+    await renderApp('/alerts')
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: /Select the 2 loaded in Deployed, internal only/,
+      }),
+    )
+    const bar = screen.getByRole('region', { name: 'Bulk actions' })
+    await user.click(within(bar).getByRole('button', { name: 'Snooze' }))
+    await user.type(within(bar).getByLabelText(/Why snooze these/), 'Not reachable')
+    await user.selectOptions(within(bar).getByLabelText('Expires'), 'Until a new advisory')
+    await user.click(within(bar).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.called('POST', '/findings/bulk')[0]?.body).toMatchObject({
+        action: 'snooze',
+        reason: 'Not reachable',
+        untilNewAdvisory: true,
+      }),
+    )
+    expect((api.called('POST', '/findings/bulk')[0]?.body as object) ?? {}).not.toHaveProperty(
+      'until',
+    )
+  })
+
+  it('removes decisions in bulk when a selected row is snoozed', async () => {
+    const snoozed = { ...internal(4, 'yamlette'), state: 'snoozed' as const, stateReason: 'later' }
+    const api = mockViews({
+      'GET /findings': findingsResponse([snoozed, internal(5, 'minirouter')], {
+        group: 'tier',
+        groups: [{ key: 'internal', label: 'Deployed, internal only', count: 2 }],
+      }),
+      'POST /findings/bulk': {
+        results: [
+          { id: 4, ok: true, state: 'open' },
+          {
+            id: 5,
+            ok: false,
+            error: { code: 'conflict', message: 'A open finding cannot be moved to open' },
+          },
+        ],
+        ok: 1,
+        failed: 1,
+      },
+    })
+    const user = userEvent.setup()
+    await renderApp('/alerts')
+    await user.click(
+      await screen.findByRole('checkbox', {
+        name: /Select the 2 loaded in Deployed, internal only/,
+      }),
+    )
+    const bar = screen.getByRole('region', { name: 'Bulk actions' })
+    await user.click(within(bar).getByRole('button', { name: 'Remove decision' }))
+    await waitFor(() =>
+      expect(api.called('POST', '/findings/bulk')[0]?.body).toMatchObject({ action: 'reopen' }),
+    )
+    expect(await within(bar).findByRole('alert')).toHaveTextContent('1 of 2 saved')
   })
 
   it('selects the keyboard row with x', async () => {

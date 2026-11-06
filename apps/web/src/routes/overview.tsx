@@ -1,4 +1,4 @@
-import type { FindingListItem, FindingTier, OverviewResponse } from '@hinomi/shared'
+import type { FindingListItem, FindingTier, OverviewResponse, SeverityCounts } from '@hinomi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
@@ -21,7 +21,7 @@ import { ExposureFunnel } from '@/components/views/exposure-funnel'
 import { Section, Term } from '@/components/views/panel'
 import { ScanStrip } from '@/components/views/scan-strip'
 import { SourceHealthPanel } from '@/components/views/source-health'
-import { isDecided, TERMS, TIER_INFO } from '@/lib/finding-meta'
+import { isDecided, SEVERITY_LABEL, TERMS, TIER_INFO } from '@/lib/finding-meta'
 import { findingsQuery, overviewQuery } from '@/lib/view-api'
 
 const number = new Intl.NumberFormat('en-US')
@@ -131,6 +131,39 @@ const BELOW: { tier: FindingTier; flags: readonly boolean[] }[] = [
   { tier: 'dev', flags: [false, false, true, false] },
 ]
 
+const MIX: { key: keyof SeverityCounts; color: string }[] = [
+  { key: 'critical', color: 'bg-sev-critical' },
+  { key: 'high', color: 'bg-sev-high' },
+  { key: 'moderate', color: 'bg-sev-moderate' },
+  { key: 'low', color: 'bg-sev-low' },
+]
+
+/** The severity mix of a tier as one thin bar, with the counts for screen readers. */
+export function SeverityMix({ counts }: { counts: SeverityCounts | undefined }) {
+  if (!counts) return null
+  const total = counts.critical + counts.high + counts.moderate + counts.low
+  if (total === 0) return null
+  const text = MIX.filter((m) => counts[m.key] > 0)
+    .map((m) => `${number.format(counts[m.key])} ${SEVERITY_LABEL[m.key].toLowerCase()}`)
+    .join(', ')
+  return (
+    <span className="mt-1 flex flex-col gap-1">
+      <span className="text-xs text-foreground-2">{text}</span>
+      <span aria-hidden="true" className="flex h-1.5 gap-px overflow-hidden rounded-[3px] bg-muted">
+        {MIX.map((m) =>
+          counts[m.key] > 0 ? (
+            <span
+              key={m.key}
+              className={`block h-full ${m.color}`}
+              style={{ width: `${(counts[m.key] / total) * 100}%` }}
+            />
+          ) : null,
+        )}
+      </span>
+    </span>
+  )
+}
+
 function BelowTheLine({ overview }: { overview: OverviewResponse }) {
   const notDeployed = overview.tiers.not_deployed ?? 0
   return (
@@ -151,6 +184,7 @@ function BelowTheLine({ overview }: { overview: OverviewResponse }) {
             </span>
             <span className="text-sm text-foreground-2">{TIER_INFO[tier].name}</span>
             <span className="text-xs text-muted-foreground">{TIER_INFO[tier].hint}</span>
+            <SeverityMix counts={overview.tierSeverity[tier]} />
           </Link>
         ))}
       </div>
@@ -322,7 +356,7 @@ export function OverviewPage() {
         <Lede overview={data} />
       </PageHeader>
       <ScanStrip />
-      <ExposureFunnel funnel={data.funnel} />
+      <ExposureFunnel funnel={data.funnel} reach={data.funnelReach} />
       <div className="mt-7 grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex min-w-0 flex-col gap-7">
           <RankedList items={top.data.items} total={top.data.total} />

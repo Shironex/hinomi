@@ -5,8 +5,9 @@ import {
   DAY_MS,
   DEFER_COPY,
   EXPIRY_CHOICES,
-  expiryToIso,
+  expiryOf,
   localDay,
+  type DeferExpiry,
   type ExpiryChoice,
 } from '@/lib/defer'
 import { cn } from '@/lib/utils'
@@ -16,7 +17,9 @@ export interface DeferFormProps {
   /** Shows the snooze or accept switch. Without it the kind is fixed. */
   kind: DeferKind
   onKindChange?: (kind: DeferKind) => void
-  onSubmit: (kind: DeferKind, body: { reason: string; until: string }) => void
+  onSubmit: (kind: DeferKind, body: { reason: string } & DeferExpiry) => void
+  /** Offers "until a new advisory" (advisories only, not blind spots). */
+  allowNewAdvisory?: boolean
   onCancel: () => void
   pending?: boolean
   /** A server error to show under the form. */
@@ -37,6 +40,7 @@ export function DeferForm({
   onKindChange,
   onSubmit,
   onCancel,
+  allowNewAdvisory = false,
   pending = false,
   error,
   layout = 'stack',
@@ -68,9 +72,9 @@ export function DeferForm({
       onSubmit={(event) => {
         event.preventDefault()
         setTouched(true)
-        const until = expiryToIso(choice, date, Date.now())
-        if (reasonMissing || until === null || pending) return
-        onSubmit(kind, { reason: reason.trim(), until })
+        const expiry = expiryOf(choice, date, Date.now())
+        if (reasonMissing || expiry === null || pending) return
+        onSubmit(kind, { reason: reason.trim(), ...expiry })
       }}
     >
       {onKindChange ? (
@@ -150,7 +154,7 @@ export function DeferForm({
           onChange={(e) => setChoice(e.target.value as ExpiryChoice)}
           className="h-[34px] w-full min-w-0 rounded-md border border-input bg-card px-2 text-sm"
         >
-          {EXPIRY_CHOICES.map((c) => (
+          {EXPIRY_CHOICES.filter((c) => allowNewAdvisory || c.value !== 'advisory').map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
             </option>
@@ -183,7 +187,9 @@ export function DeferForm({
           </span>
         ) : !inline ? (
           <span className="text-xs text-muted-foreground">
-            After it expires the finding returns to the ranking and alerts again.
+            {choice === 'advisory'
+              ? 'It returns to the ranking when a scan finds another advisory for the same package in this repo.'
+              : 'After it expires the finding returns to the ranking and alerts again.'}
           </span>
         ) : null}
       </div>

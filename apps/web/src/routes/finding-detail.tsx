@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
 import {
   IconArrowLeft,
+  IconBell,
   IconCircleCheck,
   IconClockExclamation,
   IconClockPause,
@@ -39,6 +40,8 @@ import {
   BLIND_SPOT_INFO,
   blindSpotSubject,
   decisionLabel,
+  dependencyPath,
+  descriptionParagraphs,
   displayDomain,
   eventSentence,
   factorFlags,
@@ -51,6 +54,7 @@ import {
   TIER_INFO,
   tierTitle,
 } from '@/lib/finding-meta'
+import type { DeferExpiry } from '@/lib/defer'
 import { formatRelative } from '@/lib/format'
 import { isTypingTarget } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
@@ -262,7 +266,9 @@ function StateBanner({
       >
         {f.stateReason ? <span className="text-foreground-2">{f.stateReason}</span> : null}
         <span className="text-xs text-muted-foreground">
-          It stays in the ranking, drawn as decided, and returns to the top when the expiry passes.
+          {f.stateUntilNewAdvisory
+            ? 'It stays in the ranking, drawn as decided, and returns to the top when a scan finds a new advisory for the same package.'
+            : 'It stays in the ranking, drawn as decided, and returns to the top when the expiry passes.'}
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={onReopen} disabled={reopening}>
@@ -436,15 +442,30 @@ function Advisory({ f }: { f: FindingDetail }) {
   const ranges = f.versions.vulnerableRanges.length
     ? f.versions.vulnerableRanges
     : a.vulnerableRanges
-  const path = [
-    f.repo?.fullName ?? 'repo',
-    ...f.dependency.manifestPaths.slice(0, 1),
-    `${a.packageName}@${f.versions.installed ?? '?'}`,
-  ]
+  const path = dependencyPath(f, a.packageName)
+  const paragraphs = descriptionParagraphs(a.description, a.summary)
   return (
     <Section title="Advisory">
       <div className="flex max-w-[68ch] flex-col gap-2.5 text-foreground-2">
         <p>{a.summary ?? 'The advisory has no summary.'}</p>
+        {paragraphs.length ? (
+          <details
+            className="group rounded-md border border-border bg-card"
+            open={paragraphs.join('').length < 600}
+          >
+            <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+              <span className="group-open:hidden">Show the full description</span>
+              <span className="hidden group-open:inline">Description</span>
+            </summary>
+            <div className="flex max-h-[360px] flex-col gap-2 overflow-y-auto border-t border-border px-3 py-2.5 text-sm break-words">
+              {paragraphs.map((text, i) => (
+                <p key={i} className="whitespace-pre-line">
+                  {text}
+                </p>
+              ))}
+            </div>
+          </details>
+        ) : null}
         {a.withdrawnAt ? (
           <p className="text-sev-high">Withdrawn {formatDate(a.withdrawnAt)}.</p>
         ) : null}
@@ -476,6 +497,7 @@ function Advisory({ f }: { f: FindingDetail }) {
       </div>
       <pre
         aria-label="Dependency path"
+        data-source={f.dependency.pathSource}
         className="m-0 overflow-x-auto rounded-md border border-border bg-sidebar px-3 py-2.5 font-mono text-xs leading-[1.8] text-foreground-2"
       >
         {path.map((p, i) => (
@@ -485,8 +507,59 @@ function Advisory({ f }: { f: FindingDetail }) {
           </span>
         ))}
       </pre>
+      <p className="text-xs text-muted-foreground">{PATH_NOTE[f.dependency.pathSource]}</p>
     </Section>
   )
+}
+
+const PATH_NOTE: Record<FindingDetail['dependency']['pathSource'], string> = {
+  lockfile: 'From the lockfile Hinomi scans: each line is pulled in by the one above it.',
+  manifest:
+    'Only the manifest is known. The full chain shows once Hinomi parses a lockfile for it.',
+  package: 'No manifest or lockfile reported where this package comes from.',
+}
+
+function Notifications({ f }: { f: FindingDetail }) {
+  return (
+    <Panel>
+      <PanelHeader title="Notifications" icon={IconBell} />
+      <PanelBody>
+        {f.notifications.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No message was sent about it. Daily digests are not listed here.
+          </p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
+            {f.notifications.map((n) => (
+              <li key={`${n.channelId}-${n.eventId}`} className="flex flex-col gap-0.5">
+                <span>
+                  <b className="font-medium">{n.channelName ?? 'A removed channel'}</b>
+                  {n.channelKind ? (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      ({CHANNEL_KIND[n.channelKind] ?? n.channelKind})
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {n.event === 'reopened' ? 'Announced it came back' : 'Announced it'},{' '}
+                  <time dateTime={n.sentAt} title={new Date(n.sentAt).toLocaleString()}>
+                    {formatRelative(n.sentAt)}
+                  </time>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PanelBody>
+    </Panel>
+  )
+}
+
+const CHANNEL_KIND: Record<string, string> = {
+  discord: 'Discord',
+  webhook: 'Webhook',
+  email: 'Email',
 }
 
 function HowToClose({ f }: { f: FindingDetail }) {
@@ -660,8 +733,8 @@ export function FindingDetailPage() {
   const [notice, setNotice] = useState('')
 
   const defer = useMutation({
-    mutationFn: (v: { kind: DeferKind; reason: string; until: string }) =>
-      deferFinding(id, v.kind, { reason: v.reason, until: v.until }),
+    mutationFn: ({ kind: k, ...body }: { kind: DeferKind; reason: string } & DeferExpiry) =>
+      deferFinding(id, k, body),
     onSuccess: async (detail, v) => {
       setDeferOpen(false)
       setNotice(
@@ -772,6 +845,7 @@ export function FindingDetailPage() {
                   <DeferForm
                     kind={kind}
                     onKindChange={setKind}
+                    allowNewAdvisory={f.kind === 'advisory'}
                     pending={defer.isPending}
                     error={defer.error ? describeError(defer.error) : null}
                     onSubmit={(k, body) => defer.mutate({ kind: k, ...body })}
@@ -789,6 +863,7 @@ export function FindingDetailPage() {
         <div className="flex flex-col gap-4">
           <Actions f={f} onDefer={openDefer} open={deferOpen} className="max-desk:hidden" />
           <Details f={f} />
+          <Notifications f={f} />
         </div>
       </div>
       <p role="status" className="sr-only">

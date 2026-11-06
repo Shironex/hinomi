@@ -1,8 +1,11 @@
 import {
+  bulkFindingsResponseSchema,
+  deploymentDeploysResponseSchema,
   deploymentDetailSchema,
   findingDetailSchema,
   findingsResponseSchema,
   overviewResponseSchema,
+  type BulkFindingsRequest,
   type DeferFindingRequest,
   type FindingDetail,
   type FindingGroup,
@@ -34,6 +37,7 @@ export const viewKeys = {
   finding: (id: number) => ['finding', id] as const,
   deployments: settingsKeys.deployments,
   deployment: (id: number) => ['deployment', id] as const,
+  deploys: (id: number) => ['deployment', id, 'deploys'] as const,
 }
 
 export const overviewQuery = queryOptions({
@@ -47,6 +51,8 @@ export interface FindingsParams {
   state?: readonly string[]
   severity?: readonly string[]
   source?: readonly string[]
+  /** `all`: reported by every listed source. */
+  sourceMatch?: 'any' | 'all'
   scope?: readonly string[]
   kind?: readonly string[]
   repo?: readonly number[]
@@ -63,6 +69,7 @@ export function findingsSearch(params: FindingsParams, offset = 0): string {
     const values = params[key]
     if (values?.length) search.set(key, values.join(','))
   }
+  if (params.sourceMatch === 'all' && params.source?.length) search.set('sourceMatch', 'all')
   if (params.repo?.length) search.set('repo', params.repo.join(','))
   if (params.deployment?.length) search.set('deployment', params.deployment.join(','))
   const q = params.q?.trim()
@@ -112,6 +119,16 @@ export function deploymentQuery(id: number) {
   })
 }
 
+/** Recent deploys, read live from Coolify by the server. Not retried: the answer says why. */
+export function deploysQuery(id: number) {
+  return queryOptions({
+    queryKey: viewKeys.deploys(id),
+    queryFn: ({ signal }) =>
+      api.get(`/deployments/${id}/deploys?limit=8`, deploymentDeploysResponseSchema, { signal }),
+    staleTime: 60_000,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Decisions on a finding
 
@@ -119,6 +136,11 @@ export type DeferKind = 'snooze' | 'accept'
 
 export function deferFinding(id: number, kind: DeferKind, body: DeferFindingRequest) {
   return api.post(`/findings/${id}/${kind}`, findingDetailSchema, body)
+}
+
+/** One decision for many findings; the answer lists each finding's outcome. */
+export function bulkFindings(body: BulkFindingsRequest) {
+  return api.post('/findings/bulk', bulkFindingsResponseSchema, body)
 }
 
 export function reopenFinding(id: number, body: ReopenFindingRequest = {}) {

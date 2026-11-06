@@ -43,6 +43,8 @@ describe('deployments', () => {
     )
     expect(screen.getByText('No repo matched')).toBeInTheDocument()
     expect(screen.getByLabelText('1 critical, 2 high, 9 moderate')).toBeInTheDocument()
+    // The exposed count comes with the deployment; no findings query is needed for it.
+    expect(screen.getByText('1 exposed')).toBeInTheDocument()
     expect(await screen.findByText('1 repo has no deployment')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Show the join for image-proxy' }))
@@ -82,6 +84,62 @@ describe('deployment detail', () => {
       'href',
       expect.stringContaining('/alerts?deployment='),
     )
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
+      'storefront-web',
+    )
+  })
+
+  it('lists recent deploys and their commits from Coolify', async () => {
+    mockViews({
+      'GET /deployments/1': deploymentDetail(),
+      'GET /deployments/1/deploys': {
+        available: true,
+        reason: null,
+        items: [
+          {
+            id: 'dpl-0002',
+            status: 'finished',
+            commit: 'b1c2d3e4f5a6b7c8d9e0',
+            commitMessage: 'fix: escape the search box\n\nlonger body',
+            startedAt: '2026-11-05T09:00:00.000Z',
+            finishedAt: '2026-11-05T09:03:00.000Z',
+            webhook: true,
+            rollback: false,
+          },
+          {
+            id: 'dpl-0001',
+            status: 'failed',
+            commit: null,
+            commitMessage: null,
+            startedAt: '2026-11-04T08:00:00.000Z',
+            finishedAt: null,
+            webhook: false,
+            rollback: false,
+          },
+        ],
+      },
+    })
+    await renderApp('/deployments/1')
+    const feed = await screen.findByRole('list', { name: 'Recent deploys' })
+    expect(within(feed).getByRole('link', { name: 'b1c2d3e' })).toHaveAttribute(
+      'href',
+      'https://github.com/kestrel-co/storefront/commit/b1c2d3e4f5a6b7c8d9e0',
+    )
+    expect(within(feed).getByText('fix: escape the search box')).toBeInTheDocument()
+    expect(within(feed).getByText('Failed')).toBeInTheDocument()
+  })
+
+  it('says why deploys are not available', async () => {
+    mockViews({
+      'GET /deployments/1': deploymentDetail(),
+      'GET /deployments/1/deploys': {
+        available: false,
+        reason: 'Coolify answered 401 for /deployments/applications/app-1: the token was rejected',
+        items: [],
+      },
+    })
+    await renderApp('/deployments/1')
+    expect(await screen.findByText(/the token was rejected/)).toBeInTheDocument()
   })
 
   it('shows overrides and sends edits to Settings', async () => {

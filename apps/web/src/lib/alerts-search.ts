@@ -23,6 +23,8 @@ export const alertsSearchSchema = z.object({
   severity: list(severitySchema),
   scope: list(findingScopeSchema),
   source: list(reporterSchema),
+  /** `all`: reported by every listed source ("both" with GitHub and OSV). */
+  sourceMatch: z.enum(['any', 'all']).optional().catch(undefined),
   state: list(findingStateSchema),
   repo: ids,
   deployment: ids,
@@ -41,6 +43,7 @@ export function alertsParams(search: AlertsSearch, limit: number): FindingsParam
     severity: search.severity,
     scope: search.scope,
     source: search.source,
+    sourceMatch: search.sourceMatch,
     state: search.state,
     repo: search.repo,
     deployment: search.deployment,
@@ -62,6 +65,21 @@ export function hasFilters(search: AlertsSearch): boolean {
     search.deployment?.length ||
     search.q?.trim(),
   )
+}
+
+/** The source select's value: one source, both, or any. */
+export function sourceValue(search: Pick<AlertsSearch, 'source' | 'sourceMatch'>): string {
+  const sources = search.source ?? []
+  if (sources.length === 0) return 'all'
+  if (search.sourceMatch === 'all' && sources.length > 1) return 'both'
+  return sources.length === 1 ? (sources[0] ?? 'all') : 'all'
+}
+
+/** The search params for a source select value. */
+export function sourceFilter(value: string): Pick<AlertsSearch, 'source' | 'sourceMatch'> {
+  if (value === 'both') return { source: ['github', 'osv'], sourceMatch: 'all' }
+  if (value === 'github' || value === 'osv') return { source: [value], sourceMatch: undefined }
+  return { source: undefined, sourceMatch: undefined }
 }
 
 export interface RowGroup {

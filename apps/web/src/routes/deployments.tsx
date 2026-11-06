@@ -1,5 +1,5 @@
-import type { DeploymentItem, FindingTier } from '@hinomi/shared'
-import { useMemo, useState } from 'react'
+import type { DeploymentItem } from '@hinomi/shared'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
@@ -29,26 +29,13 @@ import { displayDomain } from '@/lib/finding-meta'
 import { needsRepo } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { deploymentsQuery, findingsQuery, reposQuery } from '@/lib/view-api'
-
-/** Same query as the overview list, so the cache is shared. */
-const TOP_PARAMS = { tier: ['blind_spot', 'exposed'] as FindingTier[], limit: 100 }
+import { deploymentsQuery, reposQuery } from '@/lib/view-api'
 
 const TD = 'border-t border-border px-3 py-2.5 align-middle max-tab:border-0 max-tab:p-0'
 const HIDE_CARD = 'max-tab:hidden'
 const HIDE_MID = 'tab:max-desk:hidden'
 
-function Row({
-  d,
-  exposed,
-  open,
-  onToggle,
-}: {
-  d: DeploymentItem
-  exposed: number
-  open: boolean
-  onToggle: () => void
-}) {
+function Row({ d, open, onToggle }: { d: DeploymentItem; open: boolean; onToggle: () => void }) {
   const repo = d.repos[0]
   return (
     <>
@@ -115,7 +102,7 @@ function Row({
         </td>
         <td className={cn(TD, 'max-tab:col-span-2')}>
           <span className="flex flex-wrap items-center gap-1.5">
-            {exposed ? <Badge variant="critical">{exposed} exposed</Badge> : null}
+            {d.exposed ? <Badge variant="critical">{d.exposed} exposed</Badge> : null}
             <SeverityCounts
               counts={d.openFindings}
               empty={d.repos.length ? 'None open' : 'Unknown'}
@@ -140,7 +127,7 @@ function Row({
       {open ? (
         <tr className="max-tab:block">
           <td colSpan={9} className="border-t border-border bg-sidebar p-3 max-tab:block">
-            <JoinStrip d={d} exposed={exposed} />
+            <JoinStrip d={d} exposed={d.exposed + d.openBlindSpots} />
             <div className="mt-2.5">
               <Button asChild size="sm" variant="outline">
                 <Link to="/deployments/$id" params={{ id: String(d.id) }}>
@@ -158,18 +145,8 @@ function Row({
 
 export function DeploymentsPage() {
   const query = useQuery(deploymentsQuery)
-  const top = useQuery(findingsQuery(TOP_PARAMS))
   const repos = useQuery(reposQuery)
   const [expanded, setExpanded] = useState<number | null>(null)
-
-  const exposedBy = useMemo(() => {
-    const map = new Map<number, number>()
-    for (const f of top.data?.items ?? []) {
-      if (f.state === 'fixed') continue
-      for (const d of f.deployments) map.set(d.id, (map.get(d.id) ?? 0) + 1)
-    }
-    return map
-  }, [top.data])
 
   const header = (
     <PageHeader title="Deployments">
@@ -262,7 +239,6 @@ export function DeploymentsPage() {
               <Row
                 key={d.id}
                 d={d}
-                exposed={exposedBy.get(d.id) ?? 0}
                 open={expanded === d.id}
                 onToggle={() => setExpanded((cur) => (cur === d.id ? null : d.id))}
               />
