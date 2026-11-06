@@ -67,6 +67,13 @@ describe('routes', () => {
   })
 
   it('opens all keys from the key hint bar', async () => {
+    // Settings is a split view; from 1100 px its detail pane holds the key bar.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('min-width'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
     const user = userEvent.setup()
     await renderApp('/settings')
     await user.click(screen.getByRole('button', { name: /all keys/ }))
@@ -76,7 +83,7 @@ describe('routes', () => {
   it('shows the API health from /api/health on settings', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(Response.json({ status: 'ok' })))
     vi.stubGlobal('fetch', fetchMock)
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     expect(await screen.findByText('Healthy')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/health',

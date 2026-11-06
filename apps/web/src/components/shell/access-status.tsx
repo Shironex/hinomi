@@ -20,7 +20,7 @@ export function AccessStatusLink() {
   return (
     <Link
       to="/settings"
-      hash="settings-access"
+      search={{ sel: 'access' }}
       title={label}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 rounded-sm whitespace-nowrap hover:text-foreground max-tab:size-10 tab:py-1',
@@ -54,7 +54,7 @@ export function PublicAccessBanner() {
         </span>{' '}
         <Link
           to="/settings"
-          hash="settings-access"
+          search={{ sel: 'access' }}
           className="font-medium underline underline-offset-2"
         >
           What to do

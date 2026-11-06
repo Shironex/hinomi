@@ -27,8 +27,8 @@ export function SecretKeyCallout({
             <CopyCommand command="openssl rand -base64 32" />
           </li>
           <li>
-            Set it as <code className="font-mono text-[0.92em]">HINOMI_SECRET_KEY</code> in the
-            container environment (for example in your compose file).
+            Set it as <code className="font-mono text-[max(13px,0.92em)]">HINOMI_SECRET_KEY</code>{' '}
+            in the container environment (for example in your compose file).
           </li>
           <li>Restart Hinomi, then check again.</li>
         </ol>

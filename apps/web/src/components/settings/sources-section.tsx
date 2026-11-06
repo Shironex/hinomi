@@ -6,7 +6,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconDatabase,
-  IconGitBranch,
+  IconBrandGithub,
   IconLoader2,
   IconPlugConnected,
   IconServer2,
@@ -14,7 +14,6 @@ import {
   type Icon,
 } from '@tabler/icons-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { OptionRow } from '@/components/form/field'
 import { SecretKeyCallout } from '@/components/sources/secret-key-callout'
 import { SourceConnectForm, type ConnectableKind } from '@/components/sources/source-connect-form'
 import { ErrorState } from '@/components/states/error-state'
@@ -34,7 +33,7 @@ import {
   updateSource,
 } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
-import { Panel, SaveStatus } from './settings-section'
+import { SaveStatus, SetBox, SetRow } from './settings-section'
 
 const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: string }> = {
   coolify: {
@@ -44,8 +43,8 @@ const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: str
   },
   github: {
     label: 'GitHub',
-    icon: IconGitBranch,
-    empty: 'Repos and their Dependabot alerts.',
+    icon: IconBrandGithub,
+    empty: 'Repos and their Dependabot alerts, with a token or a GitHub App.',
   },
 }
 
@@ -73,58 +72,61 @@ export function SourcesSection() {
           rechecking={sources.isFetching}
         />
       )}
-      {(['coolify', 'github'] as const).map((kind) => {
-        const list = sources.data.sources.filter((s) => s.kind === kind)
-        if (list.length === 0) {
-          return <MissingSource key={kind} kind={kind} canStoreTokens={canStoreTokens} />
-        }
-        return list.map((source) => (
-          <SourceCard key={source.id} source={source} kind={kind} canStoreTokens={canStoreTokens} />
-        ))
-      })}
-      <OsvCard />
+      <SetBox as="ul" aria-label="Sources">
+        {(['coolify', 'github'] as const).map((kind) => {
+          const list = sources.data.sources.filter((s) => s.kind === kind)
+          if (list.length === 0) {
+            return <MissingSource key={kind} kind={kind} canStoreTokens={canStoreTokens} />
+          }
+          return list.map((source) => (
+            <SourceRow
+              key={source.id}
+              source={source}
+              kind={kind}
+              canStoreTokens={canStoreTokens}
+            />
+          ))
+        })}
+        <OsvRow />
+      </SetBox>
     </>
   )
 }
 
-type Health = { label: string; variant: 'success' | 'critical' | 'outline' | 'high' }
+type Health = { label: string; tone: 'ok' | 'error' | 'neutral' | 'missing' }
 
 function healthOf(source: SourceDto): Health {
-  if (!source.enabled) return { label: 'Paused', variant: 'outline' }
-  if (!source.hasToken) return { label: 'No token', variant: 'high' }
+  if (!source.enabled) return { label: 'Paused', tone: 'neutral' }
+  if (!source.hasToken) return { label: 'No token', tone: 'missing' }
   const ok = source.lastOkAt ? Date.parse(source.lastOkAt) : 0
   const failed = source.lastErrorAt ? Date.parse(source.lastErrorAt) : 0
-  if (failed > ok) return { label: 'Error', variant: 'critical' }
-  if (ok) return { label: 'Connected', variant: 'success' }
-  return { label: 'Not synced yet', variant: 'outline' }
+  if (failed > ok) return { label: 'Sync failed', tone: 'error' }
+  if (source.lastOkAt) return { label: `Synced ${formatRelative(source.lastOkAt)}`, tone: 'ok' }
+  return { label: 'Not synced yet', tone: 'neutral' }
 }
 
-function SourceHeader({
-  icon: KindIcon,
-  title,
-  note,
-  aside,
-}: {
-  icon: Icon
-  title: string
-  note: React.ReactNode
-  aside?: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="grid size-[30px] shrink-0 place-items-center rounded-md bg-muted text-foreground-2">
-        <KindIcon aria-hidden="true" className="size-4" stroke={1.75} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <h3 className="truncate text-base font-medium">{title}</h3>
-        <small className="truncate text-xs text-muted-foreground">{note}</small>
-      </span>
-      {aside}
-    </div>
-  )
+/** A failed sync is a connection problem, not a severity, so it is amber rather than red. */
+function HealthPill({ health }: { health: Health }) {
+  if (health.tone === 'ok') {
+    return (
+      <Badge variant="success">
+        <IconCheck aria-hidden="true" />
+        {health.label}
+      </Badge>
+    )
+  }
+  if (health.tone === 'error' || health.tone === 'missing') {
+    return (
+      <Badge variant="outline" className="border-transparent bg-wait-soft text-wait">
+        <IconAlertTriangle aria-hidden="true" />
+        {health.label}
+      </Badge>
+    )
+  }
+  return <Badge variant="outline">{health.label}</Badge>
 }
 
-function SourceCard({
+function SourceRow({
   source,
   kind,
   canStoreTokens,
@@ -159,57 +161,57 @@ function SourceCard({
     },
   })
 
-  const synced = source.lastOkAt ? `synced ${formatRelative(source.lastOkAt)}` : 'not synced yet'
   const enabled = toggle.isPending ? (toggle.variables ?? source.enabled) : source.enabled
-  const lastErrorIsCurrent = health.variant === 'critical' && source.lastError
+  const lastErrorIsCurrent = health.tone === 'error' && source.lastError
   const isApp = source.auth === 'github_app'
+  const how = isApp
+    ? 'GitHub App'
+    : kind === 'coolify'
+      ? 'read only API token'
+      : 'personal access token'
 
   return (
-    <Panel>
-      <SourceHeader
-        icon={meta.icon}
-        title={source.name}
-        note={`${meta.label}, ${synced}`}
-        aside={
-          <Badge variant={health.variant}>
-            {health.variant === 'success' ? <IconCheck aria-hidden="true" /> : null}
-            {health.variant === 'critical' ? <IconAlertTriangle aria-hidden="true" /> : null}
-            {health.label}
-          </Badge>
-        }
-      />
+    <SetRow
+      as="li"
+      icon={<meta.icon stroke={1.75} />}
+      title={source.name}
+      sub={`${meta.label}, ${how}`}
+      aside={<HealthPill health={health} />}
+      stackAside
+    >
       {lastErrorIsCurrent ? (
-        <p className="rounded-md bg-sev-critical-soft px-3 py-2 text-sm text-foreground-2">
-          <b className="font-medium text-sev-critical">Last sync failed: </b>
+        <p className="rounded-md bg-wait-soft px-3 py-2 text-sm text-foreground-2">
+          <b className="font-semibold text-wait">Last sync failed: </b>
           {source.lastError}
           {source.lastErrorAt ? ` (${formatRelative(source.lastErrorAt)})` : null}
         </p>
       ) : null}
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-sm">
-        <dt className="text-muted-foreground">URL</dt>
-        <dd className="truncate font-mono text-[0.92em]">
-          {source.baseUrl ?? (kind === 'github' ? 'github.com' : 'Not set')}
-        </dd>
+      <dl className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm">
+        <Fact term="URL">
+          <span className="truncate font-mono text-xs">
+            {source.baseUrl ?? (kind === 'github' ? 'github.com' : 'Not set')}
+          </span>
+        </Fact>
         {isApp ? (
-          <>
-            <dt className="text-muted-foreground">Signs in as</dt>
-            <dd className="truncate font-mono text-[0.92em]">
+          <Fact term="Signs in as">
+            <span className="truncate font-mono text-xs">
               App {source.appId}, installation {source.installationId}
-            </dd>
-          </>
+            </span>
+          </Fact>
         ) : null}
-        <dt className="text-muted-foreground">{isApp ? 'Private key' : 'Token'}</dt>
-        <dd>
+        <Fact term={isApp ? 'Private key' : 'Token'}>
           {source.hasToken ? (
             <Badge variant="outline">
               <IconCheck aria-hidden="true" />
               Set
             </Badge>
           ) : (
-            <Badge variant="high">Not set</Badge>
+            <Badge variant="outline" className="border-transparent bg-wait-soft text-wait">
+              Not set
+            </Badge>
           )}
           <span className="sr-only">. Secrets are never shown again.</span>
-        </dd>
+        </Fact>
       </dl>
 
       {replacing ? (
@@ -295,7 +297,17 @@ function SourceCard({
           ? 'Hinomi forgets its token and every deployment it reported. Findings lose their deployment context until you connect it again.'
           : 'Hinomi forgets its token and stops reading repos and Dependabot alerts from it.'}
       </ConfirmDialog>
-    </Panel>
+    </SetRow>
+  )
+}
+
+/** One term and value of a source, inline so the row stays short. */
+function Fact({ term, children }: { term: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <dt className="shrink-0 text-muted-foreground">{term}</dt>
+      <dd className="flex min-w-0 items-center">{children}</dd>
+    </div>
   )
 }
 
@@ -342,25 +354,25 @@ function MissingSource({
   const meta = KIND_META[kind]
   const [open, setOpen] = useState(false)
   return (
-    <Panel className={open ? undefined : 'border-dashed border-input'}>
-      <SourceHeader
-        icon={meta.icon}
-        title={meta.label}
-        note={meta.empty}
-        aside={
-          open ? null : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setOpen(true)}
-              disabled={!canStoreTokens}
-            >
-              <IconPlugConnected aria-hidden="true" />
-              Connect
-            </Button>
-          )
-        }
-      />
+    <SetRow
+      as="li"
+      icon={<meta.icon stroke={1.75} />}
+      title={meta.label}
+      sub={meta.empty}
+      aside={
+        open ? null : (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpen(true)}
+            disabled={!canStoreTokens}
+          >
+            <IconPlugConnected aria-hidden="true" />
+            Connect
+          </Button>
+        )
+      }
+    >
       {open ? (
         <SourceConnectForm
           kind={kind}
@@ -368,40 +380,34 @@ function MissingSource({
           onConnected={() => setOpen(false)}
         />
       ) : null}
-    </Panel>
+    </SetRow>
   )
 }
 
-function OsvCard() {
+function OsvRow() {
   const { settings, mutation, enabled: checked, setEnabled } = useOsvSetting()
   return (
-    <Panel>
-      <OptionRow
-        icon={<IconDatabase aria-hidden="true" stroke={1.75} />}
-        title={<span id="osv-switch-label">OSV.dev lockfile scan</span>}
-        note="Public API, no token needed."
-        control={
-          <span className="flex items-center gap-2">
-            <SaveStatus
-              pending={mutation.isPending}
-              saved={mutation.isSuccess}
-              error={mutation.isError || settings.isError ? 'Not saved' : null}
-            />
-            <Switch
-              aria-labelledby="osv-switch-label"
-              checked={checked}
-              disabled={!settings.data || mutation.isPending}
-              onCheckedChange={setEnabled}
-            />
-          </span>
-        }
-      />
-      <p className="text-sm text-muted-foreground">
-        Reads the lockfile of each deployed repo and checks it against OSV.dev. This covers repos
-        where Dependabot alerts are off and adds a second source to every finding. Only package
-        names and versions are sent, never your code.
-      </p>
-    </Panel>
+    <SetRow
+      as="li"
+      icon={<IconDatabase stroke={1.75} />}
+      title={<span id="osv-switch-label">OSV.dev lockfile scan</span>}
+      sub="Public API, no token needed. Only package names and versions are sent, never your code."
+      aside={
+        <span className="flex items-center gap-2">
+          <SaveStatus
+            pending={mutation.isPending}
+            saved={mutation.isSuccess}
+            error={mutation.isError || settings.isError ? 'Not saved' : null}
+          />
+          <Switch
+            aria-labelledby="osv-switch-label"
+            checked={checked}
+            disabled={!settings.data || mutation.isPending}
+            onCheckedChange={setEnabled}
+          />
+        </span>
+      }
+    />
   )
 }
 
@@ -413,7 +419,7 @@ function SourcesSkeleton() {
           key={i}
           className="flex items-center gap-3 rounded-lg border border-border bg-card p-4"
         >
-          <Skeleton className="size-[30px] rounded-md" />
+          <Skeleton className="size-9 rounded-md" />
           <span className="flex flex-1 flex-col gap-1.5">
             <Skeleton className="h-3.5 w-28" />
             <Skeleton className="h-2.5 w-44" />

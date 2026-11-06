@@ -8,7 +8,7 @@ const NO_LOGIN =
   'Hinomi has no login of its own, so anyone who passes this layer can read your findings and change these settings.'
 
 function Mono({ children }: { children: React.ReactNode }) {
-  return <code className="font-mono text-[0.92em]">{children}</code>
+  return <code className="font-mono text-[max(13px,0.92em)]">{children}</code>
 }
 
 function DocsLink() {

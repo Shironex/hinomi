@@ -1,7 +1,7 @@
 import { SCAN_INTERVAL_DEFAULT_MINUTES } from '@hinomi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { IconLoader2, IconRefresh, IconStack2 } from '@tabler/icons-react'
-import { Field, OptionRow } from '@/components/form/field'
+import { IconLoader2, IconRefresh } from '@tabler/icons-react'
+import { Field } from '@/components/form/field'
 import { ErrorState } from '@/components/states/error-state'
 import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/ui/input'
@@ -76,45 +76,48 @@ export function ScansSection() {
 
   return (
     <Panel>
-      <div className="grid items-end gap-3.5 tab:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-        <Field label="Scan every" help="Changing it replans the next scan.">
-          {(control) => (
-            <NativeSelect
-              {...control}
-              value={interval}
-              disabled={mutation.isPending}
-              onChange={(e) => mutation.mutate({ scanIntervalMinutes: Number(e.target.value) })}
-            >
-              {options.map((o) => (
-                <option key={o.minutes} value={o.minutes}>
-                  {o.label}
-                </option>
-              ))}
-            </NativeSelect>
-          )}
-        </Field>
-        <div className="pb-6">
+      <div className="grid gap-5 tab:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Field label="Scan every" help="Changing it replans the next scan.">
+            {(control) => (
+              <NativeSelect
+                {...control}
+                value={interval}
+                disabled={mutation.isPending}
+                onChange={(e) => mutation.mutate({ scanIntervalMinutes: Number(e.target.value) })}
+              >
+                {options.map((o) => (
+                  <option key={o.minutes} value={o.minutes}>
+                    {o.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
+          </Field>
           <SaveStatus
             pending={mutation.isPending}
             saved={mutation.isSuccess}
             error={mutation.isError ? describeError(mutation.error) : null}
           />
         </div>
-      </div>
-      <OptionRow
-        className="border-t pt-3.5 first:pt-3.5"
-        icon={<IconStack2 aria-hidden="true" stroke={1.75} />}
-        title={<span id="account-repos-label">Include repos with no deployment</span>}
-        note="Reads every repo the GitHub token can see. They rank last, below everything deployed."
-        control={
+        <div className="flex items-start gap-3">
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span id="account-repos-label" className="text-sm font-medium text-foreground">
+              Include repos with no deployment
+            </span>
+            <span className="text-xs text-pretty text-muted-foreground">
+              Reads every repo the GitHub token can see. They rank last, below everything deployed.
+            </span>
+          </span>
           <Switch
             aria-labelledby="account-repos-label"
             checked={accountRepos}
             disabled={mutation.isPending}
             onCheckedChange={(next) => mutation.mutate({ includeAccountRepos: next })}
+            className="mt-0.5"
           />
-        }
-      />
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border pt-3.5">
         <dl className="grid flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-sm">
           <ScanFacts scan={scan} />
