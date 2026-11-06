@@ -1,7 +1,14 @@
 import type { AdvisorySeverity, FindingScope } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
-import { countFindings, isDeferred, type CountableFinding } from './counts.js'
-import { compareByRank, rankExposure, reachOf, type ExposureReach } from './rank.js'
+import { countFindings, isDeferred, isExposed, type CountableFinding } from './counts.js'
+import {
+  allStopped,
+  compareByRank,
+  isStoppedStatus,
+  rankExposure,
+  reachOf,
+  type ExposureReach,
+} from './rank.js'
 
 const advisory = (
   severity: AdvisorySeverity,
@@ -122,6 +129,36 @@ describe('reachOf', () => {
   })
 })
 
+describe('stopped deployments', () => {
+  it.each([
+    ['exited:unhealthy', true],
+    ['exited', true],
+    ['stopped:unknown', true],
+    ['Exited:unhealthy', true],
+    ['running:healthy', false],
+    ['running:unknown', false],
+    ['restarting:unhealthy', false],
+    ['degraded:unhealthy', false],
+    ['unknown', false],
+    ['', false],
+    [null, false],
+    [undefined, false],
+  ])('classifies %s as stopped: %s', (status, stopped) => {
+    expect(isStoppedStatus(status)).toBe(stopped)
+  })
+
+  it('ignores stopped deployments when taking the reach', () => {
+    const live = { reach: 'internal' as const, status: 'running:healthy' }
+    const down = { reach: 'public' as const, status: 'exited:unhealthy' }
+    expect(reachOf([down])).toBe('none')
+    expect(reachOf([down, live])).toBe('internal')
+    expect(reachOf([{ reach: 'public', status: 'restarting:unhealthy' }])).toBe('public')
+    expect(allStopped([down])).toBe(true)
+    expect(allStopped([down, live])).toBe(false)
+    expect(allStopped([])).toBe(false)
+  })
+})
+
 describe('countFindings', () => {
   const now = new Date('2026-11-06T12:00:00Z')
   const later = new Date('2026-11-20T00:00:00Z')
@@ -162,7 +199,26 @@ describe('countFindings', () => {
       public: 3,
       exposed: 3,
       needsAction: 2,
+      dismissedUpstream: 0,
     })
+  })
+
+  it('lists a dismissed_upstream finding without exposing it or asking for action', () => {
+    const counts = countFindings(
+      [
+        item('critical', 'runtime', 'public', 'dismissed_upstream'),
+        item('critical', 'runtime', 'public'),
+      ],
+      now,
+    )
+    expect(counts.advisories).toMatchObject({
+      total: 2,
+      public: 2,
+      exposed: 1,
+      needsAction: 1,
+      dismissedUpstream: 1,
+    })
+    expect(isExposed(item('critical', 'runtime', 'public', 'dismissed_upstream'))).toBe(false)
   })
 
   it('counts blind spots separately', () => {

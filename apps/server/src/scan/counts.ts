@@ -12,7 +12,8 @@ export interface CountableFinding {
 /**
  * Funnel of advisory findings for the UI. Every step narrows the previous one:
  * total > in deployed repos > runtime > critical or high > on a public app.
- * Fixed findings are left out of every number.
+ * Fixed findings are left out of every number. Findings dismissed upstream stay in the
+ * funnel (they are real) but are never exposed and never need action.
  */
 export interface AdvisoryFunnel {
   total: number
@@ -24,6 +25,8 @@ export interface AdvisoryFunnel {
   exposed: number
   /** Exposed and not covered by a snooze or acceptance that is still in force. */
   needsAction: number
+  /** Dismissed on GitHub with no other source reporting them. Listed like accepted risks, never exposed. */
+  dismissedUpstream: number
 }
 
 export interface BlindSpotCounts {
@@ -54,6 +57,7 @@ export function isExposed(finding: CountableFinding): boolean {
   return (
     finding.kind === 'advisory' &&
     finding.state !== 'fixed' &&
+    finding.state !== 'dismissed_upstream' &&
     factors.deployed &&
     factors.runtime &&
     isCriticalOrHigh(factors) &&
@@ -70,6 +74,7 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
     public: 0,
     exposed: 0,
     needsAction: 0,
+    dismissedUpstream: 0,
   }
   const blindSpots: BlindSpotCounts = { total: 0, deployed: 0, public: 0, needsAction: 0 }
 
@@ -84,6 +89,7 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
       continue
     }
     advisories.total++
+    if (finding.state === 'dismissed_upstream') advisories.dismissedUpstream++
     if (!factors.deployed) continue
     advisories.deployed++
     if (!factors.runtime) continue
@@ -92,6 +98,7 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
     advisories.criticalOrHigh++
     if (!factors.public) continue
     advisories.public++
+    if (finding.state === 'dismissed_upstream') continue
     advisories.exposed++
     if (!isDeferred(finding, now)) advisories.needsAction++
   }

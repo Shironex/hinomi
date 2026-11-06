@@ -61,9 +61,23 @@ export const repoAlertRecordSchema = z.object({
 })
 export type RepoAlertRecord = z.infer<typeof repoAlertRecordSchema>
 
+/** An alert someone dismissed on GitHub, with the reason they gave. */
+export const dismissedAlertRecordSchema = repoAlertRecordSchema.extend({
+  dismissedAt: isoDate,
+  /** GitHub's reason, for example "no_bandwidth" or "tolerable_risk". Null when absent. */
+  dismissReason: z.string().nullable(),
+  dismissComment: z.string().nullable(),
+})
+export type DismissedAlertRecord = z.infer<typeof dismissedAlertRecordSchema>
+
+/**
+ * `alerts` are the open ones. `dismissed` are the dismissed ones, kept apart so a dismissal is
+ * never mistaken for a fix. `advisories` covers both lists.
+ */
 export const dependabotAlertsResultSchema = z.object({
   advisories: z.array(advisoryRecordSchema),
   alerts: z.array(repoAlertRecordSchema),
+  dismissed: z.array(dismissedAlertRecordSchema),
 })
 export type DependabotAlertsResult = z.infer<typeof dependabotAlertsResultSchema>
 

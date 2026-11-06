@@ -23,7 +23,12 @@ export interface BlindSpotCheck {
   subject: Subject
   present: boolean | null
   data?: Record<string, unknown>
+  /** Written on the `resolved` event when this check clears the finding. */
+  resolvedData?: Record<string, unknown>
 }
+
+/** Resolution note for a lockfile blind spot that is no longer checked because OSV is off. */
+const NOT_CHECKED = { checked: false, reason: 'osv_disabled' }
 
 /**
  * Blind spot checks for one repo. Only deployed repos have blind spots, so a
@@ -38,19 +43,24 @@ export function repoBlindSpotChecks(
   if (!deployed) return REPO_BLIND_SPOTS.map((type) => ({ type, subject, present: false }))
   const health = scan?.health.status === 'ok' ? scan.health.value : null
   const osv = scan?.osv.status === 'ok' ? scan.osv.value : null
+  // OSV switched off: nothing reads lockfiles, so these resolve as "not checked" instead of going stale.
+  const osvOff = scan?.osv.status === 'skipped'
+  const lockfile = (type: BlindSpotType, present: boolean | null): BlindSpotCheck => ({
+    type,
+    subject,
+    present: osvOff ? false : present,
+    ...(osvOff && { resolvedData: NOT_CHECKED }),
+  })
   return [
     { type: 'alerts_disabled', subject, present: health ? health.alertsEnabled === false : null },
     { type: 'alerts_unknown', subject, present: health ? health.alertsEnabled === null : null },
     { type: 'archived_deployed', subject, present: health ? health.archived : null },
+    lockfile(
+      'lockfile_missing',
+      osv ? osv.lockfiles.length === 0 && osv.unparseable.length === 0 : null,
+    ),
     {
-      type: 'lockfile_missing',
-      subject,
-      present: osv ? osv.lockfiles.length === 0 && osv.unparseable.length === 0 : null,
-    },
-    {
-      type: 'lockfile_unparseable',
-      subject,
-      present: osv ? osv.unparseable.length > 0 : null,
+      ...lockfile('lockfile_unparseable', osv ? osv.unparseable.length > 0 : null),
       ...(osv && osv.unparseable.length > 0 && { data: { lockfiles: osv.unparseable } }),
     },
   ]
@@ -95,7 +105,7 @@ function applyCheck(
     return
   }
   const existing = findings.getByKey(blindSpotFindingKey(check.type, check.subject))
-  if (existing && markFixed(findings, existing, now)) {
+  if (existing && markFixed(findings, existing, now, check.resolvedData)) {
     changes.push({ findingId: existing.id, change: 'fixed' })
   }
 }

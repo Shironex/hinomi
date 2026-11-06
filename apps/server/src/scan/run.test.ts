@@ -26,6 +26,10 @@ interface World {
   githubAlerts: Record<string, string[]>
   /** Installed version of each package per repo lockfile; null means no lockfile. */
   lockfiles: Record<string, Record<string, string> | null>
+  /** GHSA ids dismissed on GitHub per repo, with the reason and comment given. */
+  githubDismissed: Record<string, { ghsa: string; reason: string; comment: string }[]>
+  /** Coolify status per app name; running:healthy when absent. */
+  appStatus: Record<string, string>
 }
 
 const ADVISORIES: Record<string, { pkg: string; severity: string; fixed: string; cve: string }> = {
@@ -53,6 +57,8 @@ function initialWorld(): World {
       'lantern-api': { 'example-yaml': '3.0.0' },
       'dock-worker': null,
     },
+    githubDismissed: {},
+    appStatus: {},
   }
 }
 
@@ -62,7 +68,7 @@ const bodyText = (init: RequestInit | undefined) =>
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
-function coolifyResponse(path: string): Response {
+function coolifyResponse(world: World, path: string): Response {
   if (path === '/applications') {
     const app = (uuid: string, name: string, repo: string, fqdn: string | null) => ({
       uuid,
@@ -70,7 +76,7 @@ function coolifyResponse(path: string): Response {
       git_repository: `https://github.com/kestrel-co/${repo}.git`,
       git_branch: 'main',
       fqdn,
-      status: 'running:healthy',
+      status: world.appStatus[name] ?? 'running:healthy',
       destination: { server: { name: 'edge-1' } },
     })
     return json([
@@ -127,8 +133,16 @@ function alertNode(ghsa: string, index: number) {
 function githubResponse(world: World, url: URL, init: RequestInit | undefined): Response {
   const path = url.pathname
   if (path === '/graphql') {
-    const body = JSON.parse(bodyText(init)) as { variables: { name: string } }
-    const nodes = (world.githubAlerts[body.variables.name] ?? []).map(alertNode)
+    const body = JSON.parse(bodyText(init)) as { query: string; variables: { name: string } }
+    const repo = body.variables.name
+    const nodes = body.query.includes('states: DISMISSED')
+      ? (world.githubDismissed[repo] ?? []).map((d, i) => ({
+          ...alertNode(d.ghsa, i + 50),
+          dismissedAt: '2026-10-20T08:00:00Z',
+          dismissReason: d.reason,
+          dismissComment: d.comment,
+        }))
+      : (world.githubAlerts[repo] ?? []).map(alertNode)
     return json({
       data: {
         repository: {
@@ -208,7 +222,7 @@ function mockFetch(world: World): typeof fetch {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const url = new URL(href)
     if (href.startsWith(COOLIFY)) {
-      return Promise.resolve(coolifyResponse(url.pathname.replace('/api/v1', '')))
+      return Promise.resolve(coolifyResponse(world, url.pathname.replace('/api/v1', '')))
     }
     if (href.startsWith(GITHUB)) return Promise.resolve(githubResponse(world, url, init))
     if (href.startsWith(OSV)) return Promise.resolve(osvResponse(url, init))
@@ -421,5 +435,172 @@ describe('runScan', () => {
     expect(changed.map((c) => c.finding.id)).toEqual([id])
     expect(changed[0]!.events.map((e) => e.type)).toEqual(['snooze_expired'])
     expect(findingChangesSince(repos, first.startedAt).length).toBe(5)
+  })
+
+  describe('dismissed on GitHub', () => {
+    const HW = 'GHSA-hw00-0000-0001'
+    const dismissal = { ghsa: HW, reason: 'tolerable_risk', comment: 'only used by the test suite' }
+
+    it('stays open with a note while OSV still reports it', async () => {
+      await scan(0)
+      const id = advisoryFinding('harbor-web', HW)!.id
+      world.githubAlerts['harbor-web'] = []
+      world.githubDismissed['harbor-web'] = [dismissal]
+      const summary = await scan(1)
+      expect(repos.findings.get(id)).toMatchObject({ state: 'open', reportedBy: ['osv'] })
+      expect(summary.changes).not.toContainEqual({ findingId: id, change: 'fixed' })
+      const notes = repos.findings.listEvents(id).filter((e) => e.type === 'dismissal_noted')
+      expect(notes).toHaveLength(1)
+      expect(notes[0]).toMatchObject({
+        actor: 'system',
+        data: { reason: 'tolerable_risk', comment: 'only used by the test suite' },
+      })
+      // The same dismissal is noted once, not on every scan.
+      await scan(2)
+      expect(
+        repos.findings.listEvents(id).filter((e) => e.type === 'dismissal_noted'),
+      ).toHaveLength(1)
+    })
+
+    it('becomes dismissed_upstream, never fixed, and reopens when GitHub reopens it', async () => {
+      await scan(0)
+      const id = advisoryFinding('harbor-web', HW)!.id
+      world.githubAlerts['harbor-web'] = []
+      world.githubDismissed['harbor-web'] = [dismissal]
+      world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+      const second = await scan(1)
+      expect(repos.findings.get(id)).toMatchObject({
+        state: 'dismissed_upstream',
+        stateReason: 'tolerable_risk',
+        fixedAt: null,
+      })
+      expect(second.changes).toContainEqual({ findingId: id, change: 'dismissed_upstream' })
+      expect(second.changes).not.toContainEqual({ findingId: id, change: 'fixed' })
+      expect(second.findingsFixed).toBe(0)
+      expect(repos.findings.listEvents(id)[0]).toMatchObject({
+        type: 'dismissed_upstream',
+        actor: 'system',
+        toState: 'dismissed_upstream',
+        reason: 'tolerable_risk',
+        data: {
+          reason: 'tolerable_risk',
+          comment: 'only used by the test suite',
+          dismissedAt: '2026-10-20T08:00:00Z',
+        },
+      })
+
+      // Not exposed and no action needed, but still listed with its state.
+      const counts = findingCounts(repos, new Date(t0 + day)).advisories
+      expect(counts).toMatchObject({ total: 2, dismissedUpstream: 1, exposed: 1, needsAction: 1 })
+      expect(listRankedFindings(repos).find((r) => r.finding.id === id)?.state).toBe(
+        'dismissed_upstream',
+      )
+
+      // A later scan keeps it as is.
+      const third = await scan(2)
+      expect(repos.findings.get(id)?.state).toBe('dismissed_upstream')
+      expect(third.changes).not.toContainEqual(expect.objectContaining({ findingId: id }))
+
+      // GitHub reopens the alert.
+      world.githubDismissed['harbor-web'] = []
+      world.githubAlerts['harbor-web'] = [HW]
+      const fourth = await scan(3)
+      expect(repos.findings.get(id)).toMatchObject({ state: 'open', stateReason: null })
+      expect(fourth.changes).toContainEqual({ findingId: id, change: 'reopened' })
+      expect(repos.findings.listEvents(id)[0]).toMatchObject({
+        type: 'reopened',
+        actor: 'system',
+        data: { reason: 'reopened_upstream' },
+      })
+    })
+
+    it('reopens a dismissed finding when OSV starts reporting it', async () => {
+      world.githubAlerts['harbor-web'] = []
+      world.githubDismissed['harbor-web'] = [dismissal]
+      world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+      await scan(0)
+      const id = advisoryFinding('harbor-web', HW)!.id
+      expect(repos.findings.get(id)?.state).toBe('dismissed_upstream')
+
+      world.lockfiles['harbor-web'] = { 'example-parser': '1.2.0' }
+      await scan(1)
+      expect(repos.findings.get(id)).toMatchObject({ state: 'open', reportedBy: ['osv'] })
+      const reopened = repos.findings.listEvents(id).find((e) => e.type === 'reopened')
+      expect(reopened?.data).toEqual({ reason: 'still_reported' })
+    })
+
+    it('records a dismissal of an advisory that was never open, and keeps a snooze', async () => {
+      world.githubDismissed['dock-worker'] = [
+        { ghsa: 'GHSA-la00-0000-0002', reason: 'not_used', comment: '' },
+      ]
+      await scan(0)
+      const old = advisoryFinding('dock-worker', 'GHSA-la00-0000-0002')!
+      expect(old).toMatchObject({ state: 'dismissed_upstream', reportedBy: ['github'] })
+
+      // A user's snooze is not overridden by the upstream dismissal.
+      await scan(1)
+      repos.findings.changeState(
+        old.id,
+        { state: 'snoozed', reason: 'later', until: new Date(t0 + 5 * day), actor: 'user' },
+        new Date(t0 + 1 * day),
+      )
+      await scan(2)
+      expect(repos.findings.get(old.id)?.state).toBe('snoozed')
+    })
+
+    it('stays open when OSV reported it before and could not look this time', async () => {
+      await scan(0)
+      const id = advisoryFinding('harbor-web', HW)!.id
+      world.githubAlerts['harbor-web'] = []
+      world.githubDismissed['harbor-web'] = [dismissal]
+      world.lockfiles['harbor-web'] = null
+      await scan(1)
+      expect(repos.findings.get(id)?.state).toBe('open')
+    })
+  })
+
+  describe('stopped apps', () => {
+    it('ranks a stopped app as not deployed but keeps the stopped marker', async () => {
+      await scan(0)
+      const id = advisoryFinding('harbor-web', 'GHSA-hw00-0000-0001')!.id
+      const view = () => listRankedFindings(repos).find((r) => r.finding.id === id)!
+      expect(view()).toMatchObject({ reach: 'public', stopped: false })
+
+      world.appStatus['harbor-web'] = 'exited:unhealthy'
+      await scan(1)
+      expect(view()).toMatchObject({ reach: 'none', stopped: true })
+      expect(view().factors).toMatchObject({ deployed: false, public: false })
+      expect(view().rank).toBeLessThan(10)
+      expect(repos.findings.get(id)?.state).toBe('open')
+      expect(findingCounts(repos, new Date(t0 + day)).advisories.exposed).toBe(1)
+
+      world.appStatus['harbor-web'] = 'restarting:unhealthy'
+      await scan(2)
+      expect(view()).toMatchObject({ reach: 'public', stopped: false })
+    })
+  })
+
+  describe('OSV switched off', () => {
+    it('resolves lockfile blind spots as not checked', async () => {
+      await scan(0)
+      const key = `blind:lockfile_missing:repo:${repoId('dock-worker')}`
+      expect(repos.findings.getByKey(key)?.state).toBe('open')
+
+      repos.settings.set(SCAN_SETTING_KEYS.osvEnabled, false)
+      const summary = await scan(1)
+      const finding = repos.findings.getByKey(key)!
+      expect(finding.state).toBe('fixed')
+      expect(repos.findings.listEvents(finding.id)[0]).toMatchObject({
+        type: 'resolved',
+        actor: 'system',
+        data: { checked: false, reason: 'osv_disabled' },
+      })
+      expect(summary.changes).toContainEqual({ findingId: finding.id, change: 'fixed' })
+
+      // Switching OSV back on brings the blind spot back.
+      repos.settings.set(SCAN_SETTING_KEYS.osvEnabled, true)
+      await scan(2)
+      expect(repos.findings.getByKey(key)?.state).toBe('open')
+    })
   })
 })

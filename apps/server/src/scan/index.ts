@@ -18,7 +18,9 @@ export {
 } from './settings.js'
 export {
   BLIND_SPOT_SEVERITY,
+  allStopped,
   compareByRank,
+  isStoppedStatus,
   rankExposure,
   reachOf,
   type ExposureFactors,
@@ -45,6 +47,7 @@ export {
   type Actor,
   type DeferInput,
   type FindingEventType,
+  type UpstreamDismissal,
 } from './state.js'
 export {
   findingChangesSince,

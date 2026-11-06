@@ -10,6 +10,7 @@ import type { Repositories } from '../repository/index.js'
 import { countFindings, type FindingCounts } from './counts.js'
 import { indexDeployments, type DeploymentIndex } from './deployments.js'
 import {
+  allStopped,
   compareByRank,
   rankExposure,
   reachOf,
@@ -23,6 +24,8 @@ export interface RankedFinding extends ExposureRank {
   state: FindingState
   stateUntil: Date | null
   reach: ExposureReach
+  /** Every deployment it runs in is stopped: ranked as not deployed, kept visible with a badge. */
+  stopped: boolean
   finding: FindingRow
   advisory: AdvisoryRow | null
   repo: RepoRow | null
@@ -58,6 +61,7 @@ export function rankFinding(
     state: finding.state,
     stateUntil: finding.stateUntil,
     reach,
+    stopped: allStopped(deployments),
     finding,
     advisory,
     repo,
