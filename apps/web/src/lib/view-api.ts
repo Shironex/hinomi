@@ -4,6 +4,7 @@ import {
   deploymentDetailSchema,
   findingDetailSchema,
   findingsResponseSchema,
+  fixesResponseSchema,
   overviewResponseSchema,
   type BulkFindingsRequest,
   type DeferFindingRequest,
@@ -38,6 +39,7 @@ export const viewKeys = {
   deployments: settingsKeys.deployments,
   deployment: (id: number) => ['deployment', id] as const,
   deploys: (id: number) => ['deployment', id, 'deploys'] as const,
+  fixes: ['fixes'] as const,
 }
 
 export const overviewQuery = queryOptions({
@@ -105,6 +107,21 @@ export function findingsInfiniteQuery(params: FindingsParams) {
   })
 }
 
+/** Open findings grouped by the bump that clears them, every page loaded so far. */
+export function fixesInfiniteQuery(limit = 25) {
+  return infiniteQueryOptions({
+    queryKey: [...viewKeys.fixes, { limit }, 'pages'] as const,
+    queryFn: ({ signal, pageParam }) =>
+      api.get(
+        `/fixes?limit=${limit}${pageParam > 0 ? `&offset=${pageParam}` : ''}`,
+        fixesResponseSchema,
+        { signal },
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (last) => last.nextOffset ?? undefined,
+  })
+}
+
 export function findingQuery(id: number) {
   return queryOptions({
     queryKey: viewKeys.finding(id),
@@ -153,6 +170,7 @@ export async function refreshAfterDecision(queryClient: QueryClient, detail?: Fi
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: viewKeys.findings }),
     queryClient.invalidateQueries({ queryKey: viewKeys.overview }),
+    queryClient.invalidateQueries({ queryKey: viewKeys.fixes }),
     queryClient.invalidateQueries({ queryKey: viewKeys.deployments }),
     queryClient.invalidateQueries({ queryKey: ['deployment'] }),
     queryClient.invalidateQueries({ queryKey: shellKeys.navCounts }),

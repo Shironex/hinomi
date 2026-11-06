@@ -1,135 +1,111 @@
-import type { FindingListItem, FindingTier, OverviewResponse, SeverityCounts } from '@hinomi/shared'
-import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import type {
+  FindingListItem,
+  FindingTier,
+  FixItem,
+  OverviewResponse,
+  SeverityCounts,
+} from '@hinomi/shared'
+import { useMemo } from 'react'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import {
+  IconAlertTriangle,
   IconArchive,
   IconChevronRight,
   IconPlugConnected,
   IconRadar2,
   IconShieldCheck,
 } from '@tabler/icons-react'
-import { FindingRow } from '@/components/findings/finding-row'
-import { FactorLegend, RankMarker } from '@/components/findings/rank-marker'
-import { PageHeader } from '@/components/page-header'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
+import { SplitListHeader } from '@/components/split/split-parts'
+import { SplitView } from '@/components/split/split-view'
+import { FindingPane } from '@/components/triage/finding-pane'
+import { FixPane, FixRow } from '@/components/triage/fix-pane'
+import {
+  ListSkeleton,
+  LoadedFooter,
+  SegmentTabs,
+  type SegmentTab,
+} from '@/components/triage/list-parts'
+import { TriageRow } from '@/components/triage/triage-row'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
-import { Skeleton } from '@/components/ui/skeleton'
 import { ActivityPanel } from '@/components/views/activity-feed'
-import { ExposureFunnel } from '@/components/views/exposure-funnel'
-import { Section, Term } from '@/components/views/panel'
-import { ScanStrip } from '@/components/views/scan-strip'
+import { Term } from '@/components/views/panel'
 import { SourceHealthPanel } from '@/components/views/source-health'
-import { isDecided, SEVERITY_LABEL, TERMS, TIER_INFO } from '@/lib/finding-meta'
-import { findingsQuery, overviewQuery } from '@/lib/view-api'
+import { useDeferRequests } from '@/hooks/use-defer-requests'
+import type { ExposureTab } from '@/lib/exposure-search'
+import { isDecided, SEVERITY_LABEL, TIER_INFO } from '@/lib/finding-meta'
+import { findingName, fixLabel } from '@/lib/triage'
+import {
+  findingsInfiniteQuery,
+  fixesInfiniteQuery,
+  overviewQuery,
+  type FindingsParams,
+} from '@/lib/view-api'
 
+const route = getRouteApi('/')
 const number = new Intl.NumberFormat('en-US')
+const PAGE = 50
+const TOP: FindingTier[] = ['exposed', 'blind_spot']
 
-/** Blind spots and exposed findings, the spine of the page. */
-const TOP_PARAMS = { tier: ['blind_spot', 'exposed'] as FindingTier[], limit: 100 }
+/** What each findings tab lists. In progress holds running fixes and snoozed or accepted rows. */
+const TAB_PARAMS: Record<Exclude<ExposureTab, 'fixes'>, FindingsParams> = {
+  action: { tier: TOP, state: ['open'], limit: PAGE },
+  blind: { tier: ['blind_spot'], limit: PAGE },
+  progress: { tier: TOP, state: ['fixing', 'snoozed', 'accepted'], limit: PAGE },
+}
 
-const LEDE_LINK = 'text-accent-ink hover:underline'
+const LIST_LABEL: Record<ExposureTab, string> = {
+  action: 'Findings that need action',
+  blind: 'Blind spots',
+  progress: 'Findings in progress',
+  fixes: 'Fixes that clear the most',
+}
 
-function OverviewSkeleton() {
+/** "4,917 alerts narrow to 267", with every funnel step behind it on hover and focus. */
+function FunnelLine({ overview }: { overview: OverviewResponse }) {
+  const f = overview.funnel
+  const steps = [
+    `${number.format(f.total)} open alerts`,
+    `${number.format(f.deployed)} in a deployed repo`,
+    `${number.format(f.runtime)} in runtime code`,
+    `${number.format(f.criticalOrHigh)} critical or high`,
+    `${number.format(f.exposed)} on a public app (exposed)`,
+    `${number.format(f.needsAction)} need action`,
+  ].join(', ')
   return (
-    <div className="flex flex-col gap-5">
-      <div aria-hidden="true" className="flex flex-col gap-2.5">
-        <Skeleton className="h-[26px] w-[340px]" />
-        <Skeleton className="h-3 w-[520px]" />
-      </div>
-      <div
-        aria-hidden="true"
-        className="grid grid-cols-5 overflow-hidden rounded-lg border border-border bg-card"
-      >
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="flex flex-col gap-1.5 border-border p-4 not-last:border-r">
-            <Skeleton className="h-6 w-[70%] max-w-[70px]" />
-            <Skeleton className="h-2.5 w-[80%]" />
-            <Skeleton className="h-2 w-1/2" />
-          </div>
-        ))}
-      </div>
-      <div
-        aria-hidden="true"
-        className="mt-2 grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_320px]"
-      >
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3.5 border-t border-border px-4 py-3.5 first:border-t-0 tab:grid-cols-[28px_46px_minmax(0,1fr)_auto]"
-            >
-              <span className="hidden tab:block" />
-              <Skeleton className="hidden h-3.5 w-[46px] tab:block" />
-              <span className="flex flex-col gap-[7px]">
-                <Skeleton className="h-3.5 w-[200px]" />
-                <Skeleton className="h-3 w-[70%]" />
-                <Skeleton className="h-2.5 w-[45%]" />
-              </span>
-              <Skeleton className="h-[26px] w-24" />
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-col gap-4">
-          <Skeleton className="h-[120px] w-full rounded-lg" />
-          <Skeleton className="h-[180px] w-full rounded-lg" />
-        </div>
-      </div>
-      <p role="status" className="sr-only">
-        Loading exposure
-      </p>
-    </div>
+    <Term definition={`Funnel: ${steps}.`}>
+      {number.format(f.total)} alerts narrow to {number.format(f.exposed)}
+    </Term>
   )
 }
 
-function Heading({ overview }: { overview: OverviewResponse }) {
-  const { exposed, needsAction } = overview.funnel
-  if (exposed === 0) return <>Nothing is exposed right now</>
+/** A source that failed or lacks a token, so a quiet list is never mistaken for a clean one. */
+function SourceProblems({ overview }: { overview: OverviewResponse }) {
+  const broken = overview.sources.filter(
+    (s) => s.status === 'error' || s.status === 'missing_token',
+  )
+  if (!broken.length) return null
+  const first = broken[0]!
+  const name = first.kind === 'github' ? 'GitHub' : first.kind === 'osv' ? 'OSV.dev' : 'Coolify'
   return (
-    <>
-      <Term definition={TERMS.exposed}>{number.format(exposed)} exposed</Term>,{' '}
-      <Term definition={TERMS.needsAction}>
-        {number.format(needsAction)} need{needsAction === 1 ? 's' : ''} action
-      </Term>
-    </>
+    <Link
+      to="/settings"
+      className="flex items-start gap-2 rounded-md text-xs text-foreground-2 no-underline hover:text-foreground"
+    >
+      <IconAlertTriangle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-wait" />
+      <span className="min-w-0">
+        <b className="font-semibold">{name}</b>:{' '}
+        {first.status === 'error' ? (first.lastError ?? 'the last sync failed') : 'no token'}
+        {broken.length > 1 ? `, and ${broken.length - 1} more` : ''}. Open settings
+      </span>
+    </Link>
   )
 }
 
-function Lede({ overview }: { overview: OverviewResponse }) {
-  const blind = overview.blindSpots.total
-  return (
-    <>
-      Critical or high advisories in runtime code on apps with a public domain.
-      {blind > 0 ? (
-        <>
-          {' '}
-          Plus{' '}
-          <Term definition={TERMS.blindSpot}>
-            {blind} blind spot{blind === 1 ? '' : 's'}
-          </Term>
-          : deployed code Hinomi cannot fully see into.
-        </>
-      ) : null}{' '}
-      Everything else is ranked below and listed under{' '}
-      <Link to="/alerts" className={LEDE_LINK}>
-        All alerts
-      </Link>
-      .
-    </>
-  )
-}
-
-/** Needs action first, decided rows after them, each group in rank order. */
-function ordered(items: readonly FindingListItem[]): FindingListItem[] {
-  return [...items.filter((i) => !isDecided(i.state)), ...items.filter((i) => isDecided(i.state))]
-}
-
-const BELOW: { tier: FindingTier; flags: readonly boolean[] }[] = [
-  { tier: 'internal', flags: [false, true, true, false] },
-  { tier: 'public_low', flags: [false, true, true, true] },
-  { tier: 'dev', flags: [false, false, true, false] },
-]
+const BELOW: FindingTier[] = ['internal', 'public_low', 'dev']
 
 const MIX: { key: keyof SeverityCounts; color: string }[] = [
   { key: 'critical', color: 'bg-sev-critical' },
@@ -138,8 +114,8 @@ const MIX: { key: keyof SeverityCounts; color: string }[] = [
   { key: 'low', color: 'bg-sev-low' },
 ]
 
-/** The severity mix of a tier as one thin bar, with the counts for screen readers. */
-export function SeverityMix({ counts }: { counts: SeverityCounts | undefined }) {
+/** The severity mix of a tier as one thin bar, with the counts in words. */
+function SeverityMix({ counts }: { counts: SeverityCounts | undefined }) {
   if (!counts) return null
   const total = counts.critical + counts.high + counts.moderate + counts.low
   if (total === 0) return null
@@ -164,173 +140,118 @@ export function SeverityMix({ counts }: { counts: SeverityCounts | undefined }) 
   )
 }
 
-function BelowTheLine({ overview }: { overview: OverviewResponse }) {
+/** The detail pane when nothing needs action: what ranks below, source health, activity. */
+function QuietDetail({ overview }: { overview: OverviewResponse }) {
   const notDeployed = overview.tiers.not_deployed ?? 0
   return (
-    <Section title="Below the line" description="Lower rank, nothing dropped.">
-      <div className="grid gap-3 tab:grid-cols-3">
-        {BELOW.map(({ tier, flags }) => (
-          <Link
-            key={tier}
-            to="/alerts"
-            search={{ tier: [tier] }}
-            className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-4 py-3.5 text-inherit no-underline hover:border-input hover:bg-sidebar"
-          >
-            <span className="flex items-center justify-between gap-2">
-              <RankMarker flags={flags} />
+    <>
+      <div className="flex flex-col gap-2">
+        <h2 className="text-lg">Nothing needs action on a public app</h2>
+        <p className="max-w-[68ch] text-foreground-2">
+          No open critical or high advisory in runtime code on a public deployment, and no open
+          blind spot. Lower tiers stay ranked below and listed under{' '}
+          <Link to="/alerts" className="text-accent-ink hover:underline">
+            All alerts
+          </Link>
+          .
+        </p>
+      </div>
+      <section aria-labelledby="below-title" className="flex flex-col gap-3">
+        <h2 id="below-title" className="text-md">
+          Below the line
+        </h2>
+        <div className="grid gap-3 tab:grid-cols-3">
+          {BELOW.map((tier) => (
+            <Link
+              key={tier}
+              to="/alerts"
+              search={{ tier: [tier] }}
+              className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-4 py-3.5 text-inherit no-underline hover:border-input"
+            >
               <span className="text-lg font-semibold tabular-nums">
                 {number.format(overview.tiers[tier] ?? 0)}
               </span>
-            </span>
-            <span className="text-sm text-foreground-2">{TIER_INFO[tier].name}</span>
-            <span className="text-xs text-muted-foreground">{TIER_INFO[tier].hint}</span>
-            <SeverityMix counts={overview.tierSeverity[tier]} />
-          </Link>
-        ))}
-      </div>
-      <Link
-        to="/alerts"
-        search={{ tier: ['not_deployed'] }}
-        className="flex items-start gap-3 rounded-lg border border-border bg-sidebar px-3.5 py-3 text-sm text-inherit no-underline hover:border-input"
-      >
-        <IconArchive
-          aria-hidden="true"
-          className="mt-0.5 size-4 shrink-0 text-foreground-2"
-          stroke={1.75}
-        />
-        <span className="flex min-w-0 flex-col gap-1">
-          <b className="font-semibold">
-            {number.format(notDeployed)} alert{notDeployed === 1 ? '' : 's'} in repos that are not
-            deployed
-          </b>
-          <span className="text-muted-foreground">
-            Ranked last. Archive those repos on GitHub or map them to a deployment if they do run
-            somewhere.
-          </span>
-        </span>
-        <IconChevronRight
-          aria-hidden="true"
-          className="ml-auto size-4 shrink-0 self-center text-muted-foreground"
-        />
-      </Link>
-    </Section>
-  )
-}
-
-function NoRepoCallout({ items }: { items: readonly FindingListItem[] }) {
-  const unmapped = items.filter(
-    (i) => i.blindSpotType === 'no_repo_mapping' && i.state !== 'fixed' && i.deployments[0],
-  )
-  const first = unmapped[0]?.deployments[0]
-  if (!first) return null
-  const n = unmapped.length
-  return (
-    <Callout
-      variant="warn"
-      icon={IconPlugConnected}
-      title={`${n} deployment${n === 1 ? ' has' : 's have'} no repo`}
-    >
-      <span className="flex flex-col gap-1">
-        <span>
-          {first.name}
-          {first.server ? ` on ${first.server}` : ''} runs with no matching repo, so its exposure is
-          unknown.
-        </span>
-        <Link
-          to="/deployments/$id"
-          params={{ id: String(first.id) }}
-          className="font-medium text-accent-ink hover:underline"
-        >
-          Map a repo
-        </Link>
-      </span>
-    </Callout>
-  )
-}
-
-function RankedList({ items, total }: { items: readonly FindingListItem[]; total: number }) {
-  const rows = ordered(items)
-  return (
-    <Section
-      id="exposed-list"
-      titleId="exposed-list-title"
-      title="Exposed findings and blind spots"
-      description="Ranked by exposure, then CVSS."
-      actions={<FactorLegend className="hidden tab:flex" />}
-    >
-      {rows.length === 0 ? (
-        <Callout icon={IconShieldCheck} title="Nothing exposed on a public app">
-          No critical or high advisory in runtime code on a public deployment, and every deployed
-          repo is covered. Lower tiers stay ranked below.
-        </Callout>
-      ) : (
-        <div
-          data-list
-          aria-labelledby="exposed-list-title"
-          className="overflow-hidden rounded-lg border border-border bg-card"
-        >
-          {rows.map((item, i) => (
-            <FindingRow key={item.id} item={item} rank={i + 1} />
+              <span className="text-sm text-foreground-2">{TIER_INFO[tier].name}</span>
+              <SeverityMix counts={overview.tierSeverity[tier]} />
+            </Link>
           ))}
         </div>
-      )}
-      {total > items.length ? (
         <Link
           to="/alerts"
-          search={{ tier: ['blind_spot', 'exposed'] }}
-          className="self-start text-sm text-accent-ink hover:underline"
+          search={{ tier: ['not_deployed'] }}
+          className="flex items-start gap-3 rounded-lg border border-border bg-sidebar px-3.5 py-3 text-sm text-inherit no-underline hover:border-input"
         >
-          {number.format(total - items.length)} more in All alerts
+          <IconArchive aria-hidden="true" className="mt-0.5 size-4 shrink-0" stroke={1.75} />
+          <span>
+            <b className="font-semibold">
+              {number.format(notDeployed)} alert{notDeployed === 1 ? '' : 's'} in repos that are not
+              deployed
+            </b>
+            <span className="block text-muted-foreground">
+              Ranked last. Archive those repos or map them to a deployment if they do run.
+            </span>
+          </span>
+          <IconChevronRight aria-hidden="true" className="ml-auto size-4 shrink-0 self-center" />
         </Link>
-      ) : null}
-      <div className="flex flex-wrap items-start gap-x-3.5 gap-y-1.5 text-xs text-muted-foreground">
-        <span className="min-w-[240px] flex-1">
-          Snoozed and accepted findings stay in this list with their reason and expiry, and return
-          to the top when it passes.
-        </span>
-        <span className="min-w-[240px] flex-1">
-          Hinomi also scans the lockfile of each deployed repo against OSV.dev, so a repo with
-          alerts off is still covered. Each finding shows its source.
-        </span>
+      </section>
+      <div className="grid items-start gap-4 desk:grid-cols-2">
+        <SourceHealthPanel sources={overview.sources} />
+        <ActivityPanel items={overview.recentActivity} />
       </div>
-    </Section>
+    </>
+  )
+}
+
+/** In progress: running fixes first, then snoozed and accepted rows, each in rank order. */
+function progressOrder(items: readonly FindingListItem[]): FindingListItem[] {
+  return [...items.filter((i) => !isDecided(i.state)), ...items.filter((i) => isDecided(i.state))]
+}
+
+function Padded({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-6 px-4 pt-6 pb-10 tab:px-8 tab:pt-7">
+      <h1 className="text-lg">Exposure</h1>
+      {children}
+    </div>
   )
 }
 
 export function OverviewPage() {
+  const search = route.useSearch()
+  const tab: ExposureTab = search.tab ?? 'action'
   const overview = useQuery(overviewQuery)
-  const top = useQuery(findingsQuery(TOP_PARAMS))
+  const listTab = tab === 'fixes' ? 'action' : tab
+  const list = useInfiniteQuery({
+    ...findingsInfiniteQuery(TAB_PARAMS[listTab]),
+    enabled: tab !== 'fixes',
+  })
+  // Their totals are the tab counts, so both load whatever tab is open.
+  const progress = useInfiniteQuery(findingsInfiniteQuery(TAB_PARAMS.progress))
+  const fixes = useInfiniteQuery(fixesInfiniteQuery())
 
-  const error = overview.error ?? top.error
-  if (error) {
+  const defer = useDeferRequests()
+  const rawItems = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data])
+  const items = useMemo(
+    () => (tab === 'progress' ? progressOrder(rawItems) : rawItems),
+    [rawItems, tab],
+  )
+  const fixItems = useMemo(() => fixes.data?.pages.flatMap((p) => p.items) ?? [], [fixes.data])
+
+  if (overview.error) {
     return (
-      <>
-        <PageHeader title="Exposure" />
+      <Padded>
         <ErrorState
           title="Exposure did not load"
-          error={error}
-          onRetry={() => {
-            void overview.refetch()
-            void top.refetch()
-          }}
+          error={overview.error}
+          onRetry={() => void overview.refetch()}
         />
-      </>
+      </Padded>
     )
   }
-  if (!overview.data || !top.data) return <OverviewSkeleton />
-
   const data = overview.data
-  if (data.sources.length === 0 && !data.lastScan) {
+  if (data && data.sources.length === 0 && !data.lastScan) {
     return (
-      <>
-        <PageHeader title="Exposure">
-          Critical or high advisories in runtime code on apps with a public domain, ranked first.
-          Everything else stays listed under{' '}
-          <Link to="/alerts" className={LEDE_LINK}>
-            All alerts
-          </Link>
-          .
-        </PageHeader>
+      <Padded>
         <EmptyState
           icon={IconRadar2}
           title="No scan yet"
@@ -346,31 +267,150 @@ export function OverviewPage() {
           Connect Coolify and GitHub and run the first scan. Hinomi joins your running apps with
           their advisories, so the few that are public and critical come first.
         </EmptyState>
-      </>
+      </Padded>
     )
   }
 
-  return (
-    <>
-      <PageHeader title={<Heading overview={data} />}>
-        <Lede overview={data} />
-      </PageHeader>
-      <ScanStrip />
-      <ExposureFunnel funnel={data.funnel} reach={data.funnelReach} />
-      <div className="mt-7 grid items-start gap-6 desk:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex min-w-0 flex-col gap-7">
-          <RankedList items={top.data.items} total={top.data.total} />
-          <BelowTheLine overview={data} />
-        </div>
-        <aside
-          aria-label="Coverage and activity"
-          className="grid gap-4 tab:max-desk:grid-cols-2 desk:flex desk:flex-col"
-        >
-          <NoRepoCallout items={top.data.items} />
-          <SourceHealthPanel sources={data.sources} />
-          <ActivityPanel items={data.recentActivity} />
-        </aside>
-      </div>
-    </>
+  const tabs: SegmentTab<ExposureTab>[] = [
+    {
+      key: 'action',
+      label: 'Needs action',
+      count: data ? data.funnel.needsAction + data.blindSpots.needsAction : null,
+    },
+    { key: 'blind', label: 'Blind', count: data?.blindSpots.total ?? null },
+    { key: 'progress', label: 'In progress', count: progress.data?.pages[0]?.total ?? null },
+    { key: 'fixes', label: 'By fix', count: fixes.data?.pages[0]?.total ?? null },
+  ]
+
+  const header = (
+    <SplitListHeader title="Exposure" meta={data ? <FunnelLine overview={data} /> : undefined}>
+      <SegmentTabs tabs={tabs} current={tab} param="tab" label="Exposure views" />
+      {data ? <SourceProblems overview={data} /> : null}
+    </SplitListHeader>
   )
+
+  if (tab === 'fixes') {
+    const first = fixes.data?.pages[0]
+    return (
+      <SplitView<FixItem>
+        items={fixItems}
+        getKey={(fix) => fix.key}
+        getLabel={fixLabel}
+        listLabel={LIST_LABEL.fixes}
+        listHeader={header}
+        renderRow={(fix, { index }) => <FixRow fix={fix} rank={index + 1} />}
+        renderDetail={(fix, { focused }) => <FixPane fix={fix} focused={focused} />}
+        emptyList={
+          fixes.error ? (
+            <div className="p-[18px]">
+              <ErrorState
+                title="Fixes did not load"
+                error={fixes.error}
+                onRetry={() => void fixes.refetch()}
+              />
+            </div>
+          ) : !first ? (
+            <ListSkeleton label="Loading fixes" />
+          ) : (
+            <div className="p-[18px]">
+              <Callout icon={IconShieldCheck} title="No bump to make">
+                No open advisory has a package version to bump. Blind spots and findings without a
+                patch are listed under the other tabs.
+              </Callout>
+            </div>
+          )
+        }
+        listFooter={
+          first ? (
+            <LoadedFooter
+              loaded={fixItems.length}
+              total={first.total}
+              noun="fixes"
+              order="Ranked by exposure"
+              hasMore={fixes.hasNextPage}
+              loading={fixes.isFetchingNextPage}
+              onMore={() => void fixes.fetchNextPage()}
+            />
+          ) : undefined
+        }
+      />
+    )
+  }
+
+  const first = list.data?.pages[0]
+  const total = first?.total ?? 0
+  return (
+    <SplitView<FindingListItem>
+      items={items}
+      getKey={(item) => item.id}
+      getLabel={findingName}
+      listLabel={LIST_LABEL[tab]}
+      listHeader={header}
+      getGroup={
+        tab === 'progress'
+          ? (item) =>
+              isDecided(item.state)
+                ? { key: 'decided', label: 'Snoozed or accepted' }
+                : { key: 'fixing', label: 'Fix running' }
+          : undefined
+      }
+      renderRow={(item, { index }) => <TriageRow item={item} rank={index + 1} />}
+      renderDetail={(item, { focused, index }) => (
+        <FindingPane
+          key={item.id}
+          id={item.id}
+          rank={tab === 'action' ? index + 1 : undefined}
+          layout={focused ? 'two' : 'stack'}
+          deferRequest={defer.request}
+        />
+      )}
+      actions={defer.actions}
+      emptyList={
+        list.error ? (
+          <div className="p-[18px]">
+            <ErrorState
+              title="This list did not load"
+              error={list.error}
+              onRetry={() => void list.refetch()}
+            />
+          </div>
+        ) : !first ? (
+          <ListSkeleton label="Loading exposure" />
+        ) : (
+          <div className="p-[18px]">
+            <Callout icon={IconShieldCheck} title={EMPTY_TITLE[listTab]}>
+              {EMPTY_TEXT[listTab]}
+            </Callout>
+          </div>
+        )
+      }
+      emptyDetail={tab === 'action' && first && data ? <QuietDetail overview={data} /> : undefined}
+      listFooter={
+        first ? (
+          <LoadedFooter
+            loaded={rawItems.length}
+            total={total}
+            order="Ranked by exposure"
+            hasMore={list.hasNextPage}
+            loading={list.isFetchingNextPage}
+            onMore={() => void list.fetchNextPage()}
+          />
+        ) : undefined
+      }
+    />
+  )
+}
+
+const EMPTY_TITLE: Record<Exclude<ExposureTab, 'fixes'>, string> = {
+  action: 'Nothing exposed on a public app',
+  blind: 'No blind spots',
+  progress: 'Nothing in progress',
+}
+
+const EMPTY_TEXT: Record<Exclude<ExposureTab, 'fixes'>, string> = {
+  action:
+    'No open critical or high advisory in runtime code on a public deployment, and every deployed repo is covered. Lower tiers stay ranked in All alerts.',
+  blind: 'Every deployed repo has alerts on and a lockfile Hinomi can read.',
+  progress:
+    'No fix is running and nothing exposed is snoozed or accepted. Snoozed and accepted findings stay here with their reason and expiry.',
 }

@@ -5,6 +5,8 @@ import type {
   FindingDetail,
   FindingListItem,
   FindingsResponse,
+  FixesResponse,
+  FixItem,
   OverviewResponse,
   RepoRef,
 } from '@hinomi/shared'
@@ -339,4 +341,42 @@ export function mockViews(routes: Record<string, unknown>) {
 
 export function apiError(status: number, code: string, message: string) {
   return reply(status, { error: { code, message } })
+}
+
+/** One bump: tessera to 14.2.9 clears the exposed finding and two more in another repo. */
+export function fixItem(over: Partial<FixItem> = {}): FixItem {
+  return {
+    key: 'npm:tessera:14.2.9',
+    ecosystem: 'npm',
+    packageName: 'tessera',
+    target: '14.2.9',
+    mixedTargets: false,
+    findings: {
+      total: 3,
+      byTier: {
+        blind_spot: 0,
+        exposed: 1,
+        internal: 2,
+        public_low: 0,
+        dev: 0,
+        not_deployed: 0,
+        patched: 0,
+        coverage: 0,
+      },
+      bySeverity: { critical: 3, high: 0, moderate: 0, low: 0 },
+    },
+    findingIds: [1, 21, 22],
+    bestTier: 'exposed',
+    exposedCritical: true,
+    repos: [
+      { repo: repoRef(), target: '14.2.9', findings: 1 },
+      { repo: repoRef({ id: 4, name: 'ledger' }), target: '14.2.9', findings: 2 },
+    ],
+    apps: [deploymentRef()],
+    ...over,
+  }
+}
+
+export function fixesResponse(items: FixItem[], over: Partial<FixesResponse> = {}): FixesResponse {
+  return { items, total: items.length, offset: 0, limit: 25, nextOffset: null, ...over }
 }

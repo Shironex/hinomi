@@ -10,6 +10,7 @@ import {
 import { AppShell } from '@/components/shell/app-shell'
 import { alertsSearchSchema } from '@/lib/alerts-search'
 import { deploymentsSearchSchema } from '@/lib/deployments-search'
+import { exposureSearchSchema } from '@/lib/exposure-search'
 import { splitSearchSchema } from '@/lib/split-search'
 import { NotFoundPage } from '@/routes/not-found'
 import { RouteError } from '@/routes/route-error'
@@ -45,7 +46,8 @@ const overviewRoute = createRoute({
     }
   },
   component: lazyRouteComponent(() => import('@/routes/overview'), 'OverviewPage'),
-  staticData: { nav: 'overview', crumb: 'Exposure' },
+  validateSearch: exposureSearchSchema,
+  staticData: { nav: 'overview', crumb: 'Exposure', layout: 'split' },
 })
 
 const alertsRoute = createRoute({
