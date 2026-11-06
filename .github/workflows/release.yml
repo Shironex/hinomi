@@ -1,0 +1,203 @@
+name: Release
+
+# Runs on version tags only (v1.2.3 and v1.2.3-rc.1). Tags are cut by the owner; nothing here pushes one.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+# Top level is read only; each job asks for what it needs.
+permissions:
+  contents: read
+
+# Never cancel a release halfway; a second tag simply queues.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/shironex/hinomi
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    # Native runners: GitHub's arm64 runner is free for public repos and avoids
+    # emulating pnpm install and better-sqlite3 for arm64 under QEMU.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Name the platform for artifacts
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # Only the labels are used here; tags are applied when the platforms are merged.
+          labels: |
+            org.opencontainers.image.title=Hinomi
+            org.opencontainers.image.description=Self-hosted check of whether anything deployed and reachable is exposed to a serious vulnerability
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}#readme
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # BuildKit attestations: an SBOM and max-detail SLSA provenance travel with the image.
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=release-${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish multi-arch image
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.pre.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Is this a pre-release
+        id: pre
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then pre=true; else pre=false; fi
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # X.Y.Z always, X.Y and latest only for a final release.
+          # Pre-release tags (1.2.3-rc.1) get their own exact tag and nothing floating.
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.pre.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ steps.pre.outputs.prerelease == 'false' }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          tag_args=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          # shellcheck disable=SC2046,SC2086
+          docker buildx imagetools create $tag_args $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect the result
+        id: inspect
+        run: |
+          first_tag=$(jq -cr '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools inspect "$first_tag"
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # GitHub-signed provenance, stored in the registry. Verify with
+      # gh attestation verify oci://ghcr.io/shironex/hinomi:<tag> -R Shironex/hinomi
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.inspect.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    name: GitHub release
+    runs-on: ubuntu-24.04
+    needs: merge
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Write the release notes
+        env:
+          VERSION: ${{ needs.merge.outputs.version }}
+          PRERELEASE: ${{ needs.merge.outputs.prerelease }}
+        run: |
+          if prev=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null); then
+            range="${prev}..${GITHUB_REF_NAME}"
+          else
+            range="${GITHUB_REF_NAME}"
+          fi
+          .github/scripts/release-notes.sh "$range" "$VERSION" "$IMAGE" "$PRERELEASE" > "$RUNNER_TEMP/notes.md"
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.merge.outputs.prerelease }}
+        run: |
+          flags=(--title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md")
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); else flags+=(--latest); fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" "${flags[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag "${flags[@]}"
+          fi
