@@ -1,0 +1,425 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { DatabaseHandle } from '../db/client.js'
+import { createTestRepositories } from '../db/test-db.js'
+import type { Repositories } from '../repository/index.js'
+import { runScan, type ScanSummary } from './run.js'
+import { SCAN_SETTING_KEYS } from './settings.js'
+import { buildScanSources } from './sources.js'
+import { findingChangesSince, findingCounts, listRankedFindings } from './views.js'
+
+// A fictional world: one Coolify instance on edge-1 and three repos of kestrel-co.
+//
+// harbor-web  public, alerts on: GitHub and OSV both report GHSA-hw (deduped)
+// lantern-api public, alerts off: only OSV finds the critical GHSA-la
+// dock-worker internal, alerts on, no lockfile (blind spot until one appears)
+// static-docs image only, no repo (blind spot)
+
+const COOLIFY = 'https://coolify.example.dev'
+const GITHUB = 'https://api.github.com'
+const OSV = 'https://api.osv.dev'
+
+interface World {
+  /** Per repo: status of GET /repos/{o}/{r} (200 or an error status). */
+  repoStatus: Record<string, number>
+  alertsStatus: Record<string, 204 | 404 | 403>
+  /** GHSA ids GitHub reports per repo. */
+  githubAlerts: Record<string, string[]>
+  /** Installed version of each package per repo lockfile; null means no lockfile. */
+  lockfiles: Record<string, Record<string, string> | null>
+}
+
+const ADVISORIES: Record<string, { pkg: string; severity: string; fixed: string; cve: string }> = {
+  'GHSA-hw00-0000-0001': {
+    pkg: 'example-parser',
+    severity: 'HIGH',
+    fixed: '1.2.5',
+    cve: 'CVE-2026-0001',
+  },
+  'GHSA-la00-0000-0002': {
+    pkg: 'example-yaml',
+    severity: 'CRITICAL',
+    fixed: '3.0.1',
+    cve: 'CVE-2026-0002',
+  },
+}
+
+function initialWorld(): World {
+  return {
+    repoStatus: { 'harbor-web': 200, 'lantern-api': 200, 'dock-worker': 200 },
+    alertsStatus: { 'harbor-web': 204, 'lantern-api': 404, 'dock-worker': 204 },
+    githubAlerts: { 'harbor-web': ['GHSA-hw00-0000-0001'], 'lantern-api': [], 'dock-worker': [] },
+    lockfiles: {
+      'harbor-web': { 'example-parser': '1.2.0' },
+      'lantern-api': { 'example-yaml': '3.0.0' },
+      'dock-worker': null,
+    },
+  }
+}
+
+const bodyText = (init: RequestInit | undefined) =>
+  typeof init?.body === 'string' ? init.body : '{}'
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+function coolifyResponse(path: string): Response {
+  if (path === '/applications') {
+    const app = (uuid: string, name: string, repo: string, fqdn: string | null) => ({
+      uuid,
+      name,
+      git_repository: `https://github.com/kestrel-co/${repo}.git`,
+      git_branch: 'main',
+      fqdn,
+      status: 'running:healthy',
+      destination: { server: { name: 'edge-1' } },
+    })
+    return json([
+      app('app-1', 'harbor-web', 'harbor-web', 'https://harbor.example.dev'),
+      app('app-2', 'lantern-api', 'lantern-api', 'https://api.example.dev'),
+      app('app-3', 'dock-worker', 'dock-worker', null),
+      {
+        uuid: 'app-4',
+        name: 'static-docs',
+        docker_registry_image_name: 'ghcr.io/kestrel-co/docs',
+        fqdn: 'https://docs.example.dev',
+        status: 'running:healthy',
+      },
+    ])
+  }
+  if (path === '/databases')
+    return json([{ uuid: 'db-1', name: 'harbor-db', image: 'postgres:17' }])
+  return json([])
+}
+
+function packageLock(name: string, deps: Record<string, string>): string {
+  const packages: Record<string, unknown> = { '': { name, dependencies: deps } }
+  for (const [pkg, version] of Object.entries(deps)) packages[`node_modules/${pkg}`] = { version }
+  return JSON.stringify({ name, lockfileVersion: 3, packages })
+}
+
+function alertNode(ghsa: string, index: number) {
+  const a = ADVISORIES[ghsa]!
+  return {
+    number: index + 1,
+    createdAt: '2026-10-01T00:00:00Z',
+    dismissedAt: null,
+    vulnerableManifestPath: 'package-lock.json',
+    dependencyScope: 'RUNTIME',
+    securityVulnerability: {
+      severity: a.severity,
+      vulnerableVersionRange: `< ${a.fixed}`,
+      firstPatchedVersion: { identifier: a.fixed },
+      package: { name: a.pkg, ecosystem: 'NPM' },
+      advisory: {
+        ghsaId: ghsa,
+        summary: `Fictional issue in ${a.pkg}`,
+        publishedAt: '2026-09-01T00:00:00Z',
+        identifiers: [
+          { type: 'GHSA', value: ghsa },
+          { type: 'CVE', value: a.cve },
+        ],
+        cvss: { score: 8.1, vectorString: null },
+      },
+    },
+  }
+}
+
+function githubResponse(world: World, url: URL, init: RequestInit | undefined): Response {
+  const path = url.pathname
+  if (path === '/graphql') {
+    const body = JSON.parse(bodyText(init)) as { variables: { name: string } }
+    const nodes = (world.githubAlerts[body.variables.name] ?? []).map(alertNode)
+    return json({
+      data: {
+        repository: {
+          vulnerabilityAlerts: { pageInfo: { hasNextPage: false, endCursor: null }, nodes },
+        },
+      },
+    })
+  }
+  const match = /^\/repos\/kestrel-co\/([^/]+)(\/.*)?$/.exec(path)
+  if (!match) return json({ message: 'Not Found' }, 404)
+  const repo = match[1]!
+  const rest = match[2] ?? ''
+  if (rest === '') {
+    const status = world.repoStatus[repo] ?? 404
+    if (status !== 200) return json({ message: 'Not Found' }, status)
+    return json({
+      name: repo,
+      owner: { login: 'kestrel-co' },
+      archived: false,
+      default_branch: 'main',
+      visibility: 'public',
+      pushed_at: '2026-11-01T00:00:00Z',
+    })
+  }
+  if (rest === '/vulnerability-alerts') {
+    const status = world.alertsStatus[repo] ?? 404
+    return status === 204 ? new Response(null, { status }) : json({ message: 'x' }, status)
+  }
+  if (rest.startsWith('/contents')) {
+    const deps = world.lockfiles[repo]
+    if (rest === '/contents/' || rest === '/contents') {
+      const entries = [{ name: 'package.json', path: 'package.json', type: 'file' }]
+      if (deps) entries.push({ name: 'package-lock.json', path: 'package-lock.json', type: 'file' })
+      return json(entries)
+    }
+    if (rest === '/contents/package-lock.json' && deps) {
+      return new Response(packageLock(repo, deps), { status: 200 })
+    }
+  }
+  return json({ message: 'Not Found' }, 404)
+}
+
+function osvVuln(ghsa: string) {
+  const a = ADVISORIES[ghsa]!
+  return {
+    id: ghsa,
+    summary: `Fictional issue in ${a.pkg}`,
+    aliases: [a.cve],
+    published: '2026-09-01T00:00:00Z',
+    database_specific: { severity: a.severity },
+    affected: [
+      {
+        package: { name: a.pkg, ecosystem: 'npm' },
+        ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: a.fixed }] }],
+      },
+    ],
+  }
+}
+
+function osvResponse(url: URL, init: RequestInit | undefined): Response {
+  if (url.pathname === '/v1/querybatch') {
+    const body = JSON.parse(bodyText(init)) as { queries: { package: { name: string } }[] }
+    return json({
+      results: body.queries.map((q) => {
+        const ids = Object.keys(ADVISORIES).filter((id) => ADVISORIES[id]!.pkg === q.package.name)
+        return ids.length > 0 ? { vulns: ids.map((id) => ({ id })) } : {}
+      }),
+    })
+  }
+  const vuln = /^\/v1\/vulns\/(.+)$/.exec(url.pathname)
+  if (vuln) return json(osvVuln(decodeURIComponent(vuln[1]!)))
+  return json({}, 404)
+}
+
+function mockFetch(world: World): typeof fetch {
+  return (input: string | URL | Request, init?: RequestInit) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const url = new URL(href)
+    if (href.startsWith(COOLIFY)) {
+      return Promise.resolve(coolifyResponse(url.pathname.replace('/api/v1', '')))
+    }
+    if (href.startsWith(GITHUB)) return Promise.resolve(githubResponse(world, url, init))
+    if (href.startsWith(OSV)) return Promise.resolve(osvResponse(url, init))
+    return Promise.reject(new Error(`unexpected request ${href}`))
+  }
+}
+
+let repos: Repositories
+let handle: DatabaseHandle
+let world: World
+
+beforeEach(() => {
+  const test = createTestRepositories()
+  repos = test.repos
+  handle = test.handle
+  world = initialWorld()
+  repos.sources.create({ kind: 'coolify', name: 'edge', baseUrl: COOLIFY, token: 'coolify-token' })
+  repos.sources.create({ kind: 'github', name: 'kestrel-co', token: 'github-token' })
+})
+afterEach(() => handle.close())
+
+const day = 24 * 60 * 60 * 1000
+const t0 = new Date('2026-11-06T06:00:00Z').getTime()
+
+function scan(n: number): Promise<ScanSummary> {
+  const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+  return runScan({ repositories: repos }, sources, { now: () => new Date(t0 + n * day) })
+}
+
+const repoId = (name: string) => repos.repos.getByName('kestrel-co', name)!.id
+
+function advisoryFinding(repo: string, ghsa: string) {
+  const advisory = repos.advisories.findByAnyId(ghsa)[0]!
+  return repos.findings.list({ repoId: repoId(repo), advisoryId: advisory.id })[0]
+}
+
+function blindSpots() {
+  return repos.findings
+    .list({ kind: 'blind_spot' })
+    .map((f) => `${f.blindSpotType}:${f.state}`)
+    .sort()
+}
+
+describe('runScan', () => {
+  it('joins Coolify, GitHub and OSV into deduped findings and blind spots', async () => {
+    const summary = await scan(0)
+    expect(summary.status).toBe('succeeded')
+    expect(summary.errors).toEqual([])
+    expect(summary.sourceResults.coolify).toMatchObject({
+      status: 'ok',
+      counts: { deployments: 5 },
+    })
+    expect(summary.sourceResults.github).toMatchObject({ status: 'ok', counts: { repos: 3 } })
+    expect(summary.sourceResults.osv).toMatchObject({ status: 'ok', counts: { matches: 2 } })
+
+    // The same advisory from GitHub and OSV is stored once and reported by both.
+    expect(repos.advisories.findByAnyId('CVE-2026-0001')).toHaveLength(1)
+    const harbor = advisoryFinding('harbor-web', 'GHSA-hw00-0000-0001')!
+    expect(harbor).toMatchObject({
+      state: 'open',
+      scope: 'runtime',
+      reportedBy: ['github', 'osv'],
+      installedVersion: '1.2.0',
+      manifestPaths: ['package-lock.json'],
+    })
+    expect(repos.advisories.get(harbor.advisoryId!)).toMatchObject({
+      severity: 'high',
+      firstPatchedVersion: '1.2.5',
+      cvssScore: 8.1,
+    })
+
+    // Alerts are off on lantern-api: only OSV finds the critical.
+    expect(advisoryFinding('lantern-api', 'GHSA-la00-0000-0002')).toMatchObject({
+      state: 'open',
+      reportedBy: ['osv'],
+    })
+    expect(repos.repos.getByName('kestrel-co', 'lantern-api')?.alertsEnabled).toBe(false)
+
+    expect(blindSpots()).toEqual([
+      'alerts_disabled:open',
+      'lockfile_missing:open',
+      'no_repo_mapping:open',
+    ])
+    expect(summary.findingsOpened).toBe(5)
+
+    const scanRun = repos.scanRuns.get(summary.scanRunId)
+    expect(scanRun).toMatchObject({ status: 'succeeded', findingsOpened: 5 })
+    expect(repos.sources.listByKind('coolify')[0]?.lastOkAt).not.toBeNull()
+
+    // Ranked: the critical on a public app and the alerts-off blind spot lead.
+    const ranked = listRankedFindings(repos)
+    expect(
+      ranked
+        .slice(0, 2)
+        .map((r) => r.kind)
+        .sort(),
+    ).toEqual(['advisory', 'blind_spot'])
+    expect(ranked[0]!.factors).toEqual({
+      severity: 'critical',
+      runtime: true,
+      deployed: true,
+      public: true,
+    })
+    const counts = findingCounts(repos, new Date(t0))
+    expect(counts.advisories).toMatchObject({ total: 2, exposed: 2, needsAction: 2 })
+    expect(counts.blindSpots.total).toBe(3)
+  })
+
+  it('never marks fixed while a source that reported it errored, and fixes once all agree', async () => {
+    await scan(0)
+    const id = advisoryFinding('harbor-web', 'GHSA-hw00-0000-0001')!.id
+
+    // Day 1: the lockfile is bumped, but GitHub fails for harbor-web.
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+    world.repoStatus['harbor-web'] = 404
+    const second = await scan(1)
+    expect(second.status).toBe('partial')
+    expect(second.errors).toEqual([
+      expect.objectContaining({ source: 'github', subject: 'kestrel-co/harbor-web' }),
+    ])
+    expect(repos.findings.get(id)).toMatchObject({ state: 'open', reportedBy: ['github'] })
+    expect(repos.sources.listByKind('github')[0]?.lastError).toMatch(/1 of 3 failed/)
+    expect(repos.scanRuns.get(second.scanRunId)?.sourceResults.github?.status).toBe('error')
+
+    // Day 2: GitHub answers again and no longer reports it either.
+    world.repoStatus['harbor-web'] = 200
+    world.githubAlerts['harbor-web'] = []
+    const third = await scan(2)
+    expect(third.status).toBe('succeeded')
+    expect(repos.findings.get(id)).toMatchObject({ state: 'fixed' })
+    expect(third.changes).toContainEqual({ findingId: id, change: 'fixed' })
+    expect(repos.sources.listByKind('github')[0]?.lastError).toBeNull()
+
+    // Day 3: a rollback brings it back.
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.0' }
+    const fourth = await scan(3)
+    expect(repos.findings.get(id)).toMatchObject({ state: 'open', fixedAt: null })
+    expect(fourth.changes).toContainEqual({ findingId: id, change: 'reopened' })
+    expect(
+      repos.findings
+        .listEvents(id)
+        .map((e) => e.type)
+        .reverse(),
+    ).toEqual(['opened', 'reporters_changed', 'fixed', 'reopened'])
+  })
+
+  it('resolves a blind spot when its condition clears', async () => {
+    await scan(0)
+    const key = `blind:lockfile_missing:repo:${repoId('dock-worker')}`
+    expect(repos.findings.getByKey(key)?.state).toBe('open')
+
+    world.lockfiles['dock-worker'] = { 'example-left-pad': '1.0.0' }
+    world.alertsStatus['lantern-api'] = 204
+    const summary = await scan(1)
+    expect(repos.findings.getByKey(key)?.state).toBe('fixed')
+    expect(repos.findings.listEvents(repos.findings.getByKey(key)!.id)[0]?.type).toBe('resolved')
+    expect(blindSpots()).toEqual([
+      'alerts_disabled:fixed',
+      'lockfile_missing:fixed',
+      'no_repo_mapping:open',
+    ])
+    expect(summary.findingsFixed).toBe(2)
+
+    // A manual override maps static-docs to a repo: its blind spot resolves too.
+    const docs = repos.deployments.list().find((d) => d.name === 'static-docs')!
+    repos.deployments.addRepoOverride(docs.id, repoId('harbor-web'), 'docs ship from harbor-web')
+    await scan(2)
+    expect(blindSpots()).toContain('no_repo_mapping:fixed')
+  })
+
+  it('keeps blind spots untouched when the check could not run', async () => {
+    await scan(0)
+    world.repoStatus['lantern-api'] = 404
+    await scan(1)
+    expect(blindSpots()).toContain('alerts_disabled:open')
+  })
+
+  it('records a failed source without aborting the scan', async () => {
+    const coolify = repos.sources.listByKind('coolify')[0]!
+    repos.sources.update(coolify.id, { baseUrl: 'https://unreachable.example.dev' })
+    const summary = await scan(0)
+    expect(summary.sourceResults.coolify?.status).toBe('error')
+    expect(repos.sources.get(coolify.id)?.lastError).toMatch(/Could not reach Coolify/)
+    // Nothing is deployed, so there is nothing to scan; the run is still recorded.
+    expect(summary.status).toBe('failed')
+    expect(repos.scanRuns.get(summary.scanRunId)?.finishedAt).not.toBeNull()
+  })
+
+  it('skips OSV when it is switched off', async () => {
+    repos.settings.set(SCAN_SETTING_KEYS.osvEnabled, false)
+    const summary = await scan(0)
+    expect(summary.sourceResults.osv).toEqual({ status: 'skipped', counts: {} })
+    expect(repos.advisories.findByAnyId('GHSA-la00-0000-0002')).toEqual([])
+    expect(blindSpots()).not.toContain('lockfile_missing:open')
+  })
+
+  it('reopens expired snoozes and lists what changed since the previous scan', async () => {
+    const first = await scan(0)
+    const id = advisoryFinding('lantern-api', 'GHSA-la00-0000-0002')!.id
+    repos.findings.changeState(
+      id,
+      { state: 'snoozed', reason: 'patch scheduled', until: new Date(t0 + day / 2), actor: 'user' },
+      new Date(t0 + 1000),
+    )
+    const second = await scan(1)
+    expect(second.changes).toContainEqual({ findingId: id, change: 'expired' })
+    expect(repos.findings.get(id)?.state).toBe('open')
+
+    const changed = findingChangesSince(repos, second.startedAt)
+    expect(changed.map((c) => c.finding.id)).toEqual([id])
+    expect(changed[0]!.events.map((e) => e.type)).toEqual(['snooze_expired'])
+    expect(findingChangesSince(repos, first.startedAt).length).toBe(5)
+  })
+})
