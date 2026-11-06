@@ -10,7 +10,9 @@ import type { FindingsRepository } from '../repository/index.js'
  * - user: `snoozed`, `accepted` (reason and an expiry in the future), `reopened` (cancel a decision)
  * - system: `snooze_expired`, `acceptance_expired` (back to open once the expiry passed),
  *   `fixed` (no source reports the advisory anymore), `resolved` (a blind spot cleared),
- *   `reopened` (a fixed finding came back)
+ *   `reopened` (a fixed or upstream dismissed finding came back),
+ *   `dismissed_upstream` (GitHub dismissed the alert and no other source reports it; never `fixed`),
+ *   `dismissal_noted` (GitHub dismissed it but another source still reports it; stays open)
  */
 export type FindingEventType =
   | 'snoozed'
@@ -20,6 +22,8 @@ export type FindingEventType =
   | 'acceptance_expired'
   | 'fixed'
   | 'resolved'
+  | 'dismissed_upstream'
+  | 'dismissal_noted'
 
 export type Actor = 'system' | 'user'
 
@@ -40,6 +44,8 @@ const USER_TRANSITIONS: Record<FindingState, readonly FindingState[]> = {
   accepted: ['accepted', 'snoozed', 'open'],
   // A fixed finding only comes back through a scan.
   fixed: [],
+  // GitHub's dismissal is not the user's: they can defer it, but a plain reopen would fight the scan.
+  dismissed_upstream: ['snoozed', 'accepted'],
 }
 
 export function canUserTransition(from: FindingState, to: FindingState): boolean {
@@ -184,4 +190,76 @@ export function expireDeferred(findings: FindingsRepository, now: Date): Finding
         now,
       ),
     )
+}
+
+/** What GitHub recorded when someone dismissed the alert. */
+export interface UpstreamDismissal {
+  reason: string | null
+  comment: string | null
+  dismissedAt: string
+  alertNumbers: number[]
+}
+
+/** States a scan may move to `dismissed_upstream`. A user's snooze or acceptance is left alone. */
+const DISMISSABLE: readonly FindingState[] = ['open', 'fixing', 'fixed']
+
+/**
+ * Scan: GitHub dismissed the alert and nothing else reports it. The reason and
+ * comment go into the event. No-op unless the finding is open, fixing or fixed.
+ */
+export function markDismissedUpstream(
+  findings: FindingsRepository,
+  finding: FindingRow,
+  now: Date,
+  dismissal: UpstreamDismissal,
+): FindingRow | null {
+  if (!DISMISSABLE.includes(finding.state)) return null
+  return findings.changeState(
+    finding.id,
+    {
+      state: 'dismissed_upstream',
+      reason: dismissal.reason,
+      actor: 'system',
+      eventType: 'dismissed_upstream',
+      data: { ...dismissal },
+    },
+    now,
+  )
+}
+
+/** Scan: something reports a finding that was dismissed upstream. No-op unless it is. */
+export function reopenIfDismissedUpstream(
+  findings: FindingsRepository,
+  finding: FindingRow,
+  now: Date,
+  why: 'reopened_upstream' | 'still_reported',
+): FindingRow | null {
+  if (finding.state !== 'dismissed_upstream') return null
+  return findings.changeState(
+    finding.id,
+    { state: 'open', actor: 'system', eventType: 'reopened', data: { reason: why } },
+    now,
+  )
+}
+
+/** Scan: a dismissal GitHub reports while another source still reports the finding. Noted once. */
+export function noteUpstreamDismissal(
+  findings: FindingsRepository,
+  finding: FindingRow,
+  now: Date,
+  dismissal: UpstreamDismissal,
+): boolean {
+  const known = findings.listEvents(finding.id).some((event) => {
+    const data = event.data as { dismissedAt?: unknown } | null
+    return event.type === 'dismissal_noted' && data?.dismissedAt === dismissal.dismissedAt
+  })
+  if (known) return false
+  findings.addEvent({
+    findingId: finding.id,
+    type: 'dismissal_noted',
+    actor: 'system',
+    data: { ...dismissal, note: 'Dismissed on GitHub, still reported by another source' },
+    at: now,
+  })
+  return true
 }

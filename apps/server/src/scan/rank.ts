@@ -95,13 +95,46 @@ export function rankExposure(input: ExposureInput): ExposureRank {
   }
 }
 
+/** The fields of a deployment that decide its reach. */
+export interface ReachInput {
+  reach: DeploymentReach
+  /** Raw status of the source, for example `running:healthy` or `exited:unhealthy`. */
+  status?: string | null
+}
+
+const STOPPED_STATES = ['exited', 'stopped']
+
 /**
- * Widest reach of a set of deployments. A deployment whose reach is unknown
+ * True when the source says the deployment is not running: `exited` or
+ * `stopped`, with or without a health suffix. Restarting, degraded, starting
+ * and unknown statuses count as running, so a stopped app is never assumed
+ * for anything unclear.
+ */
+export function isStoppedStatus(status: string | null | undefined): boolean {
+  if (!status) return false
+  const state = status.split(':')[0]!.trim().toLowerCase()
+  return STOPPED_STATES.includes(state)
+}
+
+/** Deployments that are not stopped. */
+export function runningDeployments<T extends ReachInput>(deployments: readonly T[]): T[] {
+  return deployments.filter((d) => !isStoppedStatus(d.status))
+}
+
+/** Deployed somewhere, but every deployment is stopped: ranks as not deployed, keeps a badge. */
+export function allStopped(deployments: readonly ReachInput[]): boolean {
+  return deployments.length > 0 && runningDeployments(deployments).length === 0
+}
+
+/**
+ * Widest reach of a set of deployments. Stopped deployments are ignored, so
+ * an app that is down reaches nothing. A deployment whose reach is unknown
  * counts as public, to be safe.
  */
-export function reachOf(deployments: readonly { reach: DeploymentReach }[]): ExposureReach {
-  if (deployments.length === 0) return 'none'
-  return deployments.some((d) => d.reach !== 'internal') ? 'public' : 'internal'
+export function reachOf(deployments: readonly ReachInput[]): ExposureReach {
+  const running = runningDeployments(deployments)
+  if (running.length === 0) return 'none'
+  return running.some((d) => d.reach !== 'internal') ? 'public' : 'internal'
 }
 
 /** Descending by rank; stable for equal ranks. */

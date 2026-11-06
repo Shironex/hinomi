@@ -3,12 +3,19 @@ import type { FindingRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { advisoryFromGithub, advisoryFromOsv, saveAdvisory } from './advisories.js'
 import type { RepoScan } from './collect.js'
-import { markFixed, reopenIfFixed } from './state.js'
+import {
+  markDismissedUpstream,
+  markFixed,
+  noteUpstreamDismissal,
+  reopenIfDismissedUpstream,
+  reopenIfFixed,
+  type UpstreamDismissal,
+} from './state.js'
 
 /** A finding the scan created or changed, for notifications (#11) and the scan summary. */
 export interface FindingChange {
   findingId: number
-  change: 'opened' | 'reopened' | 'fixed' | 'reporters_changed' | 'expired'
+  change: 'opened' | 'reopened' | 'fixed' | 'reporters_changed' | 'expired' | 'dismissed_upstream'
 }
 
 interface Observation {
@@ -101,6 +108,61 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
   return map
 }
 
+/** An advisory GitHub reports as dismissed on this repo and does not report as open. */
+interface Dismissal extends UpstreamDismissal {
+  advisoryId: number
+  scope: FindingScope
+  manifestPaths: string[]
+}
+
+function upstreamOf(d: Dismissal): UpstreamDismissal {
+  return {
+    reason: d.reason,
+    comment: d.comment,
+    dismissedAt: d.dismissedAt,
+    alertNumbers: d.alertNumbers,
+  }
+}
+
+/** The latest dismissal per advisory, left out when GitHub also has an open alert for it. */
+function collectDismissals(
+  repositories: Repositories,
+  scan: RepoScan,
+  observations: ReadonlyMap<number, Observation>,
+): Dismissal[] {
+  if (scan.alerts.status !== 'ok') return []
+  const { advisories, dismissed } = scan.alerts.value
+  const byKey = new Map(advisories.map((a) => [`${a.ghsaId}|${a.ecosystem}|${a.package}`, a]))
+  const byAdvisory = new Map<number, Dismissal>()
+  for (const alert of dismissed) {
+    const record = byKey.get(`${alert.ghsaId}|${alert.ecosystem}|${alert.package}`)
+    if (!record) continue
+    const advisory = saveAdvisory(repositories.advisories, advisoryFromGithub(record), 'github')
+    if (observations.get(advisory.id)?.reporters.has('github')) continue
+    const known = byAdvisory.get(advisory.id)
+    if (!known) {
+      byAdvisory.set(advisory.id, {
+        advisoryId: advisory.id,
+        scope: alert.scope ?? 'unknown',
+        manifestPaths: alert.manifestPath ? [alert.manifestPath] : [],
+        reason: alert.dismissReason,
+        comment: alert.dismissComment,
+        dismissedAt: alert.dismissedAt,
+        alertNumbers: [alert.alertNumber],
+      })
+      continue
+    }
+    known.alertNumbers.push(alert.alertNumber)
+    if (alert.manifestPath) known.manifestPaths.push(alert.manifestPath)
+    if (alert.dismissedAt > known.dismissedAt) {
+      known.dismissedAt = alert.dismissedAt
+      known.reason = alert.dismissReason
+      known.comment = alert.dismissComment
+    }
+  }
+  return [...byAdvisory.values()]
+}
+
 function sameReporters(a: readonly Reporter[], b: readonly Reporter[]): boolean {
   const set = new Set(a)
   return a.length === b.length && b.every((r) => set.has(r))
@@ -136,6 +198,55 @@ function applyObservation(
   if (!sameReporters(before, reporters)) findings.setReportedBy(finding.id, reporters)
   if (reopenIfFixed(findings, finding, now)) {
     changes.push({ findingId: finding.id, change: 'reopened' })
+  } else if (
+    reopenIfDismissedUpstream(
+      findings,
+      finding,
+      now,
+      obs.reporters.has('github') ? 'reopened_upstream' : 'still_reported',
+    )
+  ) {
+    changes.push({ findingId: finding.id, change: 'reopened' })
+  }
+  return finding.id
+}
+
+/**
+ * GitHub dismissed this advisory. Another source that still reports it keeps
+ * it open (with a note); otherwise it becomes `dismissed_upstream`, never
+ * `fixed`. A source that could not look this time still counts as a reporter.
+ */
+function applyDismissal(
+  repositories: Repositories,
+  repoId: number,
+  dismissal: Dismissal,
+  observed: Observation | undefined,
+  covered: ReadonlySet<Reporter>,
+  now: Date,
+  changes: FindingChange[],
+): number {
+  const { findings } = repositories
+  const { finding } = findings.observe(
+    {
+      kind: 'advisory',
+      advisoryId: dismissal.advisoryId,
+      repoId,
+      scope: observed ? mergeScopes(observed.scopes) : dismissal.scope,
+      reportedBy: observed ? [...observed.reporters] : ['github'],
+      manifestPaths: dismissal.manifestPaths,
+    },
+    now,
+  )
+  const stillReported =
+    observed !== undefined ||
+    remainingReporters(finding.reportedBy, new Set(), covered).some((r) => r !== 'github')
+  if (stillReported) {
+    noteUpstreamDismissal(findings, finding, now, upstreamOf(dismissal))
+    return finding.id
+  }
+  findings.setReportedBy(finding.id, ['github'])
+  if (markDismissedUpstream(findings, finding, now, upstreamOf(dismissal))) {
+    changes.push({ findingId: finding.id, change: 'dismissed_upstream' })
   }
   return finding.id
 }
@@ -183,8 +294,15 @@ export function applyRepoAdvisories(
     const changes: FindingChange[] = []
     const covered = coveringSources(scan)
     const seen = new Set<number>()
-    for (const obs of collectObservations(repositories, scan).values()) {
+    const observations = collectObservations(repositories, scan)
+    for (const obs of observations.values()) {
       seen.add(applyObservation(repositories, scan.repo.id, obs, covered, now, changes))
+    }
+    for (const dismissal of collectDismissals(repositories, scan, observations)) {
+      const observed = observations.get(dismissal.advisoryId)
+      seen.add(
+        applyDismissal(repositories, scan.repo.id, dismissal, observed, covered, now, changes),
+      )
     }
     if (covered.size === 0) return changes
     const existing = repositories.findings.list({ repoId: scan.repo.id, kind: 'advisory' })
