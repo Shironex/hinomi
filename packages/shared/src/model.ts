@@ -19,7 +19,18 @@ export const FINDING_SCOPES = ['runtime', 'dev', 'unknown'] as const
 export const findingScopeSchema = z.enum(FINDING_SCOPES)
 export type FindingScope = z.infer<typeof findingScopeSchema>
 
-export const FINDING_STATES = ['open', 'fixing', 'fixed', 'snoozed', 'accepted'] as const
+/**
+ * `dismissed_upstream`: GitHub dismissed the alert and no other source still
+ * reports it. Shown like an accepted risk, never as fixed.
+ */
+export const FINDING_STATES = [
+  'open',
+  'fixing',
+  'fixed',
+  'snoozed',
+  'accepted',
+  'dismissed_upstream',
+] as const
 export const findingStateSchema = z.enum(FINDING_STATES)
 export type FindingState = z.infer<typeof findingStateSchema>
 
