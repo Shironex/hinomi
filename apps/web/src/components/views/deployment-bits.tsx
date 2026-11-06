@@ -77,7 +77,7 @@ export function CoverageCell({ d }: { d: DeploymentItem }) {
       Covered
     </StatusText>
   ) : (
-    <StatusText icon={IconEyeOff} tone="bad">
+    <StatusText icon={IconEyeOff} className="text-blind">
       {d.coverage.blindSpots.length} blind spot{d.coverage.blindSpots.length === 1 ? '' : 's'}
     </StatusText>
   )
