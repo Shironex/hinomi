@@ -29,7 +29,7 @@ async function fill(user: ReturnType<typeof userEvent.setup>, field: HTMLElement
 }
 
 async function notificationsRegion() {
-  return within(await screen.findByRole('region', { name: 'Notifications' }))
+  return within(await screen.findByRole('region', { name: 'Notification channels' }))
 }
 
 describe('email channels in settings', () => {
@@ -46,7 +46,7 @@ describe('email channels in settings', () => {
       },
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=notifications')
     const region = await notificationsRegion()
     await user.click(await region.findByRole('button', { name: 'Add channel' }))
     await user.click(region.getByRole('radio', { name: 'Email' }))
@@ -84,7 +84,7 @@ describe('email channels in settings', () => {
   it('follows the security mode with the default port until the port is typed', async () => {
     mockApi({ ...configuredRoutes(), 'GET /notifications/channels': { items: [] } })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=notifications')
     const region = await notificationsRegion()
     await user.click(await region.findByRole('button', { name: 'Add channel' }))
     await user.click(region.getByRole('radio', { name: 'Email' }))
@@ -103,7 +103,7 @@ describe('email channels in settings', () => {
       [`PATCH /notifications/channels/${emailChannel.id}`]: emailChannel,
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=notifications')
     const region = await notificationsRegion()
     expect(await region.findByText('smtp.example.dev:587')).toBeInTheDocument()
     await user.click(region.getByRole('button', { name: /edit/i }))

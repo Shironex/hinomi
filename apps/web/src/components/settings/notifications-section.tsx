@@ -35,7 +35,7 @@ import {
   updateNotifySettings,
 } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
-import { Panel } from './settings-section'
+import { Panel, SetBox, SetRow, SubHeading } from './settings-section'
 
 export function NotificationsSection() {
   const channels = useQuery(channelsQuery)
@@ -75,14 +75,11 @@ export function NotificationsSection() {
     )
   } else {
     list = (
-      <ul
-        aria-label="Notification channels"
-        className="overflow-hidden rounded-lg border border-border bg-card"
-      >
+      <SetBox as="ul" aria-label="Notification channels">
         {channels.data.items.map((channel) => (
           <ChannelRow key={channel.id} channel={channel} />
         ))}
-      </ul>
+      </SetBox>
     )
   }
 
@@ -91,7 +88,7 @@ export function NotificationsSection() {
       {list}
       {adding ? (
         <Panel>
-          <h3 className="text-base font-medium">Add a channel</h3>
+          <h3 className="text-md">Add a channel</h3>
           <ChannelForm
             onCancel={() => setAdding(false)}
             onDone={(channel) => {
@@ -155,28 +152,28 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
   }
 
   return (
-    <li className="flex flex-col gap-3 border-t border-border p-4 first:border-t-0">
-      <div className="flex items-start gap-3">
-        <span className="grid size-[30px] shrink-0 place-items-center rounded-md bg-muted text-foreground-2">
-          <KindIcon aria-hidden="true" className="size-4" stroke={1.75} />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h3 className="truncate text-base font-medium">{channel.name}</h3>
-          <span className="truncate font-mono text-xs text-muted-foreground">{channel.url}</span>
-          <span className="text-xs text-muted-foreground">
-            {KIND_LABELS[channel.kind]}
-            {channel.email ? ` to ${channel.email.to.join(', ')}` : ''}, {severity?.toLowerCase()}
-          </span>
-        </span>
+    <SetRow
+      as="li"
+      icon={<KindIcon stroke={1.75} />}
+      title={channel.name}
+      sub={
+        <>
+          {KIND_LABELS[channel.kind]}
+          {channel.email ? ` to ${channel.email.to.join(', ')}` : ''}, {severity?.toLowerCase()}
+          <span className="block truncate font-mono">{channel.url}</span>
+        </>
+      }
+      aside={
         <Switch
           aria-label={`Send to ${channel.name}`}
           checked={enabled}
           disabled={toggle.isPending}
           onCheckedChange={(next) => toggle.mutate(next)}
         />
-      </div>
+      }
+    >
       {channel.urlEncrypted ? null : (
-        <p className="flex items-start gap-2 text-xs text-sev-high">
+        <p className="flex items-start gap-2 text-xs text-wait">
           <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
           Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and save the{' '}
           {channel.kind === 'email' ? 'password' : 'URL'} again.
@@ -240,7 +237,7 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
       >
         Hinomi stops sending alerts and digests here and forgets the webhook URL.
       </ConfirmDialog>
-    </li>
+    </SetRow>
   )
 }
 
@@ -303,70 +300,72 @@ function DeliverySettings() {
   }
 
   return (
-    <Panel>
-      <h3 className="text-base font-medium">Delivery</h3>
-      <form
-        noValidate
-        onSubmit={submit}
-        className="flex flex-col gap-3.5"
-        aria-busy={mutation.isPending}
-      >
-        <div className="grid gap-3.5 tab:grid-cols-[minmax(0,1fr)_180px]">
-          <Field
-            label="Public address of this Hinomi"
-            help="Used for links in messages, for example your Tailscale name. Empty sends no links."
-            error={urlError}
-          >
-            {(control) => (
-              <Input
-                {...control}
-                ref={urlRef}
-                type="url"
-                inputMode="url"
-                spellCheck={false}
-                className="font-mono"
-                placeholder="https://hinomi.example.dev"
-                value={url}
-                onChange={(e) => {
-                  setDraft({ url: e.target.value, hour })
-                  if (urlError) setUrlError(null)
-                }}
-              />
-            )}
-          </Field>
-          <Field label="Daily digest at" help="Server local time.">
-            {(control) => (
-              <NativeSelect
-                {...control}
-                value={hour}
-                onChange={(e) => setDraft({ url, hour: Number(e.target.value) })}
-              >
-                {HOURS.map((h) => (
-                  <option key={h} value={h}>
-                    {String(h).padStart(2, '0')}:00
-                  </option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-        </div>
-        {mutation.error && !isInputError(mutation.error) ? (
-          <div role="alert">
-            <FieldError>{describeError(mutation.error)}</FieldError>
+    <>
+      <SubHeading title="Delivery" note="Links in messages and the daily digest" />
+      <Panel>
+        <form
+          noValidate
+          onSubmit={submit}
+          className="flex flex-col gap-3.5"
+          aria-busy={mutation.isPending}
+        >
+          <div className="grid gap-3.5 tab:grid-cols-[minmax(0,1fr)_180px]">
+            <Field
+              label="Public address of this Hinomi"
+              help="Used for links in messages, for example your Tailscale name. Empty sends no links."
+              error={urlError}
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  ref={urlRef}
+                  type="url"
+                  inputMode="url"
+                  spellCheck={false}
+                  className="font-mono"
+                  placeholder="https://hinomi.example.dev"
+                  value={url}
+                  onChange={(e) => {
+                    setDraft({ url: e.target.value, hour })
+                    if (urlError) setUrlError(null)
+                  }}
+                />
+              )}
+            </Field>
+            <Field label="Daily digest at" help="Server local time.">
+              {(control) => (
+                <NativeSelect
+                  {...control}
+                  value={hour}
+                  onChange={(e) => setDraft({ url, hour: Number(e.target.value) })}
+                >
+                  {HOURS.map((h) => (
+                    <option key={h} value={h}>
+                      {String(h).padStart(2, '0')}:00
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+            </Field>
           </div>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" disabled={mutation.isPending || !dirty}>
-            {mutation.isPending ? (
-              <IconLoader2 aria-hidden="true" className="animate-spin" />
-            ) : null}
-            Save delivery
-          </Button>
-          <span aria-live="polite" className="text-xs text-muted-foreground">
-            {mutation.isSuccess && !dirty ? 'Saved' : ''}
-          </span>
-        </div>
-      </form>
-    </Panel>
+          {mutation.error && !isInputError(mutation.error) ? (
+            <div role="alert">
+              <FieldError>{describeError(mutation.error)}</FieldError>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={mutation.isPending || !dirty}>
+              {mutation.isPending ? (
+                <IconLoader2 aria-hidden="true" className="animate-spin" />
+              ) : null}
+              Save delivery
+            </Button>
+            <span aria-live="polite" className="text-xs text-muted-foreground">
+              {mutation.isSuccess && !dirty ? 'Saved' : ''}
+            </span>
+          </div>
+        </form>
+      </Panel>
+    </>
   )
 }

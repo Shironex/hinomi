@@ -10,6 +10,7 @@ import {
 import { AppShell } from '@/components/shell/app-shell'
 import { alertsSearchSchema } from '@/lib/alerts-search'
 import { deploymentsSearchSchema } from '@/lib/deployments-search'
+import { splitSearchSchema } from '@/lib/split-search'
 import { NotFoundPage } from '@/routes/not-found'
 import { RouteError } from '@/routes/route-error'
 import { RoutePending } from '@/routes/route-pending'
@@ -99,7 +100,8 @@ const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
   component: lazyRouteComponent(() => import('@/routes/settings'), 'SettingsPage'),
-  staticData: { nav: 'settings', crumb: 'Settings' },
+  validateSearch: splitSearchSchema,
+  staticData: { nav: 'settings', crumb: 'Settings', layout: 'split' },
 })
 
 const onboardingRoute = createRoute({

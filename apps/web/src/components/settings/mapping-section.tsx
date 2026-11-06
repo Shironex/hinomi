@@ -3,11 +3,17 @@ import { useId, useRef, useState } from 'react'
 import { repoFullNameSchema, type DeploymentItem, type RepoRef } from '@hinomi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { IconGitBranch, IconLoader2, IconPlus, IconX } from '@tabler/icons-react'
+import {
+  IconBox,
+  IconGitBranch,
+  IconLoader2,
+  IconPlugConnectedX,
+  IconPlus,
+  IconX,
+} from '@tabler/icons-react'
 import { Field, FieldError } from '@/components/form/field'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,17 +27,14 @@ import {
   reposQuery,
   settingsKeys,
 } from '@/lib/settings-api'
+import { cn } from '@/lib/utils'
+import { SetBox } from './settings-section'
 
-const MAPPING_BADGE: Record<
-  DeploymentItem['mapping'],
-  { label: string; variant: 'outline' | 'accent' | 'high' }
-> = {
-  auto: { label: 'From Coolify', variant: 'outline' },
-  override: { label: 'Manual', variant: 'accent' },
-  none: { label: 'Needs mapping', variant: 'high' },
+/** How the repo was found, in the right column of a mapped row. */
+const MATCHED_BY: Record<Exclude<DeploymentItem['mapping'], 'none'>, string> = {
+  auto: 'From Coolify',
+  override: 'Manual',
 }
-
-const IMAGE_ONLY_BADGE = { label: COVERAGE_NOTE_INFO.image_only.short, variant: 'outline' } as const
 
 /** No repo and no git source, so nothing needs mapping: the deployment is just an image. */
 const isImageOnly = (d: DeploymentItem) => d.mapping === 'none' && d.coverage.imageOnly
@@ -94,14 +97,11 @@ export function MappingSection() {
 
   return (
     <>
-      <ul
-        aria-label="Deployments and their repos"
-        className="overflow-hidden rounded-lg border border-border bg-card"
-      >
+      <SetBox as="ul" aria-label="Deployments and their repos">
         {items.map((deployment) => (
           <MappingRow key={deployment.id} deployment={deployment} datalistId={datalistId} />
         ))}
-      </ul>
+      </SetBox>
       <datalist id={datalistId}>
         {(repos.data?.items ?? []).map((repo: RepoRef) => (
           <option key={repo.id} value={repo.fullName} />
@@ -121,7 +121,7 @@ function MappingRow({
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const imageOnly = isImageOnly(deployment)
-  const badge = imageOnly ? IMAGE_ONLY_BADGE : MAPPING_BADGE[deployment.mapping]
+  const needsRepo = deployment.mapping === 'none' && !imageOnly
   const manual = deployment.mapping === 'override'
 
   const remove = useMutation({
@@ -129,65 +129,95 @@ function MappingRow({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: settingsKeys.deployments }),
   })
 
+  let repoCell: React.ReactNode
+  if (needsRepo) {
+    // No repo means Hinomi cannot tell what runs there: a coverage gap, so cyan, never red.
+    repoCell = (
+      <span className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-blind">
+        <IconPlugConnectedX aria-hidden="true" className="size-[15px] shrink-0" stroke={1.75} />
+        <span>Needs mapping</span>
+        <span className="font-normal text-muted-foreground">exposure unknown</span>
+      </span>
+    )
+  } else if (imageOnly) {
+    repoCell = (
+      <span className="inline-flex items-center gap-1.5 text-sm text-foreground-2">
+        <IconBox aria-hidden="true" className="size-[15px] shrink-0" stroke={1.75} />
+        <span className="font-semibold">{COVERAGE_NOTE_INFO.image_only.short}</span>
+      </span>
+    )
+  } else {
+    repoCell = (
+      <ul aria-label={`Repos of ${deployment.name}`} className="flex min-w-0 flex-wrap gap-1.5">
+        {deployment.repos.map((repo) => (
+          <li
+            key={repo.id}
+            className={cn(
+              'inline-flex min-w-0 items-center gap-1 font-mono text-sm text-foreground',
+              manual && 'h-[26px] rounded-sm border border-border bg-sidebar pr-0.5 pl-2 text-xs',
+            )}
+          >
+            <span className="truncate">{repo.fullName}</span>
+            {manual ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Remove ${repo.fullName} from ${deployment.name}`}
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(repo.id)}
+              >
+                {remove.isPending && remove.variables === repo.id ? (
+                  <IconLoader2 aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <IconX aria-hidden="true" />
+                )}
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
   return (
-    <li className="flex flex-col gap-2.5 border-t border-border px-4 py-3 first:border-t-0">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex min-w-0 flex-1 flex-col">
-          <h3 className="truncate text-base font-medium">{deployment.name}</h3>
-          <span className="text-xs text-muted-foreground">
+    <li className="flex flex-col gap-2.5 border-t border-border py-3.5 first:border-t-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 tab:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <span className="flex min-w-0 flex-col">
+          <h3 className="truncate text-base font-semibold">{deployment.name}</h3>
+          <span className="truncate text-xs text-muted-foreground">
             {deployment.server ?? deployment.source.name}
             {deployment.gitRepository && deployment.mapping !== 'auto'
               ? `, Coolify says ${deployment.gitRepository}`
               : ''}
           </span>
         </span>
-        <Badge variant={badge.variant}>{badge.label}</Badge>
-        {adding ? null : (
-          <Button
-            variant={deployment.mapping === 'none' && !imageOnly ? 'outline' : 'ghost'}
-            size="sm"
-            onClick={() => setAdding(true)}
-            aria-label={`${deployment.mapping === 'none' ? 'Map a repo to' : 'Override the repo of'} ${deployment.name}`}
-          >
-            <IconPlus aria-hidden="true" />
-            {deployment.mapping === 'none' ? 'Map repo' : manual ? 'Add repo' : 'Override'}
-          </Button>
-        )}
+        <span className="col-start-1 row-start-2 min-w-0 tab:col-start-2 tab:row-start-1">
+          {repoCell}
+        </span>
+        <span className="col-start-2 row-span-2 flex items-center justify-end gap-3 tab:col-start-3 tab:row-span-1">
+          {deployment.mapping === 'none' ? null : (
+            <span className="hidden text-sm text-muted-foreground desk:inline">
+              {MATCHED_BY[deployment.mapping]}
+            </span>
+          )}
+          {adding ? null : (
+            <Button
+              variant={needsRepo ? 'outline' : 'ghost'}
+              size="sm"
+              onClick={() => setAdding(true)}
+              aria-label={`${deployment.mapping === 'none' ? 'Map a repo to' : 'Override the repo of'} ${deployment.name}`}
+            >
+              {needsRepo ? null : <IconPlus aria-hidden="true" />}
+              {deployment.mapping === 'none' ? 'Map a repo' : manual ? 'Add repo' : 'Override'}
+            </Button>
+          )}
+        </span>
       </div>
       {imageOnly ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-pretty text-muted-foreground">
           Deployed from a container image with no git source, so there is nothing to map. The image
           scan will cover it. Map a repo only if you build this image yourself.
         </p>
-      ) : null}
-      {deployment.repos.length > 0 ? (
-        <ul aria-label={`Repos of ${deployment.name}`} className="flex flex-wrap gap-1.5">
-          {deployment.repos.map((repo) => (
-            <li
-              key={repo.id}
-              className="inline-flex h-[26px] items-center gap-1 rounded-sm border border-border bg-sidebar pr-0.5 pl-2 font-mono text-xs"
-            >
-              {repo.fullName}
-              {manual ? (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`Remove ${repo.fullName} from ${deployment.name}`}
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(repo.id)}
-                >
-                  {remove.isPending && remove.variables === repo.id ? (
-                    <IconLoader2 aria-hidden="true" className="animate-spin" />
-                  ) : (
-                    <IconX aria-hidden="true" />
-                  )}
-                </Button>
-              ) : (
-                <span className="pr-1.5" />
-              )}
-            </li>
-          ))}
-        </ul>
       ) : null}
       {remove.error ? (
         <div role="alert">

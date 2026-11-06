@@ -23,7 +23,7 @@ describe('access status', () => {
         login: 'ops@example.dev',
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Protected by Tailscale as ops@example.dev')).toBeVisible()
     expect(access.queryByText('Hinomi has no login yet')).not.toBeInTheDocument()
@@ -32,7 +32,10 @@ describe('access status', () => {
       expect.stringContaining('docs/access.md'),
     )
     const topBar = within(screen.getByRole('banner'))
-    expect(topBar.getByRole('link', { name: 'Protected by Tailscale' })).toBeInTheDocument()
+    expect(topBar.getByRole('link', { name: 'Protected by Tailscale' })).toHaveAttribute(
+      'href',
+      '/settings?sel=access',
+    )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -47,7 +50,7 @@ describe('access status', () => {
         login: null,
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Protected by Tailscale')).toBeVisible()
     expect(access.getByText('100.100.7.8')).toBeInTheDocument()
@@ -65,7 +68,7 @@ describe('access status', () => {
         email: 'ops@example.dev',
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(
       await access.findByText('Protected by Cloudflare Access as ops@example.dev'),
@@ -84,7 +87,7 @@ describe('access status', () => {
         email: null,
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Cloudflare Access header seen, not verified')).toBeVisible()
     expect(access.getByText('HINOMI_CF_ACCESS_TEAM_DOMAIN')).toBeInTheDocument()
@@ -95,7 +98,7 @@ describe('access status', () => {
       ...configuredRoutes(),
       'GET /access': { state: 'public', ...base, address: '203.0.113.9' },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Hinomi is reachable from the internet')).toBeVisible()
     expect(access.getByText('203.0.113.9')).toBeInTheDocument()
@@ -114,7 +117,7 @@ describe('access status', () => {
         reason: 'private_address',
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText(/a private or container address/)).toBeVisible()
     expect(access.getByText('Hinomi has no login yet')).toBeVisible()
@@ -124,7 +127,7 @@ describe('access status', () => {
 
   it('keeps the plain warning when the server cannot be asked', async () => {
     mockApi({ ...configuredRoutes(), 'GET /access': reply(500) })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Hinomi has no login yet')).toBeVisible()
   })

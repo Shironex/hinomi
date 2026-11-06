@@ -18,10 +18,43 @@ async function sourcesRegion() {
 describe('settings', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('shows the no login note and never shows a token', async () => {
+  it('lists the sections with a summary each and opens one on the phone', async () => {
+    mockApi({ ...configuredRoutes(), 'GET /notifications/channels': { items: [channel] } })
+    const user = userEvent.setup()
+    const { router } = await renderApp('/settings')
+    const list = within(await screen.findByRole('list', { name: 'Settings sections' }))
+    expect(await list.findByText('2 connected, OSV.dev on')).toBeInTheDocument()
+    expect(await list.findByText('Webhook on')).toBeInTheDocument()
+    expect(await list.findByText('1 of 1 app matched')).toBeInTheDocument()
+    expect(list.getByText('Every 6 hours')).toBeInTheDocument()
+    await user.click(list.getByRole('link', { name: /Repo mapping/ }))
+    expect(await screen.findByRole('region', { name: 'Repo mapping' })).toBeInTheDocument()
+    expect(router.state.location.search).toMatchObject({ sel: 'mapping' })
+  })
+
+  it('opens the first section beside the list on a wide screen', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('min-width'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
     mockApi(configuredRoutes())
     await renderApp('/settings')
+    expect(await screen.findByRole('list', { name: 'Settings sections' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Sources')
+  })
+
+  it('shows the no login note under access', async () => {
+    mockApi(configuredRoutes())
+    await renderApp('/settings?sel=access')
     expect(await screen.findByText('Hinomi has no login yet')).toBeVisible()
+  })
+
+  it('never shows a token', async () => {
+    mockApi(configuredRoutes())
+    await renderApp('/settings?sel=sources')
     const sources = await sourcesRegion()
     expect(await sources.findByRole('heading', { name: 'coolify.example.dev' })).toBeInTheDocument()
     expect(sources.getAllByText('Set')).toHaveLength(2)
@@ -33,7 +66,7 @@ describe('settings', () => {
       'POST /sources/1/test': { ok: true, message: 'Connected to Coolify 4.0.0' },
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=sources')
     const sources = await sourcesRegion()
     await user.click((await sources.findAllByRole('button', { name: 'Test connection' }))[0]!)
     expect(await sources.findByText('Connected to Coolify 4.0.0.')).toBeInTheDocument()
@@ -47,7 +80,7 @@ describe('settings', () => {
       'PATCH /sources/1': coolifySource,
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=sources')
     const sources = await sourcesRegion()
     await user.click((await sources.findAllByRole('button', { name: 'Replace token' }))[0]!)
     await user.type(sources.getByLabelText('New api token'), 'kestrel-new-token')
@@ -61,7 +94,7 @@ describe('settings', () => {
   it('asks before removing a source', async () => {
     const api = mockApi({ ...configuredRoutes(), 'DELETE /sources/1': reply(204) })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=sources')
     const sources = await sourcesRegion()
     await user.click((await sources.findAllByRole('button', { name: 'Remove' }))[0]!)
     const dialog = await screen.findByRole('dialog', { name: 'Remove coolify.example.dev?' })
@@ -82,8 +115,8 @@ describe('settings', () => {
       },
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
-    const region = within(await screen.findByRole('region', { name: 'Notifications' }))
+    await renderApp('/settings?sel=notifications')
+    const region = within(await screen.findByRole('region', { name: 'Notification channels' }))
     await user.click(await region.findByRole('button', { name: 'Add channel' }))
     await user.click(region.getByRole('radio', { name: 'Webhook' }))
     await user.click(region.getByRole('button', { name: 'Add channel' }))
@@ -115,8 +148,8 @@ describe('settings', () => {
       }),
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
-    const region = within(await screen.findByRole('region', { name: 'Notifications' }))
+    await renderApp('/settings?sel=notifications')
+    const region = within(await screen.findByRole('region', { name: 'Notification channels' }))
     await user.click(await region.findByRole('button', { name: 'Add channel' }))
     const url = region.getByLabelText('Discord webhook URL')
     await user.type(url, 'https://hooks.example.dev/not-discord')
@@ -135,8 +168,8 @@ describe('settings', () => {
       },
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
-    const region = within(await screen.findByRole('region', { name: 'Notifications' }))
+    await renderApp('/settings?sel=notifications')
+    const region = within(await screen.findByRole('region', { name: 'Notification channels' }))
     expect(await region.findByText(channel.url)).toBeInTheDocument()
     await user.click(region.getByRole('button', { name: 'Send test' }))
     expect(
@@ -150,7 +183,7 @@ describe('settings', () => {
       'PATCH /settings': { scanIntervalMinutes: 60, osvEnabled: true, includeAccountRepos: false },
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=scans')
     await user.selectOptions(await screen.findByLabelText('Scan every'), '60')
     await waitFor(() =>
       expect(api.called('PATCH', '/settings')[0]?.body).toEqual({ scanIntervalMinutes: 60 }),
@@ -167,7 +200,7 @@ describe('settings', () => {
       'POST /deployments/11/overrides': reply(201, { items: [] }),
     })
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=mapping')
     const region = within(await screen.findByRole('region', { name: 'Repo mapping' }))
     expect(await region.findByText('Needs mapping')).toBeInTheDocument()
     await user.click(region.getByRole('button', { name: 'Map a repo to storefront-web' }))
@@ -211,7 +244,7 @@ describe('settings', () => {
         ],
       },
     })
-    await renderApp('/settings')
+    await renderApp('/settings?sel=mapping')
     const region = within(await screen.findByRole('region', { name: 'Repo mapping' }))
     const rows = await region.findAllByRole('heading', { level: 3 })
     // The git based app that needs a repo comes first.

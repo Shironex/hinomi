@@ -122,7 +122,7 @@ describe('github app connect form', () => {
       }),
     )
     const user = userEvent.setup()
-    await renderApp('/settings')
+    await renderApp('/settings?sel=sources')
     expect(await screen.findByText('App 1234, installation 4242')).toBeInTheDocument()
     expect(screen.getByText('Private key')).toBeInTheDocument()
 
