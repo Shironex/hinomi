@@ -34,6 +34,8 @@ export interface RestOptions {
 }
 
 export interface GithubClient {
+  /** The API root requests go to, without a trailing slash. */
+  readonly baseUrl: string
   rest(path: string, options?: RestOptions): Promise<RestResult>
   graphql(query: string, variables?: Record<string, unknown>): Promise<unknown>
 }
@@ -219,6 +221,7 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
   }
 
   return {
+    baseUrl,
     rest(path, { acceptStatus = [] } = {}) {
       return execute(path, { method: 'GET' }, acceptStatus)
     },

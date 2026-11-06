@@ -304,6 +304,20 @@ describe('listAccountRepos', () => {
     ])
     expect(repos[1]).toMatchObject({ fork: true, visibility: 'public' })
   })
+
+  it('keeps the GitHub Enterprise API prefix when following pages', async () => {
+    const api = `${BASE}/api/v3`
+    const { fetch, requests } = scriptedFetch([
+      {
+        body: [repoBody],
+        headers: { link: `<${api}/user/repos?per_page=100&page=2>; rel="next"` },
+      },
+      { body: [] },
+    ])
+    const client = createGithubClient({ token: 'test-token', baseUrl: api, fetch, maxRetries: 0 })
+    await listAccountRepos(client)
+    expect(requests[1]?.url).toBe(`${api}/user/repos?per_page=100&page=2`)
+  })
 })
 
 describe('testGithubConnection', () => {

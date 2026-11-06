@@ -88,12 +88,14 @@ export async function listAccountRepos(client: GithubClient): Promise<AccountRep
     }
     const next = nextLink(result.headers.get('link'))
     // The Link header carries an absolute URL, the client wants a path.
-    path = next === null ? null : toPath(next)
+    path = next === null ? null : toPath(next, client.baseUrl)
   }
   return repos
 }
 
-function toPath(url: string): string {
+/** The part after the API root, so a GitHub Enterprise `/api/v3` prefix is not doubled. */
+function toPath(url: string, baseUrl: string): string {
+  if (url.startsWith(`${baseUrl}/`)) return url.slice(baseUrl.length)
   const parsed = new URL(url)
   return `${parsed.pathname}${parsed.search}`
 }
