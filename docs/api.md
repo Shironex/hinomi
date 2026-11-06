@@ -2,7 +2,7 @@
 
 The SPA talks to the server through a small JSON API under `/api`. Every request and response is a zod schema in [`packages/shared/src/api.ts`](../packages/shared/src/api.ts): the server validates input against it and checks each response before sending it, and the SPA parses responses with the same schemas.
 
-Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never expose the port to the internet; the server logs a warning about this on every start.
+Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never expose the port to the internet; the server logs a warning about this on every start, and `GET /api/access` tells the SPA whether the current request came through one (see [access.md](access.md)).
 
 ## Conventions
 
@@ -37,9 +37,21 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | Method and path | Returns |
 |---|---|
 | `GET /api/health` | `{ status: "ok" }` |
+| `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
 | `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source, the 20 latest finding events |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
 | `GET /api/shell/scan-status` | One of the states below |
+
+Every access state has `address` (the client address it is based on, or null) and `forwarded` (true when a trusted proxy supplied that address). The schema is in [`packages/shared/src/access.ts`](../packages/shared/src/access.ts).
+
+| Access state | Fields | When |
+|---|---|---|
+| `cloudflare_access` | `verified`, `unverifiedReason` (`not_configured`, `certs_unavailable` or null), `email` (from a verified token) | A `Cf-Access-Jwt-Assertion` token that verifies, or one that could not be checked. A token that fails the check is ignored |
+| `tailscale` | `via` (`serve` or `address`), `login` (from `tailscale serve` or a trusted proxy, else null) | Tailscale identity headers from loopback or a trusted proxy, or a client in `100.64.0.0/10` or `fd7a:115c:a1e0::/48` |
+| `public` | none beyond `address` | A public client address and nothing above |
+| `unknown` | `reason` (`private_address`, `loopback` or `no_address`) | Hinomi cannot tell, for example behind a Docker bridge |
+
+Scan status:
 
 | State | Fields | When |
 |---|---|---|
