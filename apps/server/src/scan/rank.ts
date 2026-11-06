@@ -11,6 +11,7 @@ import type {
 export type ExposureReach = 'public' | 'internal' | 'none'
 
 export interface ExposureInput {
+  /** Coverage notes rank below every advisory (see rankExposure). */
   kind: FindingKind
   /** Advisory severity. Ignored for blind spots, which rank by their type. */
   severity?: AdvisorySeverity | null
@@ -77,6 +78,7 @@ function effectiveSeverity(input: ExposureInput): { severity: Severity; unscored
  * rank = reach * 10 + runtime * 5 + severity (1..4) + cvss / 100
  */
 export function rankExposure(input: ExposureInput): ExposureRank {
+  if (input.kind === 'coverage_note') return rankCoverageNote(input.reach)
   const { severity, unscored } = effectiveSeverity(input)
   const runtime = input.kind === 'blind_spot' || input.scope !== 'dev'
   const cvss = input.kind === 'advisory' ? (input.cvssScore ?? 0) : 0
@@ -92,6 +94,24 @@ export function rankExposure(input: ExposureInput): ExposureRank {
       public: input.reach === 'public',
     },
     unscored,
+  }
+}
+
+/**
+ * A coverage note is something Hinomi knows it does not check yet, not a
+ * vulnerability: it ranks low, below every advisory (whose rank is at least 1),
+ * public before internal. Its factors still tell where it runs.
+ */
+function rankCoverageNote(reach: ExposureReach): ExposureRank {
+  return {
+    rank: REACH_WEIGHT[reach] / 10,
+    factors: {
+      severity: 'low',
+      runtime: true,
+      deployed: reach !== 'none',
+      public: reach === 'public',
+    },
+    unscored: false,
   }
 }
 

@@ -21,7 +21,14 @@ import {
   webhookPayload,
   type MessageType,
 } from './format.js'
-import { buildItem, meetsMinimum, type ItemEvent, type NotificationItem } from './items.js'
+import {
+  buildItem,
+  isMessageFinding,
+  meetsMinimum,
+  type ItemEvent,
+  type MessageFinding,
+  type NotificationItem,
+} from './items.js'
 import { readNotifySettings } from './settings.js'
 import { pruneState, readState, writeState, type NotifyState } from './state.js'
 
@@ -71,7 +78,8 @@ const isAnnouncement = (type: string) => type === 'opened' || type === 'reopened
  * True when a finding needs a message right away: a critical or high
  * advisory, or any blind spot, on something that is deployed.
  */
-function isImmediate(ranked: RankedFinding): boolean {
+function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
+  if (!isMessageFinding(ranked)) return false
   if (ranked.state !== 'open' && ranked.state !== 'fixing') return false
   if (ranked.deployments.length === 0) return false
   if (ranked.kind === 'blind_spot') return true
@@ -235,7 +243,8 @@ export function createNotifier(options: NotifierOptions) {
       const first = relevant[0]
       const last = relevant.at(-1)
       const found = ranked.get(finding.id)
-      if (!first || !last || !found) continue
+      // Coverage notes are not news: they show in the app, never in a message.
+      if (!first || !last || !found || !isMessageFinding(found)) continue
       if (last.type === SILENCING_EVENT) continue
       const event = DIGEST_EVENTS[last.type] as ItemEvent
       // Opened and gone again within the window: nothing changed on net.

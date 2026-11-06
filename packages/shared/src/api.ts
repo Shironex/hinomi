@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   blindSpotTypeSchema,
+  coverageNoteTypeSchema,
   deploymentReachSchema,
   findingKindSchema,
   findingScopeSchema,
@@ -127,7 +128,8 @@ export type ExposureFactorsDto = z.infer<typeof exposureFactorsSchema>
  * Display tiers of the alerts list. Blind spots come first, then advisories:
  * 1 exposed (critical or high, runtime, public), 2 deployed internal only,
  * 3 deployed and public but moderate or low, 4 deployed dev dependencies,
- * 5 not deployed. Within a tier rows keep their rank order.
+ * 5 not deployed. Coverage notes (image only deployments) come last.
+ * Within a tier rows keep their rank order.
  */
 export const FINDING_TIERS = [
   'blind_spot',
@@ -136,6 +138,7 @@ export const FINDING_TIERS = [
   'public_low',
   'dev',
   'not_deployed',
+  'coverage',
 ] as const
 export const findingTierSchema = z.enum(FINDING_TIERS)
 export type FindingTier = z.infer<typeof findingTierSchema>
@@ -176,6 +179,8 @@ export const findingListItemSchema = z.object({
   /** Sources reporting the advisory now (empty for blind spots). */
   sources: z.array(reporterSchema),
   blindSpotType: blindSpotTypeSchema.nullable(),
+  /** Set for coverage notes, null for advisories and blind spots. */
+  coverageNote: coverageNoteTypeSchema.nullable(),
   advisory: advisorySummarySchema.nullable(),
   installedVersion: z.string().nullable(),
   repo: repoRefSchema.nullable(),
@@ -654,6 +659,11 @@ export const deploymentItemSchema = deploymentRefSchema.extend({
     blindSpots: z.array(blindSpotTypeSchema),
     /** No open blind spot, and a repo is mapped (databases need none). */
     covered: z.boolean(),
+    /**
+     * No git source: a service from a template or an app deployed from a registry
+     * image. Not a blind spot; the phase 2 image scan will cover it.
+     */
+    imageOnly: z.boolean(),
   }),
   /** Advisory findings not fixed, by effective severity. */
   openFindings: severityCountsSchema,

@@ -1,4 +1,4 @@
-import { IconEyeOff } from '@tabler/icons-react'
+import { IconBox, IconEyeOff } from '@tabler/icons-react'
 import { Badge } from '@/components/ui/badge'
 import { SEVERITY_LABEL, type SeverityKey } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
@@ -32,6 +32,16 @@ export function BlindSpotBadge({
     <Badge variant="critical" className={className}>
       <IconEyeOff aria-hidden="true" stroke={2} />
       {label}
+    </Badge>
+  )
+}
+
+/** A coverage note: deployed from an image, not a blind spot. Quiet on purpose. */
+export function ImageOnlyBadge({ className }: { className?: string }) {
+  return (
+    <Badge variant="outline" className={className}>
+      <IconBox aria-hidden="true" stroke={2} />
+      Image only
     </Badge>
   )
 }

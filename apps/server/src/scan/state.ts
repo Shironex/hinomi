@@ -148,7 +148,7 @@ export function reopenFinding(
 
 /**
  * Scan: nothing reports the finding anymore. Advisories become `fixed`
- * (event `fixed`), blind spots too (event `resolved`). No-op when already fixed.
+ * (event `fixed`), blind spots and coverage notes too (event `resolved`). No-op when already fixed.
  */
 export function markFixed(
   findings: FindingsRepository,
@@ -162,7 +162,7 @@ export function markFixed(
     {
       state: 'fixed',
       actor: 'system',
-      eventType: finding.kind === 'blind_spot' ? 'resolved' : 'fixed',
+      eventType: finding.kind === 'advisory' ? 'fixed' : 'resolved',
       ...(data && { data }),
     },
     now,

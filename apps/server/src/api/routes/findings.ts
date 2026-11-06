@@ -100,6 +100,7 @@ const TIER_LABEL: Record<(typeof FINDING_TIERS)[number], string> = {
   public_low: 'Deployed and public, moderate or low',
   dev: 'Deployed, dev dependencies only',
   not_deployed: 'Not deployed',
+  coverage: 'Image only, covered by the image scan later',
 }
 
 function groupKey(r: RankedFinding, group: Exclude<FindingGroup, 'none'>): [string, string] {
@@ -120,7 +121,7 @@ function groupKey(r: RankedFinding, group: Exclude<FindingGroup, 'none'>): [stri
       `${r.advisory.packageName} ${r.advisory.advisoryKey}`,
     ]
   }
-  const type = r.finding.blindSpotType ?? 'blind_spot'
+  const type = r.kind === 'coverage_note' ? 'image_only' : (r.finding.blindSpotType ?? 'blind_spot')
   return [`blind:${type}`, type.replaceAll('_', ' ')]
 }
 

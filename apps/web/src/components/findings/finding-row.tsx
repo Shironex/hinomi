@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { IconClock, IconLock, IconServer2, IconWorld } from '@tabler/icons-react'
 import { FindingStateText } from './finding-state'
 import { RankMarker } from './rank-marker'
-import { BlindSpotBadge, SeverityBadge } from './severity-badge'
+import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from './severity-badge'
 import { SourceBadge } from './source-badge'
 import {
   blindSpotSubject,
@@ -81,7 +81,13 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
       />
       <div className="flex min-w-0 flex-col gap-[5px]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {item.kind === 'blind_spot' ? (
+          {item.kind === 'coverage_note' ? (
+            <>
+              <ImageOnlyBadge />
+              <span className="font-mono text-sm font-medium">{blindSpotSubject(item)}</span>
+              <span className="text-xs text-muted-foreground">covered by the image scan later</span>
+            </>
+          ) : item.kind === 'blind_spot' ? (
             <>
               <BlindSpotBadge />
               <span className="font-mono text-sm font-medium">{blindSpotSubject(item)}</span>

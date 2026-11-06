@@ -77,17 +77,19 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 | Query | Meaning |
 |---|---|
-| `tier` | `blind_spot`, `exposed`, `internal`, `public_low`, `dev`, `not_deployed` |
+| `tier` | `blind_spot`, `exposed`, `internal`, `public_low`, `dev`, `not_deployed`, `coverage` |
 | `state` | `open`, `fixing`, `fixed`, `snoozed`, `accepted`, `dismissed_upstream`. Without it every state except `fixed` |
 | `severity` | Effective severity: `critical`, `high`, `moderate`, `low` (unscored advisories count as moderate) |
 | `source` | `github`, `osv` |
 | `sourceMatch` | `any` (default): reported by at least one listed source; `all`: by every listed source, so `source=github,osv&sourceMatch=all` means reported by both |
 | `scope` | `runtime`, `dev`, `unknown` |
-| `kind` | `advisory`, `blind_spot` |
+| `kind` | `advisory`, `blind_spot`, `coverage_note` |
 | `repo`, `deployment` | Ids |
 | `q` | Case-insensitive search over package, advisory ids, summary, repo, deployment and blind spot type |
 | `group` | `none` (default), `tier`, `repo`, `advisory`: rows are ordered group by group and `groups` holds every group's size |
 | `offset`, `limit` | Paging, `limit` 1 to 200 (default 50). `nextOffset` is null on the last page |
+
+A coverage note (`kind: coverage_note`, `coverageNote: image_only`, tier `coverage`) is a deployment with no git source: a service from a template or an app deployed from a registry image. There is no repo to map, so it is not a blind spot; it ranks below every advisory, is never sent as a notification and stays until the phase 2 image scan covers it (a manual repo mapping clears it). A `no_repo_mapping` blind spot is only for a deployment built from git whose repo Hinomi cannot match; one that an earlier version opened on an image only deployment resolves on the next scan with `{ reason: "reclassified", as: "image_only" }` and a coverage note opens instead.
 
 Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry (`stateUntilNewAdvisory` when it waits for a new advisory instead of a date), reporting sources, an advisory summary, the repo and the deployments it reaches.
 
@@ -111,7 +113,7 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 
 | Method and path | Does |
 |---|---|
-| `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered), open advisory findings by severity, `exposed` (exposed advisories on it) and `openBlindSpots` |
+| `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered, `imageOnly`), open advisory findings by severity, `exposed` (exposed advisories on it) and `openBlindSpots` |
 | `GET /api/deployments/:id` | The same plus watch paths, manual overrides and the open findings that reach it |
 | `GET /api/deployments/:id/deploys?limit=` | Recent deploys read live from Coolify (`limit` 1 to 50, default 10): `{ available, reason, items: [{ id, status, commit, commitMessage, startedAt, finishedAt, webhook, rollback }] }`. Applications only; for services, databases or a source that cannot answer, `available` is false and `reason` says why |
 | `GET /api/deployments/:id/overrides` | Manual repo mappings |

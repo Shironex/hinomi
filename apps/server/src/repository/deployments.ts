@@ -36,7 +36,9 @@ export function deploymentInputFromRecord(
     server: record.server,
     status: record.status,
     image: record.image,
-    gitRepository: record.repo,
+    // The parsed owner/name, or the raw value when it could not be parsed:
+    // either way the deployment has a git source (see isImageOnly).
+    gitRepository: record.repo ?? record.gitRepository ?? null,
     gitBranch: record.branch,
     watchPaths: record.watchPaths,
     repoId,

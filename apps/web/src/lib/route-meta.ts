@@ -2,7 +2,7 @@ import type { FindingListItem } from '@hinomi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useMatches } from '@tanstack/react-router'
 import type { NavKey, NavPath } from '@/components/shell/nav'
-import { BLIND_SPOT_INFO } from './finding-meta'
+import { gapInfo } from './finding-meta'
 import { deploymentQuery, findingQuery } from './view-api'
 
 declare module '@tanstack/react-router' {
@@ -21,11 +21,9 @@ export interface RouteMeta {
   crumbs: { label: string; to?: NavPath }[]
 }
 
-/** The breadcrumb name of a finding: package and advisory id, or the blind spot. */
+/** The breadcrumb name of a finding: package and advisory id, or the blind spot or note. */
 export function findingCrumb(item: FindingListItem): string {
-  if (item.kind === 'blind_spot') {
-    return item.blindSpotType ? BLIND_SPOT_INFO[item.blindSpotType].title : 'Blind spot'
-  }
+  if (item.kind !== 'advisory') return gapInfo(item)?.title ?? 'Blind spot'
   const a = item.advisory
   return a ? `${a.packageName} ${a.advisoryKey}` : 'Advisory'
 }

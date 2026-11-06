@@ -4,6 +4,7 @@ import { getRouteApi, Link } from '@tanstack/react-router'
 import {
   IconArrowLeft,
   IconArrowRight,
+  IconBox,
   IconChevronRight,
   IconEyeOff,
   IconPlugConnected,
@@ -27,6 +28,7 @@ import { RepoMappingPanel } from '@/components/views/repo-mapping'
 import { ApiError } from '@/lib/api'
 import {
   BLIND_SPOT_INFO,
+  COVERAGE_NOTE_INFO,
   displayDomain,
   domainHref,
   formatDate,
@@ -99,6 +101,7 @@ function Coverage({ d }: { d: DeploymentDetail }) {
                       ? 'Lockfile unreadable'
                       : 'On',
             },
+            ...(d.coverage.imageOnly ? [{ label: 'Image scan', value: 'Phase 2 (not yet)' }] : []),
             {
               label: 'Blind spots',
               value: d.coverage.blindSpots.length
@@ -234,12 +237,19 @@ export function DeploymentDetailPage() {
         <div className="flex min-w-0 flex-col gap-6">
           {needsRepo(d) ? (
             <Callout variant="warn" icon={IconPlugConnected} title="No repo matched">
-              This app runs <span className="font-mono">{d.image ?? 'an image'}</span> with no git
-              source in Coolify. Map the repo it is built from in{' '}
+              This app is built from{' '}
+              <span className="font-mono">{d.gitRepository ?? 'a git source'}</span>, which Hinomi
+              could not match to a GitHub repo. Map the repo it is built from in{' '}
               <Link {...MAPPING_SETTINGS} className="font-medium text-accent-ink hover:underline">
                 Settings, Repo mapping
               </Link>{' '}
               so its alerts and lockfile count.
+            </Callout>
+          ) : null}
+          {d.coverage.imageOnly ? (
+            <Callout variant="default" icon={IconBox} title={COVERAGE_NOTE_INFO.image_only.title}>
+              It runs <span className="font-mono">{d.image ?? 'a container image'}</span>.{' '}
+              {COVERAGE_NOTE_INFO.image_only.explain}
             </Callout>
           ) : null}
           {blind.map((b) => (

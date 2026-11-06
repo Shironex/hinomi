@@ -1,9 +1,9 @@
 import type { BlindSpotType } from '@hinomi/shared'
 import type { Repositories } from '../repository/index.js'
-import { blindSpotFindingKey } from '../repository/index.js'
+import { blindSpotFindingKey, coverageNoteFindingKey } from '../repository/index.js'
 import type { FindingChange } from './apply.js'
 import type { RepoScan } from './collect.js'
-import { needsRepoMapping, type DeploymentIndex } from './deployments.js'
+import { isImageOnly, needsRepoMapping, type DeploymentIndex } from './deployments.js'
 import { markFixed, reopenIfFixed } from './state.js'
 
 /** Blind spots about a repo, as opposed to `no_repo_mapping`, which is about a deployment. */
@@ -70,13 +70,50 @@ export function repoBlindSpotChecks(
   ]
 }
 
+/** Resolution note of a `no_repo_mapping` blind spot whose deployment turned out to have no git source. */
+const RECLASSIFIED_IMAGE_ONLY = { reason: 'reclassified', as: 'image_only' }
+
 export function deploymentBlindSpotChecks(index: DeploymentIndex): BlindSpotCheck[] {
   const unmapped = new Set(index.unmapped.map((d) => d.id))
   return index.deployments.map((deployment) => ({
     type: 'no_repo_mapping',
     subject: { deploymentId: deployment.id },
     present: needsRepoMapping(deployment) && unmapped.has(deployment.id),
+    ...(isImageOnly(deployment) &&
+      unmapped.has(deployment.id) && { resolvedData: RECLASSIFIED_IMAGE_ONLY }),
   }))
+}
+
+/**
+ * Opens and resolves `image_only` coverage notes: one per deployment with no
+ * git source and no manual repo mapping. A mapping or a git source clears it.
+ */
+export function applyCoverageNotes(
+  repositories: Repositories,
+  index: DeploymentIndex,
+  now: Date,
+): FindingChange[] {
+  const { findings } = repositories
+  const unmapped = new Set(index.unmapped.map((d) => d.id))
+  const changes: FindingChange[] = []
+  for (const deployment of index.deployments) {
+    if (isImageOnly(deployment) && unmapped.has(deployment.id)) {
+      const { finding, created } = findings.observe(
+        { kind: 'coverage_note', coverageNoteType: 'image_only', deploymentId: deployment.id },
+        now,
+      )
+      if (created) changes.push({ findingId: finding.id, change: 'opened' })
+      else if (reopenIfFixed(findings, finding, now)) {
+        changes.push({ findingId: finding.id, change: 'reopened' })
+      }
+      continue
+    }
+    const existing = findings.getByKey(coverageNoteFindingKey('image_only', deployment.id))
+    if (existing && markFixed(findings, existing, now)) {
+      changes.push({ findingId: existing.id, change: 'fixed' })
+    }
+  }
+  return changes
 }
 
 function applyCheck(
@@ -115,7 +152,7 @@ function applyCheck(
 }
 
 /**
- * Opens, reopens and resolves blind spots. Repos checked are the ones scanned
+ * Opens, reopens and resolves blind spots and coverage notes. Repos checked are the ones scanned
  * this run plus every repo that already has a blind spot (so one that is no
  * longer deployed resolves).
  */
@@ -138,6 +175,7 @@ export function applyBlindSpots(
       ...deploymentBlindSpotChecks(index),
     ]
     for (const check of checks) applyCheck(repositories, check, now, changes)
+    changes.push(...applyCoverageNotes(repositories, index, now))
     return changes
   })
 }

@@ -99,7 +99,8 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
   const blindSpots: BlindSpotCounts = { total: 0, deployed: 0, public: 0, needsAction: 0 }
 
   for (const finding of findings) {
-    if (finding.state === 'fixed') continue
+    // Coverage notes are neither advisories nor blind spots: counted nowhere here.
+    if (finding.state === 'fixed' || finding.kind === 'coverage_note') continue
     const { factors } = finding
     if (finding.kind === 'blind_spot') {
       blindSpots.total++

@@ -79,9 +79,22 @@ export function lockfileRef(
 }
 
 /**
- * Databases never have a repo; every other deployment without one is a blind
- * spot (nothing checks what it runs).
+ * A service or app with no git source at all: a template service, or an app
+ * deployed from a registry image. There is no repo to map; it gets a coverage
+ * note (the phase 2 image scan covers it), never a blind spot. Databases are
+ * neither.
  */
-export function needsRepoMapping(deployment: Pick<DeploymentRow, 'kind'>): boolean {
-  return deployment.kind !== 'database'
+export function isImageOnly(deployment: Pick<DeploymentRow, 'kind' | 'gitRepository'>): boolean {
+  return deployment.kind !== 'database' && deployment.gitRepository === null
+}
+
+/**
+ * A deployment built from git needs a repo. When Hinomi cannot match one it
+ * is a blind spot (nothing checks what it runs). Databases and image only
+ * deployments need none.
+ */
+export function needsRepoMapping(
+  deployment: Pick<DeploymentRow, 'kind' | 'gitRepository'>,
+): boolean {
+  return deployment.kind !== 'database' && !isImageOnly(deployment)
 }

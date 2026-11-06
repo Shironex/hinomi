@@ -56,6 +56,7 @@ export function findingItem(over: Partial<FindingListItem> = {}): FindingListIte
     scope: 'runtime',
     sources: ['github', 'osv'],
     blindSpotType: null,
+    coverageNote: null,
     advisory: {
       id: 1,
       advisoryKey: 'GHSA-7q2m-48vx-hc3r',
@@ -93,6 +94,24 @@ export function blindSpotItem(over: Partial<FindingListItem> = {}): FindingListI
     deployments: [
       deploymentRef({ id: 3, name: 'docs-site', domains: ['https://docs.example.dev'] }),
     ],
+    ...over,
+  })
+}
+
+/** An image only deployment: a coverage note, ranked below every advisory. */
+export function coverageNoteItem(over: Partial<FindingListItem> = {}): FindingListItem {
+  return findingItem({
+    id: 12,
+    kind: 'coverage_note',
+    rank: 0.2,
+    tier: 'coverage',
+    factors: { severity: 'low', runtime: true, deployed: true, public: true },
+    sources: [],
+    coverageNote: 'image_only',
+    advisory: null,
+    installedVersion: null,
+    repo: null,
+    deployments: [deploymentRef({ id: 8, name: 'status-board', domains: [] })],
     ...over,
   })
 }
@@ -141,6 +160,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       public_low: { critical: 0, high: 0, moderate: 200, low: 65 },
       dev: { critical: 40, high: 210, moderate: 400, low: 134 },
       not_deployed: { critical: 300, high: 1200, moderate: 1800, low: 431 },
+      coverage: { critical: 0, high: 0, moderate: 0, low: 3 },
     },
     tiers: {
       blind_spot: 1,
@@ -149,6 +169,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       public_low: 265,
       dev: 784,
       not_deployed: 3731,
+      coverage: 3,
     },
     lastScan: {
       id: 1,
@@ -265,7 +286,7 @@ export function deploymentItem(over: Partial<DeploymentItem> = {}): DeploymentIt
     lastSeenAt: T0,
     mapping: 'auto',
     repos: [repoRef()],
-    coverage: { alerts: 'enabled', blindSpots: [], covered: true },
+    coverage: { alerts: 'enabled', blindSpots: [], covered: true, imageOnly: false },
     openFindings: { critical: 1, high: 2, moderate: 9, low: 0 },
     exposed: 1,
     openBlindSpots: 0,

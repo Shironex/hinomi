@@ -22,7 +22,23 @@ const proxy = deploymentItem({
   gitBranch: null,
   mapping: 'none',
   repos: [],
-  coverage: { alerts: 'none', blindSpots: ['no_repo_mapping'], covered: false },
+  coverage: { alerts: 'none', blindSpots: [], covered: false, imageOnly: true },
+  openFindings: { critical: 0, high: 0, moderate: 0, low: 0 },
+  exposed: 0,
+  openBlindSpots: 0,
+})
+
+const cron = deploymentItem({
+  id: 7,
+  name: 'legacy-cron',
+  kind: 'application',
+  domains: [],
+  reach: 'internal',
+  gitRepository: 'git@git.example.dev:legacy',
+  gitBranch: 'main',
+  mapping: 'none',
+  repos: [],
+  coverage: { alerts: 'none', blindSpots: ['no_repo_mapping'], covered: false, imageOnly: false },
   openFindings: { critical: 0, high: 0, moderate: 0, low: 0 },
   exposed: 0,
   openBlindSpots: 1,
@@ -31,7 +47,7 @@ const proxy = deploymentItem({
 describe('deployments', () => {
   it('lists apps with coverage and shows the join on demand', async () => {
     mockViews({
-      'GET /deployments': { items: [deploymentItem(), proxy] },
+      'GET /deployments': { items: [deploymentItem(), proxy, cron] },
       'GET /findings': findingsResponse([]),
       'GET /repos': { items: [repoRef(), repoRef({ id: 5, name: 'landing-2023' })] },
     })
@@ -49,7 +65,10 @@ describe('deployments', () => {
 
     await user.click(screen.getByRole('button', { name: 'Show the join for image-proxy' }))
     const join = screen.getByRole('list', { name: /joins its repo/ })
-    expect(within(join).getByText('Registry image, no source')).toBeInTheDocument()
+    expect(within(join).getByText('Image only, the image scan covers it later')).toBeInTheDocument()
+    // An image only service is not a missing mapping.
+    expect(screen.getAllByText('No repo matched')).toHaveLength(1)
+    expect(screen.getAllByText('Image only').length).toBeGreaterThan(0)
   })
 
   it('teaches how deployments arrive when there are none', async () => {
@@ -169,15 +188,28 @@ describe('deployment detail', () => {
 
   it('links an unmapped app to the repo mapping in Settings', async () => {
     mockViews({
-      'GET /deployments/6': deploymentDetail({ ...proxy, watchPaths: null, findings: [] }),
+      'GET /deployments/7': deploymentDetail({ ...cron, watchPaths: null, findings: [] }),
     })
-    await renderApp('/deployments/6')
+    await renderApp('/deployments/7')
     expect(await screen.findByText('No repo matched', { selector: 'b' })).toBeInTheDocument()
+    expect(screen.getByText('git@git.example.dev:legacy')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Settings, Repo mapping' })).toHaveAttribute(
       'href',
       '/settings#settings-mapping',
     )
     expect(screen.getByRole('link', { name: /Map a repo in Settings/ })).toBeInTheDocument()
+  })
+
+  it('explains an image only service instead of asking for a repo', async () => {
+    mockViews({
+      'GET /deployments/6': deploymentDetail({ ...proxy, watchPaths: null, findings: [] }),
+    })
+    await renderApp('/deployments/6')
+    expect(
+      await screen.findByText('Runs an image with no git source', { selector: 'b' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No repo matched', { selector: 'b' })).not.toBeInTheDocument()
+    expect(screen.getByText('Phase 2 (not yet)')).toBeInTheDocument()
   })
 
   it('says when the deployment is unknown', async () => {

@@ -82,6 +82,13 @@ function Row({ d, open, onToggle }: { d: DeploymentItem; open: boolean; onToggle
             <StatusText icon={IconPlugConnected} tone="wait">
               No repo matched
             </StatusText>
+          ) : d.coverage.imageOnly ? (
+            <span
+              className="text-muted-foreground"
+              title="No git source: the image scan covers it later"
+            >
+              Image only
+            </span>
           ) : (
             <span className="text-muted-foreground">Not needed</span>
           )}

@@ -23,7 +23,7 @@ import { DeferForm } from '@/components/findings/defer-form'
 import { eventIcon, eventTone } from '@/components/findings/event-icon'
 import { FindingStateText } from '@/components/findings/finding-state'
 import { RankMarker } from '@/components/findings/rank-marker'
-import { BlindSpotBadge, SeverityBadge } from '@/components/findings/severity-badge'
+import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from '@/components/findings/severity-badge'
 import { SEVERITY_ICON } from '@/lib/view-icons'
 import { SourceBadge } from '@/components/findings/source-badge'
 import { PageHeader } from '@/components/page-header'
@@ -37,7 +37,6 @@ import { Feed, KeyValues, Panel, PanelBody, PanelHeader, Section } from '@/compo
 import { ApiError } from '@/lib/api'
 import { describeError } from '@/lib/errors'
 import {
-  BLIND_SPOT_INFO,
   blindSpotSubject,
   decisionLabel,
   dependencyPath,
@@ -47,6 +46,7 @@ import {
   factorFlags,
   findingTitle,
   formatDate,
+  gapInfo,
   isDecided,
   SCOPE_LABEL,
   SEVERITY_LABEL,
@@ -110,16 +110,18 @@ function WhyItRanks({ f }: { f: FindingDetail }) {
   const publicDeps = f.deployments.filter((d) => d.reach === 'public')
   const domains = publicDeps.flatMap((d) => d.domains)
   const top = f.tier === 'exposed' || f.tier === 'blind_spot'
-  const blind = f.kind === 'blind_spot'
+  const blind = f.kind !== 'advisory'
   const av = attackVector(f.advisory?.cvssVector ?? null)
   return (
     <Section
       title={
-        blind
-          ? 'Why this ranks like a critical'
-          : top
-            ? 'Why this ranks at the top'
-            : 'Why it ranks here'
+        f.kind === 'coverage_note'
+          ? 'Why this ranks low'
+          : blind
+            ? 'Why this ranks like a critical'
+            : top
+              ? 'Why this ranks at the top'
+              : 'Why it ranks here'
       }
       description={top ? undefined : tierTitle(f.tier)}
       actions={<RankMarker flags={flags} strong={top && !isDecided(f.state)} />}
@@ -129,9 +131,9 @@ function WhyItRanks({ f }: { f: FindingDetail }) {
           <WhyCell
             icon={IconEyeOff}
             label="Coverage"
-            value={f.blindSpotType ? BLIND_SPOT_INFO[f.blindSpotType].short : 'Unknown'}
+            value={gapInfo(f)?.short ?? 'Unknown'}
             sub={`Since ${formatDate(f.firstSeenAt)}`}
-            on
+            on={f.kind === 'blind_spot'}
           />
         ) : (
           <WhyCell
@@ -158,7 +160,11 @@ function WhyItRanks({ f }: { f: FindingDetail }) {
             icon={IconPackage}
             label="Severity and runtime"
             value="Unknown"
-            sub="Nothing can be read here"
+            sub={
+              f.kind === 'coverage_note'
+                ? 'Read by the image scan later'
+                : 'Nothing can be read here'
+            }
             on={null}
           />
         ) : (
@@ -297,11 +303,15 @@ function StateBanner({
     return (
       <Banner
         tone="ok"
-        icon={f.kind === 'blind_spot' ? IconCircleCheck : IconShieldCheck}
-        title={f.kind === 'blind_spot' ? 'Resolved' : 'Fixed'}
+        icon={f.kind === 'advisory' ? IconShieldCheck : IconCircleCheck}
+        title={f.kind === 'advisory' ? 'Fixed' : 'Resolved'}
       >
         <span className="text-foreground-2">
-          {f.kind === 'blind_spot' ? 'Coverage came back' : 'No source reports it anymore'}
+          {f.kind === 'advisory'
+            ? 'No source reports it anymore'
+            : f.kind === 'coverage_note'
+              ? 'The deployment has a repo now, or is gone'
+              : 'Coverage came back'}
           {f.fixedAt ? `, ${formatRelative(f.fixedAt)}` : ''}. The history stays below.
         </span>
       </Banner>
@@ -563,10 +573,10 @@ const CHANNEL_KIND: Record<string, string> = {
 }
 
 function HowToClose({ f }: { f: FindingDetail }) {
-  if (!f.blindSpotType) return null
-  const steps = BLIND_SPOT_INFO[f.blindSpotType].fix
+  const steps = gapInfo(f)?.fix
+  if (!steps) return null
   return (
-    <Section title="How to close it">
+    <Section title={f.kind === 'coverage_note' ? 'What happens next' : 'How to close it'}>
       <ol className="m-0 flex list-none flex-col gap-4 p-0">
         {steps.map(([title, detail], i) => (
           <li key={title} className="grid grid-cols-[28px_minmax(0,1fr)] items-start gap-3">
@@ -575,7 +585,9 @@ function HowToClose({ f }: { f: FindingDetail }) {
             </span>
             <div className="pt-1">
               <div className="text-sm font-medium">
-                {title === 'Map the repo it is built from' && f.deployments[0] ? (
+                {(title === 'Map the repo it is built from' ||
+                  title === 'Built from a repo you own?') &&
+                f.deployments[0] ? (
                   <Link
                     to="/deployments/$id"
                     params={{ id: String(f.deployments[0].id) }}
@@ -661,20 +673,19 @@ function Details({ f }: { f: FindingDetail }) {
 function Head({ f }: { f: FindingDetail }) {
   const a = f.advisory
   const ids = a ? [a.ghsaId, ...a.cveIds].filter((x): x is string => Boolean(x)) : []
-  if (f.kind === 'blind_spot') {
+  if (f.kind !== 'advisory') {
+    const note = f.kind === 'coverage_note'
     return (
       <div className="mb-6 flex flex-col gap-2.5 border-b border-border pb-5">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <BlindSpotBadge />
-          <Badge variant="outline">Ranked like a critical</Badge>
+          {note ? <ImageOnlyBadge /> : <BlindSpotBadge />}
+          <Badge variant="outline">{note ? 'Ranked low' : 'Ranked like a critical'}</Badge>
           <span className="font-mono">{blindSpotSubject(f)}</span>
           <span>Since {formatDate(f.firstSeenAt)}</span>
           <FindingStateText item={f} />
         </div>
         <h1 className="max-w-[60ch] text-lg">{findingTitle(f)}</h1>
-        <p className="max-w-[68ch] text-foreground-2">
-          {f.blindSpotType ? BLIND_SPOT_INFO[f.blindSpotType].explain : null}
-        </p>
+        <p className="max-w-[68ch] text-foreground-2">{gapInfo(f)?.explain}</p>
       </div>
     )
   }
@@ -855,7 +866,7 @@ export function FindingDetailPage() {
               </Panel>
             </div>
           ) : null}
-          {f.kind === 'blind_spot' ? <HowToClose f={f} /> : null}
+          {f.kind !== 'advisory' ? <HowToClose f={f} /> : null}
           <Affected f={f} />
           <Advisory f={f} />
           <History f={f} />

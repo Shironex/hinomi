@@ -188,6 +188,22 @@ describe('immediate messages', () => {
     expect(titles).toEqual(['[HIGH] example-lib', '[CRITICAL] Dependabot alerts are off'])
   })
 
+  it('never sends a coverage note, right away or in the digest', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    seedDeployedRepo()
+    const deployment = repos.deployments.list()[0]!
+    const note = repos.findings.observe(
+      { kind: 'coverage_note', coverageNoteType: 'image_only', deploymentId: deployment.id },
+      clock,
+    ).finding
+
+    await n.handleScanFinished(summary([opened(note.id)]))
+    advance(60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(0)
+  })
+
   it('does not repeat a finding that was already announced', async () => {
     const n = notifier()
     n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })

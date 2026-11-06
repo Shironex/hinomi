@@ -1,4 +1,4 @@
-import type { BlindSpotType, Reporter, Severity } from '@hinomi/shared'
+import type { BlindSpotType, FindingKind, Reporter, Severity } from '@hinomi/shared'
 import type { RankedFinding } from '../scan/index.js'
 
 /** What happened to a finding, as far as a notification is concerned. */
@@ -24,7 +24,8 @@ export const BLIND_SPOT_LABELS: Record<BlindSpotType, string> = {
 export interface NotificationItem {
   event: ItemEvent
   findingId: number
-  kind: 'advisory' | 'blind_spot'
+  /** Never `coverage_note`: coverage notes are not sent (see the notifier). */
+  kind: Exclude<FindingKind, 'coverage_note'>
   severity: Severity
   title: string
   blindSpotType: BlindSpotType | null
@@ -48,8 +49,15 @@ export function findingUrl(baseUrl: string | null, findingId: number): string | 
   return baseUrl ? `${baseUrl}/finding/${findingId}` : null
 }
 
+/** A finding a message can carry: an advisory or a blind spot, never a coverage note. */
+export type MessageFinding = RankedFinding & { kind: NotificationItem['kind'] }
+
+export function isMessageFinding(ranked: RankedFinding): ranked is MessageFinding {
+  return ranked.kind !== 'coverage_note'
+}
+
 export function buildItem(
-  ranked: RankedFinding,
+  ranked: MessageFinding,
   event: ItemEvent,
   baseUrl: string | null,
 ): NotificationItem {

@@ -1,7 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { blindSpotItem, findingItem, findingsResponse, mockViews } from '@/test/fixtures'
+import {
+  blindSpotItem,
+  coverageNoteItem,
+  findingItem,
+  findingsResponse,
+  mockViews,
+} from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -51,6 +57,22 @@ describe('all alerts', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: /Show 1 more/ }))
     expect(await screen.findByRole('link', { name: 'csv-forge' })).toBeInTheDocument()
     expect(api.called('GET', '/findings').at(-1)?.search.get('offset')).toBe('3')
+  })
+
+  it('lists an image only deployment as a quiet coverage note, not a blind spot', async () => {
+    mockViews({
+      'GET /findings': findingsResponse([coverageNoteItem()], {
+        group: 'tier',
+        total: 1,
+        groups: [{ key: 'coverage', label: 'Image only', count: 1 }],
+      }),
+    })
+    await renderApp('/alerts')
+    const link = await screen.findByRole('link', { name: 'status-board' })
+    const row = link.closest('tr')!
+    expect(within(row).getAllByText('Image only').length).toBeGreaterThan(0)
+    expect(within(row).getByText('Runs an image with no git source')).toBeInTheDocument()
+    expect(within(row).queryByText('Blind spot')).not.toBeInTheDocument()
   })
 
   it('turns filters into query params and offers to clear them', async () => {
