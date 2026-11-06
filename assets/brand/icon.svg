@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Hinomi</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2e1c44" /><stop offset="1" stop-color="#190c28" /></linearGradient>
+    <radialGradient id="glow" cx="60" cy="58" r="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffa746" stop-opacity=".5" /><stop offset=".55" stop-color="#ffa746" stop-opacity=".16" /><stop offset="1" stop-color="#ffa746" stop-opacity="0" /></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#tile)" />
+  <g transform="translate(118 74.3) scale(2.3)">
+    <rect x="38" y="42" width="44" height="29" fill="url(#glow)" />
+    <path fill="#d5a8f8" d="M58.4 4h3.2v8h-3.2z M60 .6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 1 1 0-6.8z M60 8c12 10 28 28.5 59 27l-8 8H9l-8-8c31 1.5 47-17 59-27z M29 42h9v29h-9z M82 42h9v29h-9z M15 71h90v5.5H15z M17.5 76H24v8.5h-6.5z M96 76h6.5v8.5H96z M44.33 76h5.5v8.5h-5.5z M70.17 76h5.5v8.5h-5.5z M15 84h90v8H15z M25 91.5h13L17 157H2z M82 91.5h13l23 65.5h-15z M18 127h84v9H18z" />
+    <g fill="#ffa746">
+      <rect x="58.9" y="42" width="2.2" height="7" /><path d="M60 48c-4.4 0-6.6 3-7 7.2l-.5 5.6c-.2 1.5-1.6 2.3-3.1 2.9v2h21.2v-2c-1.5-.6-2.9-1.4-3.1-2.9l-.5-5.6c-.4-4.2-2.6-7.2-7-7.2z" /><circle cx="60" cy="67.2" r="2.9" />
+    </g>
+  </g>
+</svg>
