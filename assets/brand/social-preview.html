@@ -1,0 +1,143 @@
+<!doctype html>
+<!-- GitHub social preview, 1280 x 640. Render with `pnpm brand` (see README.md in this folder). -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hinomi social preview</title>
+    <style>
+      @font-face {
+        font-family: 'Instrument Sans';
+        font-weight: 400 700;
+        src: url('../../apps/web/node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2')
+          format('woff2');
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-weight: 400 700;
+        src: url('../../apps/web/node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
+          format('woff2');
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1280px;
+        height: 640px;
+        overflow: hidden;
+      }
+      body {
+        position: relative;
+        font-family: 'Instrument Sans', sans-serif;
+        color: #f6f1fb;
+        background:
+          radial-gradient(520px 420px at 300px 300px, rgb(255 167 70 / 0.1), transparent 70%),
+          radial-gradient(900px 640px at 1180px -80px, rgb(213 168 248 / 0.12), transparent 70%),
+          linear-gradient(180deg, #24153a 0%, #170c26 62%, #120920 100%);
+      }
+      /* a quiet night sky */
+      .stars {
+        position: absolute;
+        inset: 0;
+      }
+      /* far roofs of the town the tower watches over */
+      .town {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 1280px;
+        height: 120px;
+      }
+      .card {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 72px;
+        padding: 0 80px 8px;
+      }
+      .icon {
+        width: 248px;
+        height: 248px;
+        flex: none;
+        border-radius: 56px;
+        box-shadow:
+          0 0 0 1.5px rgb(213 168 248 / 0.22),
+          0 28px 60px rgb(6 2 12 / 0.6),
+          0 0 120px rgb(255 167 70 / 0.08);
+      }
+      h1 {
+        font-size: 112px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        line-height: 1;
+      }
+      .tagline {
+        margin-top: 22px;
+        max-width: 640px;
+        font-size: 38px;
+        font-weight: 500;
+        line-height: 1.22;
+        letter-spacing: -0.01em;
+        color: #e9dcf7;
+      }
+      .story {
+        margin-top: 30px;
+        max-width: 640px;
+        font-size: 21px;
+        line-height: 1.45;
+        color: #b3a2c8;
+      }
+      .story b {
+        font-weight: 500;
+        color: #ffc27a;
+      }
+      .meta {
+        margin-top: 26px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 17px;
+        letter-spacing: 0.01em;
+        color: #8e7ea6;
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="stars" viewBox="0 0 1280 640" aria-hidden="true">
+      <g fill="#e9dcf7">
+        <circle cx="612" cy="70" r="1.4" opacity=".5" />
+        <circle cx="742" cy="118" r="1" opacity=".35" />
+        <circle cx="868" cy="62" r="1.6" opacity=".45" />
+        <circle cx="996" cy="104" r="1.1" opacity=".3" />
+        <circle cx="1104" cy="58" r="1.3" opacity=".4" />
+        <circle cx="1186" cy="148" r="1" opacity=".3" />
+        <circle cx="1214" cy="84" r="1.5" opacity=".35" />
+        <circle cx="94" cy="76" r="1.2" opacity=".35" />
+        <circle cx="208" cy="48" r="1" opacity=".3" />
+        <circle cx="430" cy="92" r="1.1" opacity=".3" />
+        <circle cx="1056" cy="182" r="1" opacity=".22" />
+        <circle cx="62" cy="214" r="1" opacity=".22" />
+      </g>
+    </svg>
+    <svg class="town" viewBox="0 0 1280 120" preserveAspectRatio="none" aria-hidden="true">
+      <path
+        fill="#0c0517"
+        opacity=".9"
+        d="M0 86 L40 70 L80 86 L80 120 L0 120 Z M70 92 L128 64 L186 92 L186 120 L70 120 Z M176 88 L214 74 L252 88 L252 120 L176 120 Z M600 94 L650 72 L700 94 L700 120 L600 120 Z M690 90 L742 66 L794 90 L794 120 L690 120 Z M784 96 L824 80 L864 96 L864 120 L784 120 Z M950 88 L1004 62 L1058 88 L1058 120 L950 120 Z M1048 94 L1090 76 L1132 94 L1132 120 L1048 120 Z M1122 86 L1172 64 L1222 86 L1222 120 L1122 120 Z M1212 92 L1250 76 L1288 92 L1288 120 L1212 120 Z M0 104 H1280 V120 H0 Z"
+      />
+    </svg>
+    <main class="card">
+      <img class="icon" src="icon.svg" alt="" />
+      <div>
+        <h1>Hinomi</h1>
+        <p class="tagline">Which deployed apps are actually exposed right now?</p>
+        <p class="story">
+          Named for the fire lookout towers of old Japanese towns: the watchman looked for real
+          smoke, and only then <b>rang the bell</b>.
+        </p>
+        <p class="meta">self-hosted / open source / github.com/Shironex/hinomi</p>
+      </div>
+    </main>
+  </body>
+</html>
