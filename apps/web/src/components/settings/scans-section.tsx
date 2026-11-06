@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { useScanStatus, useStartScan } from '@/hooks/use-shell-data'
 import { describeError } from '@/lib/errors'
 import { formatClock, formatRelative } from '@/lib/format'
+import { describeScanning } from '@/lib/scan-phases'
 import { settingsKeys, settingsQuery, updateSettings } from '@/lib/settings-api'
 import { Panel, SaveStatus } from './settings-section'
 
@@ -148,11 +149,10 @@ function ScanFacts({ scan }: { scan: ReturnType<typeof useScanStatus> }) {
   switch (scan.state) {
     case 'unconfigured':
       return row('Status', 'Nothing connected, so scans are paused')
+    case 'queued':
+      return row('Status', 'Connected, the first scan starts shortly')
     case 'scanning':
-      return row(
-        'Status',
-        scan.total > 0 ? `Scanning, ${scan.done} of ${scan.total} repos` : 'Scanning',
-      )
+      return row('Status', describeScanning(scan))
     case 'failed':
       return (
         <>

@@ -1,10 +1,16 @@
-import type { ScanRunStatus, ScanTrigger, SourceKind } from '@hinomi/shared'
+import {
+  SCAN_PHASES,
+  type ScanPhase,
+  type ScanRunStatus,
+  type ScanTrigger,
+  type SourceKind,
+} from '@hinomi/shared'
 import type { RepoRow, ScanSourceResult } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { mapLimit } from '../sources/osv/client.js'
 import { applyRepoAdvisories, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
-import { collectRepo, errorMessage, type RepoScan } from './collect.js'
+import { collectGithub, collectOsv, errorMessage, type RepoScan } from './collect.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
@@ -22,15 +28,19 @@ export interface RunScanOptions {
   log?: ScanLogger
   /** Repos fetched in parallel. */
   concurrency?: number
-  /** Called when the repo list is known and after each repo is fetched. Must not throw. */
+  /** Called when a phase starts and after each unit of it. A listener that throws is ignored. */
   onProgress?: (progress: ScanProgress) => void
 }
 
 export interface ScanProgress {
-  /** Repos fetched so far. */
+  /** The step the scan is on. */
+  phase: ScanPhase
+  /** Units done in this phase: Coolify instances and the account repo list, or repos. */
   done: number
-  /** Repos this scan looks at. */
+  /** Units in this phase; 0 when it has none (ranking). */
   total: number
+  /** Phases this scan leaves out, decided when it starts. */
+  skipped: ScanPhase[]
 }
 
 export interface ScanError {
@@ -79,7 +89,29 @@ interface ScanContext {
   log: ScanLogger
   tallies: Tallies
   errors: ScanError[]
-  onProgress: (progress: ScanProgress) => void
+  skipped: ScanPhase[]
+  progress: (phase: ScanPhase, done: number, total: number) => void
+}
+
+/** True when the account repo list is read in the deployments phase. */
+function listsAccountRepos(sources: ScanSources): boolean {
+  return sources.github !== null && sources.settings.includeAccountRepos
+}
+
+/** Phases with nothing to do for these sources. Matching and ranking always run. */
+export function skippedPhases(sources: ScanSources): ScanPhase[] {
+  const skipped: ScanPhase[] = []
+  if (sources.coolify.length === 0 && !listsAccountRepos(sources)) skipped.push('deployments')
+  if (!sources.github) skipped.push('alerts')
+  if (!sources.osv) skipped.push('lockfiles')
+  return skipped
+}
+
+/** Counts units of one phase: reports 0 of total now and one more on each call. */
+function startPhase(ctx: ScanContext, phase: ScanPhase, total: number): () => void {
+  let done = 0
+  ctx.progress(phase, done, total)
+  return () => ctx.progress(phase, ++done, total)
 }
 
 function recordError(ctx: ScanContext, error: ScanError): void {
@@ -87,7 +119,7 @@ function recordError(ctx: ScanContext, error: ScanError): void {
   ctx.log.warn(`scan: ${error.source} failed for ${error.subject}`, { error: error.error })
 }
 
-async function syncCoolify(ctx: ScanContext): Promise<void> {
+async function syncCoolify(ctx: ScanContext, step: () => void): Promise<void> {
   for (const source of ctx.sources.coolify) {
     const t = tally(ctx.tallies, 'coolify')
     t.attempted++
@@ -103,15 +135,17 @@ async function syncCoolify(ctx: ScanContext): Promise<void> {
       ctx.repositories.sources.markError(source.sourceId, message, ctx.now())
       recordError(ctx, { source: 'coolify', subject: source.name, error: message })
     }
+    step()
   }
 }
 
 /** Upserts every repo the GitHub token sees, for the everything-else view. */
-async function syncAccountRepos(ctx: ScanContext): Promise<number[]> {
+async function syncAccountRepos(ctx: ScanContext, step: () => void): Promise<number[]> {
   const github = ctx.sources.github
-  if (!github || !ctx.sources.settings.includeAccountRepos) return []
+  if (!github || !listsAccountRepos(ctx.sources)) return []
   try {
     const repos = await github.listAccountRepos()
+    step()
     return ctx.repositories.db.transaction(() =>
       repos.map(
         (r) =>
@@ -128,6 +162,7 @@ async function syncAccountRepos(ctx: ScanContext): Promise<number[]> {
     t.attempted++
     t.failed++
     recordError(ctx, { source: 'github', subject: 'account repos', error: errorMessage(error) })
+    step()
     return []
   }
 }
@@ -187,23 +222,55 @@ function saveRepoHealth(ctx: ScanContext, scan: RepoScan): void {
   if (anyOk) repos.markScanned(scan.repo.id, ctx.now())
 }
 
-/** Fetches every repo in parallel, then writes each one. One bad repo never stops the others. */
+/**
+ * Runs `fn` over every repo, `concurrency` at a time, as one phase. A skipped
+ * phase still runs `fn` (it answers `skipped` at once) but reports nothing.
+ */
+async function perRepo<T>(
+  ctx: ScanContext,
+  phase: ScanPhase,
+  repos: RepoRow[],
+  concurrency: number,
+  fn: (repo: RepoRow, index: number) => Promise<T>,
+): Promise<T[]> {
+  const indexed = repos.map((repo, index) => ({ repo, index }))
+  if (ctx.skipped.includes(phase)) return Promise.all(indexed.map((r) => fn(r.repo, r.index)))
+  const step = startPhase(ctx, phase, repos.length)
+  return mapLimit(indexed, concurrency, async ({ repo, index }) => {
+    const result = await fn(repo, index)
+    step()
+    return result
+  })
+}
+
+/**
+ * Fetches GitHub for every repo, then OSV for every repo (the lockfile ref
+ * needs the default branch GitHub reports), then writes each one. One bad
+ * repo never stops the others.
+ */
 async function scanRepos(
   ctx: ScanContext,
   repos: RepoRow[],
   index: DeploymentIndex,
   concurrency: number,
 ): Promise<{ scans: Map<number, RepoScan>; changes: FindingChange[] }> {
-  let done = 0
-  ctx.onProgress({ done, total: repos.length })
-  const results = await mapLimit(repos, concurrency, async (repo) => {
-    const scan = await collectRepo(ctx.sources, repo, index.byRepo.get(repo.id) ?? [])
-    ctx.onProgress({ done: ++done, total: repos.length })
-    return scan
-  })
+  const deploymentsOf = (repo: RepoRow) => index.byRepo.get(repo.id) ?? []
+  const github = await perRepo(ctx, 'alerts', repos, concurrency, (repo) =>
+    collectGithub(ctx.sources, repo),
+  )
+  const osv = await perRepo(ctx, 'lockfiles', repos, concurrency, (repo, i) =>
+    collectOsv(ctx.sources, repo, deploymentsOf(repo), github[i]!.health),
+  )
+  const step = startPhase(ctx, 'matching', repos.length)
   const scans = new Map<number, RepoScan>()
   const changes: FindingChange[] = []
-  for (const scan of results) {
+  repos.forEach((repo, i) => {
+    const scan: RepoScan = {
+      repo,
+      deployed: deploymentsOf(repo).length > 0,
+      ...github[i]!,
+      osv: osv[i]!,
+    }
     tallyRepo(ctx, scan)
     try {
       saveRepoHealth(ctx, scan)
@@ -216,7 +283,8 @@ async function scanRepos(
         error: `could not save results: ${errorMessage(error)}`,
       })
     }
-  }
+    step()
+  })
   return { scans, changes }
 }
 
@@ -289,9 +357,10 @@ export async function runScan(
     log: options.log ?? silent,
     tallies: {},
     errors: [],
-    onProgress: (progress) => {
+    skipped: skippedPhases(sources),
+    progress: (phase, done, total) => {
       try {
-        options.onProgress?.(progress)
+        options.onProgress?.({ phase, done, total, skipped: ctx.skipped })
       } catch {
         // Progress is informational; a failing listener never stops the scan.
       }
@@ -304,15 +373,26 @@ export async function runScan(
   let failure: string | null = null
 
   try {
+    // The first phase that runs is known before any await, so status never lags the run row.
+    const first = SCAN_PHASES.find((p) => !ctx.skipped.includes(p)) ?? 'matching'
+    ctx.progress(first, 0, 0)
     for (const f of expireDeferred(ctx.repositories.findings, now())) {
       changes.push({ findingId: f.id, change: 'expired' })
     }
-    await syncCoolify(ctx)
-    const accountRepoIds = await syncAccountRepos(ctx)
+    const step = ctx.skipped.includes('deployments')
+      ? () => {}
+      : startPhase(
+          ctx,
+          'deployments',
+          sources.coolify.length + (listsAccountRepos(sources) ? 1 : 0),
+        )
+    await syncCoolify(ctx, step)
+    const accountRepoIds = await syncAccountRepos(ctx, step)
     const index = indexDeployments(ctx.repositories)
     const repos = reposToScan(ctx, index, accountRepoIds)
     const result = await scanRepos(ctx, repos, index, options.concurrency ?? 4)
     changes.push(...result.changes)
+    ctx.progress('ranking', 0, 0)
     changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
   } catch (error) {
     failure = errorMessage(error)

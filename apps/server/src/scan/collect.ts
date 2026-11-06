@@ -78,7 +78,8 @@ function parseAll(files: Awaited<ReturnType<ScanSources['fetchLockfiles']>>) {
   return { deps: dedupeDependencies(deps), lockfiles, unparseable }
 }
 
-async function collectOsv(
+/** Reads the lockfiles of one repo and checks them against OSV.dev. Never throws. */
+export async function collectOsv(
   sources: ScanSources,
   repo: RepoRow,
   deployments: readonly DeploymentRow[],
@@ -100,19 +101,27 @@ async function collectOsv(
   })
 }
 
+export interface GithubRepoScan {
+  health: SourceOutcome<RepoHealth>
+  alerts: SourceOutcome<DependabotAlertsResult>
+}
+
+/** Asks GitHub about one repo: health first, then its Dependabot alerts. Never throws. */
+export async function collectGithub(sources: ScanSources, repo: RepoRow): Promise<GithubRepoScan> {
+  const github = sources.github
+  const health: SourceOutcome<RepoHealth> = github
+    ? await attempt(() => github.fetchRepoHealth(repo.owner, repo.name))
+    : { status: 'skipped', reason: 'GitHub is not connected' }
+  return { health, alerts: await collectAlerts(sources, repo, health) }
+}
+
 /** Asks every source about one repo. Never throws: failures become `error` outcomes. */
 export async function collectRepo(
   sources: ScanSources,
   repo: RepoRow,
   deployments: readonly DeploymentRow[],
 ): Promise<RepoScan> {
-  const github = sources.github
-  const health: SourceOutcome<RepoHealth> = github
-    ? await attempt(() => github.fetchRepoHealth(repo.owner, repo.name))
-    : { status: 'skipped', reason: 'GitHub is not connected' }
-  const [alerts, osv] = await Promise.all([
-    collectAlerts(sources, repo, health),
-    collectOsv(sources, repo, deployments, health),
-  ])
+  const { health, alerts } = await collectGithub(sources, repo)
+  const osv = await collectOsv(sources, repo, deployments, health)
   return { repo, deployed: deployments.length > 0, health, alerts, osv }
 }

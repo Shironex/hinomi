@@ -1,7 +1,14 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { coolifySource, githubSource, mockApi, reply, scanRun } from '@/test/mock-api'
+import {
+  coolifySource,
+  githubSource,
+  mockApi,
+  reply,
+  scanningStatus,
+  scanRun,
+} from '@/test/mock-api'
 import { renderApp } from '@/test/render-app'
 
 const unconfigured = (over: Record<string, unknown> = {}) => ({
@@ -119,7 +126,7 @@ describe('onboarding', () => {
         'GET /shell/scan-status': () =>
           polls > 0
             ? { state: 'idle', lastScanAt: '2026-11-05T10:00:00.000Z', nextScanAt: null }
-            : { state: 'scanning', done: 2, total: 5 },
+            : scanningStatus(),
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
         'GET /notifications/channels': { items: [] },
         'GET /scans': { items: [] },
@@ -150,10 +157,10 @@ describe('onboarding', () => {
     expect(screen.getByRole('link', { name: 'Open exposure view' })).toHaveAttribute('href', '/')
   })
 
-  it('shows a running scan as a progress bar', async () => {
+  it('shows a running scan as phase lines with a progress bar', async () => {
     mockApi(
       unconfigured({
-        'GET /shell/scan-status': { state: 'scanning', done: 2, total: 5 },
+        'GET /shell/scan-status': scanningStatus({ phase: 'lockfiles', skipped: ['deployments'] }),
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
         'GET /scans': { items: [scanRun()] },
         'GET /scans/7': scanRun(),
@@ -164,5 +171,32 @@ describe('onboarding', () => {
     const bar = await screen.findByRole('progressbar', { name: 'First scan' })
     expect(bar).toHaveAttribute('aria-valuenow', '2')
     expect(bar).toHaveAttribute('aria-valuemax', '5')
+    const lines = within(screen.getByRole('list', { name: 'Scan phases' })).getAllByRole('listitem')
+    expect(lines.map((l) => l.textContent)).toEqual([
+      'Reading deployments (skipped)',
+      'Fetching open alerts, done',
+      'Scanning lockfiles with OSV.dev, 2 of 5 repos',
+      'Matching repos to apps, waiting',
+      'Ranking by exposure, waiting',
+    ])
+    expect(lines[2]).toHaveAttribute('aria-current', 'step')
+  })
+
+  it('shows the first scan as starting while it is queued', async () => {
+    mockApi(
+      unconfigured({
+        'GET /shell/scan-status': { state: 'queued', nextScanAt: new Date().toISOString() },
+        'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /scans': { items: [] },
+      }),
+    )
+    sessionStorage.setItem('hinomi:onboarding-skip-alerts', '1')
+    await renderApp('/onboarding')
+    expect(await screen.findByRole('list', { name: 'Scan phases' })).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'First scan' })).toHaveAttribute(
+      'aria-valuetext',
+      'Starting the scan',
+    )
+    expect(screen.queryByRole('button', { name: 'Run first scan' })).not.toBeInTheDocument()
   })
 })
