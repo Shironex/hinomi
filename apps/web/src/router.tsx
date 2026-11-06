@@ -3,6 +3,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  redirect,
   type RouterHistory,
 } from '@tanstack/react-router'
 import { AppShell } from '@/components/shell/app-shell'
@@ -18,6 +19,7 @@ import { OverviewPage } from '@/routes/overview'
 import { RouteError } from '@/routes/route-error'
 import { RoutePending } from '@/routes/route-pending'
 import { SettingsPage } from '@/routes/settings'
+import { scanStatusQuery } from '@/lib/queries'
 import '@/lib/route-meta'
 
 export interface RouterContext {
@@ -33,6 +35,16 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  // First run: with no Coolify or GitHub source the exposure view has nothing to show, so send
+  // people to setup. If the status cannot be read, stay here and let the view show the error.
+  beforeLoad: async ({ context }) => {
+    const status = await context.queryClient
+      .fetchQuery({ ...scanStatusQuery, retry: false })
+      .catch(() => null)
+    // TanStack Router redirects by throwing its redirect object.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    if (status?.state === 'unconfigured') throw redirect({ to: '/onboarding' })
+  },
   component: OverviewPage,
   staticData: { nav: 'overview', crumb: 'Exposure' },
 })
