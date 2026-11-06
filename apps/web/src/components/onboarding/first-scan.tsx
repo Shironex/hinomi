@@ -40,12 +40,21 @@ function describeCounts(kind: SourceKind, counts: Record<string, number>): strin
   return parts.join(', ')
 }
 
+/** Where the first scan is, for the step's heading. */
+export type FirstScanState = 'idle' | 'running' | 'succeeded' | 'failed'
+
 /**
  * Step 4: starts the first scan (or follows the one that started on its own
  * when the first source was connected) and shows its progress from
  * /api/shell/scan-status plus the run's per source results.
  */
-export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void }) {
+export function FirstScan({
+  onFinished,
+  onStateChange,
+}: {
+  onFinished?: (run: ScanRun) => void
+  onStateChange?: (state: FirstScanState) => void
+}) {
   const queryClient = useQueryClient()
   const status = useScanStatus()
   const [runId, setRunId] = useState<number | null>(null)
@@ -80,6 +89,16 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
   // Connected moments ago: the scheduler is about to start the first scan on its own.
   const starting = !current && !running && startsSoon(status)
 
+  const state: FirstScanState =
+    running || starting
+      ? 'running'
+      : finished
+        ? finished.status === 'failed'
+          ? 'failed'
+          : 'succeeded'
+        : 'idle'
+  useEffect(() => onStateChange?.(state), [state, onStateChange])
+
   // When the tracked run ends, refresh the shell's scan line and tell the page.
   useEffect(() => {
     if (!finished) return
@@ -90,10 +109,6 @@ export function FirstScan({ onFinished }: { onFinished?: (run: ScanRun) => void 
   if (!current && !running && !starting) {
     return (
       <>
-        <p className="text-sm text-foreground-2">
-          Hinomi reads your deployments and repos, fetches their alerts and ranks them by exposure.
-          You can leave this page while it runs.
-        </p>
         {start.error ? (
           <div role="alert">
             <FieldError>{describeError(start.error)}</FieldError>
@@ -156,7 +171,7 @@ function SourceLines({ run }: { run: ScanRun }) {
                 result.status === 'ok'
                   ? 'mt-0.5 size-4 shrink-0 text-success'
                   : result.status === 'error'
-                    ? 'mt-0.5 size-4 shrink-0 text-sev-critical'
+                    ? 'mt-0.5 size-4 shrink-0 text-wait'
                     : 'mt-0.5 size-4 shrink-0 text-muted-foreground'
               }
               stroke={1.75}

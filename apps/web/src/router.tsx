@@ -108,7 +108,7 @@ const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/onboarding',
   component: lazyRouteComponent(() => import('@/routes/onboarding'), 'OnboardingPage'),
-  staticData: { nav: 'onboarding', crumb: 'Set up' },
+  staticData: { nav: 'onboarding', crumb: 'Set up', layout: 'setup' },
 })
 
 export const routeTree = rootRoute.addChildren([

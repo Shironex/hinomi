@@ -198,11 +198,11 @@ describe('onboarding', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '5')
     const lines = within(screen.getByRole('list', { name: 'Scan phases' })).getAllByRole('listitem')
     expect(lines.map((l) => l.textContent)).toEqual([
-      'Reading deployments (skipped)',
-      'Fetching open alerts, done',
-      'Scanning lockfiles with OSV.dev, 2 of 5 repos',
-      'Matching repos to apps, waiting',
-      'Ranking by exposure, waiting',
+      'Reading deployments, Skipped, Apps, domains and servers from Coolify',
+      'Fetching open alerts, Done, Dependabot alerts of every repo',
+      'Scanning lockfiles with OSV.dev, 40%, 2 of 5 repos',
+      'Matching repos to apps, Waiting, Each app joined with the repo it runs',
+      'Ranking by exposure, Waiting, Public and critical first',
     ])
     expect(lines[2]).toHaveAttribute('aria-current', 'step')
   })
@@ -256,6 +256,44 @@ describe('onboarding', () => {
     await renderApp('/onboarding')
     expect(await screen.findByRole('button', { name: 'Run first scan' })).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()
+  })
+
+  it('moves between steps from the steps pane, with Continue and Back', async () => {
+    mockApi(
+      unconfigured({
+        'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /onboarding': { finished: false, alertsSkipped: true },
+        'GET /scans': { items: [] },
+      }),
+    )
+    const user = userEvent.setup()
+    await renderApp('/onboarding')
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Run the first scan' }),
+    ).toBeVisible()
+    const steps = within(screen.getByRole('list', { name: 'Setup steps' }))
+    expect(steps.getByRole('button', { name: /Step 4: First scan/ }).closest('li')).toHaveAttribute(
+      'aria-current',
+      'step',
+    )
+    await user.click(steps.getByRole('button', { name: /Step 1: Connect Coolify/ }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Connect Coolify' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Connect GitHub' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Connect Coolify' })).toBeVisible()
+  })
+
+  it('keeps later steps locked until the one before is done', async () => {
+    mockApi(unconfigured())
+    const user = userEvent.setup()
+    await renderApp('/onboarding')
+    const steps = within(await screen.findByRole('list', { name: 'Setup steps' }))
+    const scan = steps.getByRole('button', { name: /Step 4: First scan/ })
+    expect(scan).toHaveAttribute('aria-disabled', 'true')
+    await user.click(scan)
+    expect(screen.getByRole('heading', { level: 1, name: 'Connect Coolify' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'Back to Hinomi' })).not.toBeInTheDocument()
   })
 
   it('sends / to setup while it is not finished, even with sources connected', async () => {

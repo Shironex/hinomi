@@ -22,7 +22,7 @@ export function GithubTokenHelp() {
   return (
     <section
       aria-label="Create a GitHub token"
-      className="mb-4 flex flex-col gap-3 rounded-lg border border-border bg-sidebar px-3.5 py-3 text-sm"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-sidebar px-5 py-4 text-sm"
     >
       <div className="flex flex-wrap items-center gap-3">
         <Button asChild size="sm" variant="outline">
