@@ -9,7 +9,7 @@ Contents: [Image or source](#get-the-image) | [Docker compose](#plain-docker-com
 There are two ways to run it:
 
 - **The published image**, `ghcr.io/shironex/hinomi`. Images for `linux/amd64` and `linux/arm64` are published on every release, tagged `X.Y.Z`, `X.Y` and `latest`, with an SBOM and build provenance. Pin a version tag in production rather than following `latest`. Until the first release is tagged there is nothing to pull; build from source meanwhile.
-- **Build from source**. The repo has a `Dockerfile` (Node 22 on Alpine, runs as uid 10001) and a `docker-compose.yml` with the build lines commented in the file.
+- **Build from source**. The repo has a `Dockerfile` (Node 26 on Alpine, runs as uid 10001) and a `docker-compose.yml` with the build lines commented in the file.
 
 ```sh
 git clone https://github.com/Shironex/hinomi.git
