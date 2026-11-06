@@ -1,0 +1,279 @@
+import type {
+  DeploymentDetail,
+  DeploymentItem,
+  DeploymentRef,
+  FindingDetail,
+  FindingListItem,
+  FindingsResponse,
+  OverviewResponse,
+  RepoRef,
+} from '@hinomi/shared'
+import { mockApi, reply } from './mock-api'
+
+// Fictional data for component tests: kestrel-co repos, example.dev domains, edge servers.
+
+const T0 = '2026-11-01T10:00:00.000Z'
+
+export function repoRef(over: Partial<RepoRef> = {}): RepoRef {
+  const name = over.name ?? 'storefront'
+  return {
+    id: 1,
+    owner: 'kestrel-co',
+    name,
+    fullName: `kestrel-co/${name}`,
+    archived: false,
+    alertsEnabled: true,
+    lastScannedAt: T0,
+    ...over,
+  }
+}
+
+export function deploymentRef(over: Partial<DeploymentRef> = {}): DeploymentRef {
+  return {
+    id: 1,
+    name: 'storefront-web',
+    kind: 'application',
+    reach: 'public',
+    server: 'edge-1',
+    domains: ['https://shop.example.dev'],
+    ...over,
+  }
+}
+
+export function findingItem(over: Partial<FindingListItem> = {}): FindingListItem {
+  return {
+    id: 1,
+    kind: 'advisory',
+    rank: 100,
+    tier: 'exposed',
+    factors: { severity: 'critical', runtime: true, deployed: true, public: true },
+    unscored: false,
+    stopped: false,
+    state: 'open',
+    stateReason: null,
+    stateUntil: null,
+    scope: 'runtime',
+    sources: ['github', 'osv'],
+    blindSpotType: null,
+    advisory: {
+      id: 1,
+      advisoryKey: 'GHSA-7q2m-48vx-hc3r',
+      ghsaId: 'GHSA-7q2m-48vx-hc3r',
+      cveIds: ['CVE-2026-41187'],
+      ecosystem: 'npm',
+      packageName: 'tessera',
+      severity: 'critical',
+      cvssScore: 9.8,
+      summary: 'Remote code execution through crafted server action payloads',
+      url: 'https://github.com/advisories/GHSA-7q2m-48vx-hc3r',
+      firstPatchedVersion: '14.2.9',
+    },
+    installedVersion: '14.2.3',
+    repo: repoRef(),
+    deployments: [deploymentRef()],
+    firstSeenAt: T0,
+    lastSeenAt: T0,
+    fixedAt: null,
+    ...over,
+  }
+}
+
+export function blindSpotItem(over: Partial<FindingListItem> = {}): FindingListItem {
+  return findingItem({
+    id: 9,
+    kind: 'blind_spot',
+    tier: 'blind_spot',
+    factors: { severity: 'critical', runtime: true, deployed: true, public: true },
+    sources: [],
+    blindSpotType: 'alerts_disabled',
+    advisory: null,
+    installedVersion: null,
+    repo: repoRef({ id: 2, name: 'docs', alertsEnabled: false }),
+    deployments: [
+      deploymentRef({ id: 3, name: 'docs-site', domains: ['https://docs.example.dev'] }),
+    ],
+    ...over,
+  })
+}
+
+export function findingsResponse(
+  items: FindingListItem[],
+  over: Partial<FindingsResponse> = {},
+): FindingsResponse {
+  return {
+    items,
+    total: items.length,
+    offset: 0,
+    limit: 50,
+    nextOffset: null,
+    group: 'none',
+    groups: [],
+    ...over,
+  }
+}
+
+export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse {
+  return {
+    funnel: {
+      total: 4917,
+      deployed: 1186,
+      runtime: 402,
+      criticalOrHigh: 37,
+      public: 19,
+      exposed: 2,
+      needsAction: 1,
+      dismissedUpstream: 0,
+    },
+    blindSpots: { total: 1, deployed: 1, public: 1, needsAction: 1 },
+    tiers: {
+      blind_spot: 1,
+      exposed: 2,
+      internal: 118,
+      public_low: 265,
+      dev: 784,
+      not_deployed: 3731,
+    },
+    lastScan: {
+      id: 1,
+      trigger: 'schedule',
+      status: 'succeeded',
+      startedAt: T0,
+      finishedAt: T0,
+      durationMs: 1000,
+      sourceResults: {},
+      findingsOpened: 2,
+      findingsFixed: 0,
+      error: null,
+    },
+    nextScanAt: null,
+    sources: [
+      {
+        id: 1,
+        kind: 'coolify',
+        name: 'main',
+        status: 'ok',
+        lastOkAt: T0,
+        lastErrorAt: null,
+        lastError: null,
+      },
+      {
+        id: 2,
+        kind: 'github',
+        name: 'kestrel-co',
+        status: 'error',
+        lastOkAt: null,
+        lastErrorAt: T0,
+        lastError: 'Bad credentials',
+      },
+    ],
+    recentActivity: [
+      {
+        id: 5,
+        findingId: 1,
+        type: 'snooze_expired',
+        fromState: 'snoozed',
+        toState: 'open',
+        reason: null,
+        until: null,
+        actor: 'system',
+        at: T0,
+        finding: {
+          id: 1,
+          kind: 'advisory',
+          title: 'tessera GHSA-7q2m-48vx-hc3r',
+          severity: 'critical',
+          repo: 'kestrel-co/storefront',
+        },
+      },
+    ],
+    ...over,
+  }
+}
+
+export function findingDetail(over: Partial<FindingDetail> = {}): FindingDetail {
+  const base = findingItem()
+  return {
+    ...base,
+    advisory: {
+      ...base.advisory!,
+      aliases: [],
+      cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+      vulnerableRanges: ['>= 14.0.0, < 14.2.9'],
+      publishedAt: T0,
+      withdrawnAt: null,
+    },
+    versions: {
+      installed: '14.2.3',
+      firstPatched: '14.2.9',
+      vulnerableRanges: ['>= 14.0.0, < 14.2.9'],
+    },
+    dependency: { scope: 'runtime', manifestPaths: ['pnpm-lock.yaml'] },
+    history: [
+      {
+        id: 1,
+        findingId: 1,
+        type: 'opened',
+        fromState: null,
+        toState: 'open',
+        reason: null,
+        until: null,
+        actor: 'system',
+        at: T0,
+      },
+    ],
+    ...over,
+  }
+}
+
+export function deploymentItem(over: Partial<DeploymentItem> = {}): DeploymentItem {
+  return {
+    ...deploymentRef(),
+    source: { id: 1, kind: 'coolify', name: 'main' },
+    externalId: 'app-1',
+    status: 'running:healthy',
+    image: 'storefront:4f2c91a',
+    gitRepository: 'kestrel-co/storefront',
+    gitBranch: 'main',
+    lastDeployedAt: T0,
+    firstSeenAt: T0,
+    lastSeenAt: T0,
+    mapping: 'auto',
+    repos: [repoRef()],
+    coverage: { alerts: 'enabled', blindSpots: [], covered: true },
+    openFindings: { critical: 1, high: 2, moderate: 9, low: 0 },
+    ...over,
+  }
+}
+
+export function deploymentDetail(over: Partial<DeploymentDetail> = {}): DeploymentDetail {
+  return {
+    ...deploymentItem(),
+    watchPaths: ['src/**', 'Dockerfile'],
+    overrides: [],
+    findings: [findingItem()],
+    ...over,
+  }
+}
+
+/** Shell endpoints of a configured instance, quiet, so a view test only mocks its own calls. */
+export function shellRoutes(): Record<string, unknown> {
+  return {
+    'GET /shell/nav-counts': {
+      needsAction: null,
+      deployments: null,
+      alerts: null,
+      activeFixRuns: null,
+    },
+    'GET /shell/scan-status': { state: 'idle', lastScanAt: T0, nextScanAt: null },
+    'GET /repos': { items: [] },
+  }
+}
+
+/** mockApi with the shell answered; `routes` win over the defaults. */
+export function mockViews(routes: Record<string, unknown>) {
+  return mockApi({ ...shellRoutes(), ...routes })
+}
+
+export function apiError(status: number, code: string, message: string) {
+  return reply(status, { error: { code, message } })
+}
