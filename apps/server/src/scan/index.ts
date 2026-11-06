@@ -60,3 +60,4 @@ export {
   type FindingChangeSet,
   type RankedFinding,
 } from './views.js'
+export { groupFixes, isFixable, type Fix, type FixFilter, type FixRepoGroup } from './fixes.js'
