@@ -107,9 +107,9 @@ A test answers `{ ok: true, message, version?, login?, scopes? }` or `{ ok: fals
 
 | Method and path | Does |
 |---|---|
-| `GET /api/notifications/channels` | Channels with masked URLs |
-| `POST /api/notifications/channels` | `{ kind: "discord" \| "webhook", name, url, enabled?, minSeverity? }` |
-| `PATCH /api/notifications/channels/:id` | Any of `name`, `url`, `enabled`, `minSeverity` |
+| `GET /api/notifications/channels` | Channels with masked URLs. An email channel has `url: "host:port"` and `email: { host, port, security, user, from, to, passwordSet }`; the password is never returned |
+| `POST /api/notifications/channels` | `{ kind: "discord" \| "webhook", name, url, enabled?, minSeverity? }`, or `{ kind: "email", name, email: { host, port, security: "tls" \| "starttls" \| "none", user?, password?, from, to: string[] }, enabled?, minSeverity? }` |
+| `PATCH /api/notifications/channels/:id` | Any of `name`, `url` (discord and webhook), `email` (a partial of the SMTP settings; an omitted `password` stays, an empty one removes it), `enabled`, `minSeverity` |
 | `DELETE /api/notifications/channels/:id` | Removes it |
 | `POST /api/notifications/channels/:id/test` | Sends a test message: `{ ok, error? }` |
 | `GET /api/notifications/settings` | `{ publicBaseUrl, digestHour }` |

@@ -1,6 +1,6 @@
 # Notifications
 
-Hinomi can post to a Discord channel or to any HTTP endpoint (a generic webhook).
+Hinomi can post to a Discord channel, to any HTTP endpoint (a generic webhook) or send email over SMTP.
 
 ## What is sent, and when
 
@@ -19,24 +19,44 @@ Each channel has a minimum severity (`low`, `moderate`, `high`, `critical`). Bli
 
 | Key | Meaning |
 | --- | --- |
-| `notify.channels` | The channels. Webhook URLs inside are encrypted when `HINOMI_SECRET_KEY` is set. |
+| `notify.channels` | The channels. Webhook URLs and SMTP passwords inside are encrypted when `HINOMI_SECRET_KEY` is set. |
 | `notify.publicBaseUrl` | Public address of this Hinomi, for example `https://hinomi.example.dev`. Messages link to `<base>/finding/<id>`. Without it there is no link. |
 | `notify.digestHour` | Hour of the day, 0 to 23. |
 | `notify.state` | What was already sent. Internal. |
 
-A channel is `{ kind: 'discord' | 'webhook', name, url, enabled, minSeverity }`.
+A channel is `{ kind: 'discord' | 'webhook' | 'email', name, url, enabled, minSeverity }`. An email channel has no `url`; it carries `email` instead (see Email below).
 
 ## Webhook URLs are secrets
 
 A Discord webhook URL lets anyone post to the channel. Hinomi stores it encrypted when `HINOMI_SECRET_KEY` is set (the same key and format as source tokens). Without the key it is stored in clear text and the channel reports `urlEncrypted: false`. The URL is never logged and never returned in full: the API shows the origin and the last four characters. Errors from a failed delivery have the URL removed.
 
+## SMTP passwords are secrets
+
+The password of an email channel is stored the same way as a webhook URL: encrypted with `HINOMI_SECRET_KEY` when it is set, in clear text otherwise (the channel then reports `urlEncrypted: false`). The API never returns it: it shows host, port, security, user, from, to and `passwordSet`. It is never logged, and errors from a failed send have it removed. A channel whose password cannot be decrypted (the key is gone or changed) is skipped until the password is saved again.
+
 ## Delivery
 
-Messages are POSTed as JSON. Hinomi retries on HTTP 429, 5xx and network errors, up to 5 attempts. After a 429 it waits for Discord's `retry_after` but never less than an exponential backoff (1 s, 2 s, 4 s, 8 s). A `retry_after` longer than 2 minutes is not waited out. Other 4xx answers fail at once. Redirects are not followed.
+Discord and webhook messages are POSTed as JSON. Hinomi retries on HTTP 429, 5xx and network errors, up to 5 attempts. After a 429 it waits for Discord's `retry_after` but never less than an exponential backoff (1 s, 2 s, 4 s, 8 s). A `retry_after` longer than 2 minutes is not waited out. Other 4xx answers fail at once. Redirects are not followed.
 
 ## Discord
 
 One embed per finding: title `[SEVERITY] package` (blind spots use their description), a link to the finding, and fields for repository, deployment, installed version, fixed-in version, sources and advisory ids. Ten embeds per message. Messages never ping anyone (`allowed_mentions` is empty).
+
+## Email
+
+An email channel has these settings:
+
+| Setting | Meaning |
+| --- | --- |
+| `host`, `port` | The SMTP server, for example `smtp.example.dev` and `587`. |
+| `security` | `tls` (implicit TLS, usually port 465), `starttls` (the server must offer STARTTLS, usually port 587) or `none` (no encryption is required: only for a trusted local relay). |
+| `user`, `password` | Login. Leave both empty when the server needs none. |
+| `from` | The sender address. |
+| `to` | One to 20 recipient addresses. Everyone gets the same message. |
+
+One email per batch: an immediate message covers every new item for that channel, a digest covers its items (at most 30). The subject is the summary line (`Hinomi: 2 new items need attention`, `Hinomi daily digest: 5 changes`). The body is plain text with a simple HTML alternative: a heading per finding (`[CRITICAL] example-lib`, with an event label in digests) with a link to the finding when a public base URL is set, then repository, deployment, installed and fixed-in versions, sources and advisory ids. There are no remote images, no scripts and no tracking; all finding text is HTML escaped.
+
+Sending is tried up to 3 times with a backoff of 2 s and 4 s on network errors and 4xx replies. A 5xx reply (wrong login, rejected recipient) fails at once. Each connection times out after 15 s. The test button sends a sample message to every recipient.
 
 ## Generic webhook payload
 
