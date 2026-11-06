@@ -3,20 +3,30 @@ import { join } from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
 import type { HealthResponse } from '@hinomi/shared'
 import { Hono } from 'hono'
+import { errorBody, errorHandler } from './api/http.js'
+import { registerApiRoutes, type ApiOptions } from './api/index.js'
+import { silentLogger, type Logger } from './log.js'
 
 export interface AppOptions {
   /** Directory with the built SPA. Static serving is skipped when it does not exist. */
   webDistDir?: string
+  /** Storage and scheduler for the JSON API. Without it only /api/health answers. */
+  api?: ApiOptions
+  log?: Logger
 }
 
-export function createApp({ webDistDir }: AppOptions = {}) {
+export function createApp({ webDistDir, api: apiOptions, log = silentLogger }: AppOptions = {}) {
   const app = new Hono()
+  const onError = errorHandler(apiOptions?.log ?? log)
+  app.onError(onError)
 
   const api = new Hono()
+  api.onError(onError)
   api.get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
+  if (apiOptions) registerApiRoutes(api, apiOptions)
   app.route('/api', api)
   // Unknown API routes answer with JSON instead of falling through to the SPA.
-  app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
+  app.all('/api/*', (c) => c.json(errorBody('not_found', 'No such API route'), 404))
 
   if (webDistDir && existsSync(webDistDir)) {
     app.use('*', serveStatic({ root: webDistDir }))
