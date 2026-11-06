@@ -4,7 +4,18 @@ import { SEVERITY_LABEL, type SeverityKey } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
 import { SEVERITY_ICON, SEVERITY_TONE } from '@/lib/view-icons'
 
-/** Severity is never color alone: an icon and a word go with it. */
+/**
+ * Severity is never color alone: each level has its own icon, word and fill weight. Critical is
+ * the only solid (red) fill; high, moderate and low are icon and word on no fill.
+ */
+const TEXT_ONLY = 'border-transparent bg-transparent pl-0.5'
+const SEVERITY_BADGE: Record<SeverityKey, string> = {
+  critical: '',
+  high: cn(TEXT_ONLY, 'text-sev-high'),
+  moderate: cn(TEXT_ONLY, 'text-sev-moderate'),
+  low: cn(TEXT_ONLY, 'text-sev-low'),
+}
+
 export function SeverityBadge({
   severity,
   className,
@@ -14,7 +25,10 @@ export function SeverityBadge({
 }) {
   const IconCmp = SEVERITY_ICON[severity]
   return (
-    <Badge variant={severity} className={className}>
+    <Badge
+      variant={severity === 'critical' ? 'critical-solid' : 'outline'}
+      className={cn(SEVERITY_BADGE[severity], className)}
+    >
       <IconCmp aria-hidden="true" stroke={2} />
       {SEVERITY_LABEL[severity]}
     </Badge>
@@ -29,7 +43,7 @@ export function BlindSpotBadge({
   label?: string
 }) {
   return (
-    <Badge variant="critical" className={className}>
+    <Badge variant="blind" className={className}>
       <IconEyeOff aria-hidden="true" stroke={2} />
       {label}
     </Badge>
