@@ -75,7 +75,7 @@ describe('sources', () => {
     expect(created.status).toBe(201)
     expect(created.json).toMatchObject({ kind: 'github', hasToken: true })
     expect(created.text).not.toContain(TOKEN)
-    expect(created.text).not.toContain('token"')
+    expect(created.text).not.toContain('"token":')
 
     const list = await call('GET', '/sources')
     expect(sourcesResponseSchema.parse(list.json).canStoreTokens).toBe(true)

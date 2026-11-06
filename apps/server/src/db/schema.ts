@@ -6,6 +6,7 @@ import {
   FINDING_STATES,
   SCAN_RUN_STATUSES,
   SCAN_TRIGGERS,
+  SOURCE_AUTHS,
   SOURCE_KINDS,
   type AdvisorySeverity,
   type DeploymentKind,
@@ -46,8 +47,17 @@ export const sources = sqliteTable(
     kind: text('kind', { enum: SOURCE_KINDS }).notNull(),
     name: text('name').notNull(),
     baseUrl: text('base_url'),
-    /** AES-256-GCM ciphertext (see crypto/secret-box.ts). Never leaves the server. */
+    /**
+     * AES-256-GCM ciphertext (see crypto/secret-box.ts) of the source's secret: the API
+     * token, or the private key PEM of a GitHub App. Never leaves the server.
+     */
     tokenEncrypted: text('token_encrypted'),
+    /** token, or github_app for GitHub sources signing in as a GitHub App. */
+    auth: text('auth', { enum: SOURCE_AUTHS }).notNull().default('token'),
+    /** GitHub App ID or Client ID (the JWT issuer). Null for token auth. */
+    appId: text('app_id'),
+    /** GitHub App installation ID. Null for token auth. */
+    installationId: text('installation_id'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     lastOkAt: timestamp('last_ok_at'),
     lastErrorAt: timestamp('last_error_at'),

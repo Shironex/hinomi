@@ -1,11 +1,11 @@
-import type { SourceKind } from '@hinomi/shared'
+import type { SourceAuth, SourceKind } from '@hinomi/shared'
 import { asc, eq } from 'drizzle-orm'
 import { SecretKeyMissingError, type SecretBox } from '../crypto/secret-box.js'
 import type { Db } from '../db/client.js'
 import { sources, type SourceRow } from '../db/schema.js'
 
 /**
- * A source as the rest of the app sees it. The token is never part of it:
+ * A source as the rest of the app sees it. The secret is never part of it:
  * only `hasToken` says whether one is stored. Safe to log and to send to the
  * browser.
  */
@@ -15,6 +15,13 @@ export interface Source {
   name: string
   baseUrl: string | null
   enabled: boolean
+  /** How the source signs in. Rows from before GitHub App support read as `token`. */
+  auth: SourceAuth
+  /** GitHub App ID or Client ID, null for token auth. */
+  appId: string | null
+  /** GitHub App installation ID, null for token auth. */
+  installationId: string | null
+  /** The secret is stored: the token, or the private key of a GitHub App. */
   hasToken: boolean
   lastOkAt: Date | null
   lastErrorAt: Date | null
@@ -28,14 +35,23 @@ export interface CreateSourceInput {
   name: string
   baseUrl?: string | null
   enabled?: boolean
-  /** Plain token; encrypted before it is written. Requires HINOMI_SECRET_KEY. */
+  /**
+   * Plain secret (the token, or the private key PEM of a GitHub App); encrypted
+   * before it is written. Requires HINOMI_SECRET_KEY.
+   */
   token?: string
+  auth?: SourceAuth
+  appId?: string | null
+  installationId?: string | null
 }
 
 export interface UpdateSourceInput {
   name?: string
   baseUrl?: string | null
   enabled?: boolean
+  auth?: SourceAuth
+  appId?: string | null
+  installationId?: string | null
 }
 
 export function toSource(row: SourceRow): Source {
@@ -45,6 +61,9 @@ export function toSource(row: SourceRow): Source {
     name: row.name,
     baseUrl: row.baseUrl,
     enabled: row.enabled,
+    auth: row.auth,
+    appId: row.appId,
+    installationId: row.installationId,
     hasToken: row.tokenEncrypted !== null,
     lastOkAt: row.lastOkAt,
     lastErrorAt: row.lastErrorAt,
@@ -102,6 +121,9 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
           baseUrl: input.baseUrl ?? null,
           enabled: input.enabled ?? true,
           tokenEncrypted,
+          auth: input.auth ?? 'token',
+          appId: input.appId ?? null,
+          installationId: input.installationId ?? null,
         })
         .returning()
         .get()
@@ -133,7 +155,8 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
     },
 
     /**
-     * Decrypted token for the source clients. Never log it or put it in a
+     * Decrypted secret for the source clients: the token, or for a GitHub App
+     * source the private key PEM. Never log it or put it in a
      * response. Returns null when no token is stored.
      * @throws SecretKeyMissingError when a token is stored but HINOMI_SECRET_KEY is not set.
      * @throws SecretDecryptError when the stored value was tampered with or the key changed.

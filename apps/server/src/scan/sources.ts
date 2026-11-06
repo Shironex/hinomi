@@ -6,7 +6,11 @@ import type {
 } from '@hinomi/shared'
 import type { Repositories, Source } from '../repository/index.js'
 import { fetchCoolifyInventory } from '../sources/coolify/index.js'
-import { createGithubSource } from '../sources/github/index.js'
+import {
+  createGithubAppSource,
+  createGithubSource,
+  type GithubSource,
+} from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
@@ -93,17 +97,33 @@ function githubSource(
   repositories: Repositories,
   source: Source,
   options: BuildScanSourcesOptions,
-): { github: GithubScanSource; token: () => string } {
-  const token = readToken(repositories, source)
-  let bound: ReturnType<typeof createGithubSource> | null = null
-  const client = () =>
-    (bound ??= createGithubSource({
-      token: token(),
+): { github: GithubScanSource; token: () => Promise<string> } {
+  const secret = readToken(repositories, source)
+  let bound: GithubSource | null = null
+  const client = (): GithubSource => {
+    if (bound) return bound
+    const shared = {
       ...(source.baseUrl && { baseUrl: source.baseUrl }),
       ...(options.fetch && { fetch: options.fetch }),
-    }))
+    }
+    if (source.auth === 'github_app') {
+      if (source.appId === null || source.installationId === null) {
+        throw new Error(`GitHub source "${source.name}" is missing its App ID or installation ID`)
+      }
+      // One app auth per scan: the installation token is minted once and reused until it expires.
+      bound = createGithubAppSource({
+        appId: source.appId,
+        installationId: source.installationId,
+        privateKey: secret(),
+        ...shared,
+      })
+    } else {
+      bound = createGithubSource({ token: secret(), ...shared })
+    }
+    return bound
+  }
   return {
-    token,
+    token: async () => client().getToken(),
     github: {
       sourceId: source.id,
       fetchRepoHealth: async (owner, name) => client().fetchRepoHealth(owner, name),
@@ -148,7 +168,7 @@ export function buildScanSources(
     osv,
     settings,
     fetchLockfiles: async (owner, name, ref) =>
-      fetchLockfiles(owner, name, ref, gh ? gh.token() : null, {
+      fetchLockfiles(owner, name, ref, gh ? await gh.token() : null, {
         ...(options.fetch && { fetch: options.fetch }),
         ...(githubRow?.baseUrl && { apiUrl: githubRow.baseUrl }),
       }),
