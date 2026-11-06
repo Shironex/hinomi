@@ -4,7 +4,12 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { FindingStateText } from '@/components/findings/finding-state'
 import { DECIDED_FILL } from '@/components/findings/finding-row'
 import { RankMarker } from '@/components/findings/rank-marker'
-import { BlindSpotBadge, ImageOnlyBadge, SeverityBadge } from '@/components/findings/severity-badge'
+import {
+  BlindSpotBadge,
+  ImageOnlyBadge,
+  PatchedBadge,
+  SeverityBadge,
+} from '@/components/findings/severity-badge'
 import {
   blindSpotSubject,
   factorFlags,
@@ -133,6 +138,8 @@ function AlertRow({
           <ImageOnlyBadge />
         ) : item.kind === 'blind_spot' ? (
           <BlindSpotBadge />
+        ) : item.patchedInLockfile ? (
+          <PatchedBadge />
         ) : (
           <SeverityBadge severity={item.factors.severity} />
         )}
@@ -165,6 +172,7 @@ function AlertRow({
             {item.kind === 'advisory' && !advisory?.firstPatchedVersion
               ? '. No patched version yet'
               : ''}
+            {item.patchedInLockfile ? '. Patched in the lockfile, GitHub alert still open' : ''}
             {item.unscored ? '. Unscored, ranked as moderate' : ''}
           </small>
           <small className="text-xs text-muted-foreground tab:hidden">
