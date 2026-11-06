@@ -1,0 +1,15 @@
+services:
+  hinomi:
+    build: .
+    image: hinomi:local
+    ports:
+      - '3000:3000'
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - hinomi-data:/data
+    restart: unless-stopped
+
+volumes:
+  hinomi-data:
