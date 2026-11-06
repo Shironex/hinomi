@@ -86,6 +86,23 @@
   --blind-hatch: repeating-linear-gradient(135deg, var(--blind-soft) 0 5px, var(--card) 5px 8px);
 }
 
+/*
+ * Exposure map heat, 1 to 34, 35 to 59 and 60 or more exposed findings. One hue whose
+ * lightness steps away from the page, so the scale reads without telling colours apart.
+ * Text, meta text and the critical chip keep 4.5:1 or more on the hottest step.
+ */
+:root {
+  --heat-1: oklch(0.95 0.028 310);
+  --heat-2: oklch(0.92 0.045 310);
+  --heat-3: oklch(0.885 0.065 310);
+}
+
+.dark {
+  --heat-1: oklch(0.25 0.06 310);
+  --heat-2: oklch(0.29 0.078 310);
+  --heat-3: oklch(0.335 0.095 310);
+}
+
 @theme {
   /* Phone up to 760 px (bottom tabs), icon rail from 761, split list and detail from 1100. */
   --breakpoint-tab: 47.5625rem;
