@@ -86,14 +86,16 @@ const fixRunsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/fix-runs',
   component: lazyRouteComponent(() => import('@/routes/fix-runs'), 'FixRunsPage'),
-  staticData: { nav: 'fix-runs', crumb: 'Fix runs' },
+  validateSearch: splitSearchSchema,
+  staticData: { nav: 'fix-runs', crumb: 'Fix runs', layout: 'split' },
 })
 
 const driftRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/drift',
   component: lazyRouteComponent(() => import('@/routes/drift'), 'DriftPage'),
-  staticData: { nav: 'drift', crumb: 'Drift guards' },
+  validateSearch: splitSearchSchema,
+  staticData: { nav: 'drift', crumb: 'Drift guards', layout: 'split' },
 })
 
 const settingsRoute = createRoute({

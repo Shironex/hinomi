@@ -167,9 +167,16 @@ export function SplitView<T>(props: SplitViewProps<T>) {
     setFocusView(true)
   }
 
+  // An empty list has nothing to move through or focus.
+  const listHints: KeyHint[] =
+    items.length === 0
+      ? []
+      : [
+          { keys: ['j', 'k'], label: 'move' },
+          focused ? { keys: ['Esc'], label: 'back to list' } : { keys: ['Enter'], label: 'focus' },
+        ]
   const hints: KeyHint[] = [
-    { keys: ['j', 'k'], label: 'move' },
-    focused ? { keys: ['Esc'], label: 'back to list' } : { keys: ['Enter'], label: 'focus' },
+    ...listHints,
     ...(actions?.fix ? [{ keys: ['f'], label: 'fix agent' }] : []),
     ...(actions?.snooze ? [{ keys: ['s'], label: 'snooze' }] : []),
     ...(actions?.accept ? [{ keys: ['a'], label: 'accept' }] : []),
