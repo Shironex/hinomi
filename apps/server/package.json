@@ -1,0 +1,27 @@
+{
+  "name": "@hinomi/server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsdown",
+    "start": "node dist/index.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14"
+  },
+  "devDependencies": {
+    "@hinomi/shared": "workspace:*",
+    "@types/node": "^22.20.5",
+    "tsdown": "^0.23.4",
+    "tsx": "^4.23.15"
+  }
+}
