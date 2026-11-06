@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
@@ -19,7 +19,7 @@ RUN pnpm build
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm --filter @hinomi/server deploy --prod --legacy /out/server
 
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     HINOMI_DATA_DIR=/data \
