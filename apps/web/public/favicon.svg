@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Hinomi</title>
+  <!-- Simplified for 16 to 32 px: no finial or railing slats, thicker legs, edges on the 16 px grid. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e1c44" />
+      <stop offset="1" stop-color="#190c28" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#tile)" />
+  <path
+    fill="#d5a8f8"
+    d="M16 3c1.8 2.8 5.5 7.6 14 7l-2 2H4l-2-2c8.5.6 12.2-4.2 14-7z M8 11.7h2V18H8z M22 11.7h2V18h-2z M5 18h22v4H5z M7 21.7h4L7 30H2.5z M21 21.7h4l4.5 8.3H25z M6 24h20v2H6z"
+  />
+  <path fill="#ffa746" d="M16 13c-2.1 0-2.55 1.6-2.55 2.75L13 17.6h6l-.45-1.85c0-1.15-.45-2.75-2.55-2.75z" />
+</svg>
