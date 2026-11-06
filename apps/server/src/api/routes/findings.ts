@@ -21,6 +21,8 @@ import {
   acceptFinding,
   canUserTransition,
   FindingTransitionError,
+  fixOf,
+  groupFixes,
   listRankedFindings,
   reopenFinding,
   snoozeFinding,
@@ -152,18 +154,16 @@ export function groupFindings(
   return list
 }
 
-function findRanked(deps: ApiDeps, id: number): RankedFinding {
-  const ranked = listRankedFindings(deps.repositories).find((r) => r.finding.id === id)
-  if (!ranked) throw notFound('Finding')
-  return ranked
-}
-
 function detail(deps: ApiDeps, id: number) {
+  const all = listRankedFindings(deps.repositories)
+  const ranked = all.find((r) => r.finding.id === id)
+  if (!ranked) throw notFound('Finding')
   const events = deps.repositories.findings.listEvents(id)
   return toFindingDetail(
-    findRanked(deps, id),
+    ranked,
     events,
     findingNotifications(deps.repositories.settings, id, events),
+    fixOf(groupFixes(all), id)?.findings.length ?? 0,
   )
 }
 

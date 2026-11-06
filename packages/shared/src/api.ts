@@ -420,6 +420,9 @@ export type ActivityItem = z.infer<typeof activityItemSchema>
 
 export const FIXES_PAGE_MAX = 100
 
+/** How many fixes the overview lists. */
+export const TOP_FIXES = 5
+
 /** Query of GET /api/fixes. The filters narrow the findings before they are grouped. */
 export const fixesQuerySchema = z.strictObject({
   /** Repo ids. */
@@ -533,6 +536,8 @@ export const overviewResponseSchema = z.object({
   sources: z.array(sourceHealthSchema),
   /** Latest finding events, newest first. */
   recentActivity: z.array(activityItemSchema),
+  /** The fixes with a patched version that clear the most exposure, at most 5, same order as /api/fixes. */
+  topFixes: z.array(fixItemSchema),
 })
 export type OverviewResponse = z.infer<typeof overviewResponseSchema>
 
@@ -633,6 +638,11 @@ export const findingDetailSchema = findingListItemSchema.extend({
     /** lockfile: `path` is the chain; manifest: only the manifest is known; package: neither. */
     pathSource: z.enum(['lockfile', 'manifest', 'package']),
   }),
+  /**
+   * Open findings the same bump clears, this one included (across repos, like /api/fixes).
+   * 0 when the finding is not part of a fix: not open, patched in the lockfile, or not an advisory.
+   */
+  sameFixClears: z.number().int(),
   /** Decision and scan history, newest first. */
   history: z.array(findingEventSchema),
   /** Notifications sent about it, newest first. Daily digests are not recorded per finding. */

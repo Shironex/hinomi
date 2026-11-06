@@ -130,6 +130,7 @@ export function toFindingDetail(
   ranked: RankedFinding,
   events: FindingEventRow[],
   notifications: FindingNotification[] = [],
+  sameFixClears = 0,
 ): FindingDetail {
   const { advisory, finding } = ranked
   return {
@@ -151,6 +152,7 @@ export function toFindingDetail(
       vulnerableRanges: advisory?.vulnerableRanges ?? [],
     },
     dependency: dependencyOf(finding),
+    sameFixClears,
     history: events.map(toFindingEvent),
     notifications,
   }

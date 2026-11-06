@@ -1,6 +1,7 @@
 import {
   FINDING_TIERS,
   FUNNEL_STEPS,
+  TOP_FIXES,
   idParamSchema,
   navCountsSchema,
   overviewResponseSchema,
@@ -25,6 +26,7 @@ import type { Repositories, Source } from '../../repository/index.js'
 import {
   countFindings,
   funnelSteps,
+  groupFixes,
   listRankedFindings,
   readScanSettings,
   SCAN_SETTING_KEYS,
@@ -40,7 +42,7 @@ import {
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { tierOf, toFindingEvent, toScanRun } from '../serialize.js'
+import { tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
 const RECENT_ACTIVITY = 20
 
@@ -223,6 +225,10 @@ export function overviewRoutes(deps: ApiDeps) {
       nextScanAt: scheduler.nextScanAt()?.toISOString() ?? null,
       sources: allSourceHealth(repositories),
       recentActivity: recentActivity(repositories, ranked),
+      topFixes: groupFixes(ranked)
+        .filter((fix) => fix.target !== null)
+        .slice(0, TOP_FIXES)
+        .map(toFixItem),
     })
   })
 
