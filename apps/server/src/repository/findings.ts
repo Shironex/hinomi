@@ -5,7 +5,7 @@ import type {
   FindingState,
   Reporter,
 } from '@hinomi/shared'
-import { and, asc, desc, eq, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import {
   findingEvents,
@@ -226,6 +226,16 @@ export function createFindingsRepository(db: Db) {
 
     /** Writes a history event that is not a state change (a note, a new reporter, ...). */
     addEvent,
+
+    /** Events of every finding written at or after `since`, oldest first. */
+    listEventsSince(since: Date): FindingEventRow[] {
+      return db
+        .select()
+        .from(findingEvents)
+        .where(gte(findingEvents.at, since))
+        .orderBy(asc(findingEvents.at), asc(findingEvents.id))
+        .all()
+    },
 
     /** History of a finding, newest first. */
     listEvents(findingId: number): FindingEventRow[] {
