@@ -21,12 +21,12 @@ export const SEVERITY_ICON: Record<SeverityKey, Icon> = {
   low: IconInfoCircle,
 }
 
-/** Soft fill and ink per severity, for chips and counts. */
+/** Fill and ink per severity, for counts: solid for critical, ink only for the rest. */
 export const SEVERITY_TONE: Record<SeverityKey, string> = {
-  critical: 'bg-sev-critical-soft text-sev-critical',
-  high: 'bg-sev-high-soft text-sev-high',
-  moderate: 'bg-sev-moderate-soft text-sev-moderate',
-  low: 'bg-sev-low-soft text-sev-low',
+  critical: 'bg-sev-critical text-sev-critical-on',
+  high: 'text-sev-high',
+  moderate: 'text-sev-moderate',
+  low: 'text-sev-low',
 }
 
 /** Solid fill per severity, for bars. */
