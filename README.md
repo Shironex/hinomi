@@ -10,7 +10,7 @@ It joins your deployments (Coolify first) with advisories (GitHub Dependabot and
 
 ## Development
 
-Requires Node 22 and pnpm (via `corepack enable`).
+Requires Node 26 and pnpm. Node 26 no longer bundles corepack, so run `npm install --global corepack` once, then `corepack enable`.
 
 ```sh
 pnpm install

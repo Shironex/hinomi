@@ -15,9 +15,10 @@ Once we agree, say so on the issue that you would like to build it, and link it 
 
 ## Development setup
 
-You need Node 22 and pnpm through corepack.
+You need Node 26 and pnpm through corepack. Node 26 no longer bundles corepack, so install it once first.
 
 ```sh
+npm install --global corepack
 corepack enable
 git clone https://github.com/Shironex/hinomi.git
 cd hinomi
