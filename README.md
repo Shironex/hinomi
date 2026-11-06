@@ -40,6 +40,9 @@ No environment variables are required; see [.env.example](.env.example).
 | `PORT` | `3000` | Port the server listens on. |
 | `HINOMI_DATA_DIR` | `/data` in the container, `./data` in dev | Folder that holds `hinomi.db`. |
 | `HINOMI_SECRET_KEY` | unset | Key material for encrypting source tokens at rest (AES-256-GCM). At least 16 characters, for example `openssl rand -base64 32`. Without it Hinomi runs, but sources cannot be connected. Keep it stable: a new key makes stored tokens unreadable. |
+| `HINOMI_TRUSTED_PROXIES` | unset | Comma separated IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `CF-Connecting-IP` and Tailscale identity headers are believed. Unset, they are all ignored. See [docs/access.md](docs/access.md). |
+| `HINOMI_CF_ACCESS_TEAM_DOMAIN` | unset | Cloudflare Access team name or `https://<team>.cloudflareaccess.com`. With `HINOMI_CF_ACCESS_AUD`, Hinomi verifies the Access token and shows "Protected by Cloudflare Access". |
+| `HINOMI_CF_ACCESS_AUD` | unset | Application Audience (AUD) tag of the Access application. Set both Cloudflare variables or neither. |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | `25` | How long a stop (SIGTERM or SIGINT) waits for a running scan before it is marked interrupted. Whole seconds from 0 to 3600. Keep it below the stop grace of your platform, or the container is killed first. |
 
 Tokens and GitHub App private keys are never logged and never sent to the browser; the API only says whether one is set. GitHub connects with a personal access token or a GitHub App, see [docs/github.md](docs/github.md).
