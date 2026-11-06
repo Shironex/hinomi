@@ -53,6 +53,8 @@ import {
   sourcesLabel,
   TIER_INFO,
   tierTitle,
+  unknownVersionReason,
+  VERSION_UNKNOWN,
 } from '@/lib/finding-meta'
 import type { DeferExpiry } from '@/lib/defer'
 import { formatRelative } from '@/lib/format'
@@ -518,6 +520,9 @@ function Advisory({ f }: { f: FindingDetail }) {
         ))}
       </pre>
       <p className="text-xs text-muted-foreground">{PATH_NOTE[f.dependency.pathSource]}</p>
+      {f.versions.installed ? null : (
+        <p className="text-xs text-muted-foreground">Version unknown: {unknownVersionReason(f)}</p>
+      )}
     </Section>
   )
 }
@@ -644,13 +649,20 @@ function History({ f }: { f: FindingDetail }) {
 
 function Details({ f }: { f: FindingDetail }) {
   const a = f.advisory
-  const items: { label: string; value: React.ReactNode; mono?: boolean }[] = []
+  const items: { label: string; value: React.ReactNode; mono?: boolean; title?: string }[] = []
   if (f.repo) items.push({ label: 'Repo', value: f.repo.fullName, mono: true })
   if (f.kind === 'advisory') {
     items.push({
       label: 'Manifest',
       value: f.dependency.manifestPaths.join(', ') || 'Unknown',
       mono: true,
+    })
+    items.push({
+      label: 'Installed',
+      value: f.versions.installed ?? 'Unknown',
+      // The reason is long, so it shows in full under the dependency path.
+      title: f.versions.installed ?? unknownVersionReason(f),
+      mono: f.versions.installed !== null,
     })
     items.push({ label: 'Scope', value: SCOPE_LABEL[f.dependency.scope] })
     items.push({ label: 'Source', value: sourcesLabel(f.sources) })
@@ -715,8 +727,12 @@ function Head({ f }: { f: FindingDetail }) {
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
         <span>
           <span className="font-mono text-foreground">
-            {a?.packageName}@{f.versions.installed ?? '?'}
+            {a?.packageName}
+            {f.versions.installed ? `@${f.versions.installed}` : null}
           </span>{' '}
+          {f.versions.installed ? null : (
+            <span title={unknownVersionReason(f)}>({VERSION_UNKNOWN})</span>
+          )}{' '}
           {f.versions.firstPatched ? (
             <>
               → patched in <span className="font-mono text-success">{f.versions.firstPatched}</span>

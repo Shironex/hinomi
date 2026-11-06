@@ -11,6 +11,8 @@ import {
   factorFlags,
   findingTitle,
   isDecided,
+  VERSION_UNKNOWN,
+  VERSION_UNKNOWN_HINT,
 } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -99,7 +101,9 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
               <span className="font-mono text-sm font-medium">{advisory?.packageName}</span>
               {item.installedVersion || advisory?.firstPatchedVersion ? (
                 <span className="font-mono text-xs text-muted-foreground">
-                  {item.installedVersion ?? '?'}
+                  {item.installedVersion ?? (
+                    <span title={VERSION_UNKNOWN_HINT}>{VERSION_UNKNOWN}</span>
+                  )}
                   {advisory?.firstPatchedVersion ? (
                     <>
                       {' '}

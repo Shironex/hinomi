@@ -15,6 +15,8 @@ import {
   sourcesTitle,
   TIER_INFO,
   tierTitle,
+  VERSION_UNKNOWN,
+  VERSION_UNKNOWN_HINT,
 } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
 import type { RowGroup } from '@/lib/alerts-search'
@@ -151,7 +153,9 @@ function AlertRow({
             {item.kind === 'advisory' &&
             (item.installedVersion || advisory?.firstPatchedVersion) ? (
               <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
-                {item.installedVersion ?? '?'}
+                {item.installedVersion ?? (
+                  <span title={VERSION_UNKNOWN_HINT}>{VERSION_UNKNOWN}</span>
+                )}
                 {advisory?.firstPatchedVersion ? ` → ${advisory.firstPatchedVersion}` : ''}
               </span>
             ) : null}
