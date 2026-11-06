@@ -113,7 +113,7 @@ export function FindingStateText({
       }
       if (item.kind === 'blind_spot') {
         return (
-          <StatusText icon={IconEyeOff} tone="bad" className={className}>
+          <StatusText icon={IconEyeOff} className={cn('text-blind', className)}>
             {gapInfo(item)?.short ?? 'Open'}
           </StatusText>
         )
