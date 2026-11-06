@@ -22,7 +22,11 @@ log.warn(
   'Hinomi has no login yet: run it behind Tailscale or Cloudflare Access and never expose the port to the internet',
 )
 
-const scheduler = createScheduler({ repositories: storage.repositories, log })
+const scheduler = createScheduler({
+  repositories: storage.repositories,
+  log,
+  shutdownTimeoutMs: config.shutdownTimeoutMs,
+})
 const notifier = createNotifier({
   repositories: storage.repositories,
   secretBox: storage.secretBox,
@@ -52,7 +56,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
 let shuttingDown = false
 
 /**
- * Stops new work, waits for a running scan (see SHUTDOWN_TIMEOUT_MS), then
+ * Stops new work, waits for a running scan (HINOMI_SHUTDOWN_TIMEOUT_SECONDS), then
  * closes the HTTP server and storage. A second signal exits at once.
  */
 async function shutdown(signal: NodeJS.Signals) {

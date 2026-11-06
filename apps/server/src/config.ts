@@ -17,11 +17,19 @@ export interface Config {
    * app runs, but source tokens cannot be stored or read.
    */
   secretKey: string | undefined
+  /** How long shutdown waits for a running scan before it is marked interrupted. */
+  shutdownTimeoutMs: number
 }
 
 const DEFAULT_PORT = 3000
 export const DATABASE_FILENAME = 'hinomi.db'
 export const MIN_SECRET_KEY_LENGTH = 16
+/**
+ * How long shutdown waits for a running scan by default. Below the 30 s stop grace of
+ * docker-compose.yml, so the process closes storage itself before Docker sends SIGKILL.
+ */
+export const DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 25
+const MAX_SHUTDOWN_TIMEOUT_SECONDS = 3600
 
 // The built server lives in apps/server/dist and the SPA in apps/web/dist,
 // both locally and in the image. In dev this file runs from apps/server/src,
@@ -52,6 +60,18 @@ const envSchema = z.object({
   WEB_DIST_DIR: optionalString,
   NODE_ENV: optionalString,
   HINOMI_DATA_DIR: optionalString,
+  HINOMI_SHUTDOWN_TIMEOUT_SECONDS: optionalString.transform((value, ctx) => {
+    if (value === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_SECONDS
+    const seconds = Number(value)
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > MAX_SHUTDOWN_TIMEOUT_SECONDS) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_SHUTDOWN_TIMEOUT_SECONDS must be a whole number of seconds between 0 and ${MAX_SHUTDOWN_TIMEOUT_SECONDS}, got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return seconds
+  }),
   HINOMI_SECRET_KEY: optionalString.pipe(
     z
       .string()
@@ -89,5 +109,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseFile: resolve(dataDir, DATABASE_FILENAME),
     migrationsDir: defaultMigrationsDir,
     secretKey: parsed.HINOMI_SECRET_KEY,
+    shutdownTimeoutMs: parsed.HINOMI_SHUTDOWN_TIMEOUT_SECONDS * 1000,
   }
 }
