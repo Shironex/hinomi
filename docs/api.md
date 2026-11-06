@@ -28,6 +28,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | `unsupported_media_type` | 415 | A body that is not JSON |
 | `payload_too_large` | 413 | Body over 64 KiB |
 | `internal` | 500 | A server bug; details only in the server log |
+| `unavailable` | 503 | The server is shutting down, so it starts no new scan |
 
 ## Endpoints
 
@@ -38,7 +39,25 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | `GET /api/health` | `{ status: "ok" }` |
 | `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), blind spot counts, counts per tier, last scan, next scan time, health of every source, the 20 latest finding events |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
-| `GET /api/shell/scan-status` | `unconfigured`, `idle` (last and next scan), `scanning` (repos done of total) or `failed` (message) |
+| `GET /api/shell/scan-status` | One of the states below |
+
+| State | Fields | When |
+|---|---|---|
+| `unconfigured` | none | No Coolify or GitHub source is connected |
+| `queued` | `nextScanAt` (null when not planned) | Connected but never scanned: the first scan is about to start |
+| `scanning` | `scanRunId`, `startedAt`, `phase`, `done`, `total`, `skipped` | A scan is running |
+| `idle` | `lastScanAt`, `nextScanAt` | The latest scan finished |
+| `failed` | `lastScanAt` (last good scan or null), `message` | The latest scan failed |
+
+A scan moves through these phases in order. `done` and `total` count the units of the current phase; `skipped` lists the phases this scan leaves out.
+
+| Phase | Does | Units |
+|---|---|---|
+| `deployments` | Reads every Coolify instance, and the account repo list when that setting is on. Skipped with neither | Coolify instances plus the repo list |
+| `alerts` | Fetches GitHub repo health and Dependabot alerts per repo. Skipped without GitHub | Repos |
+| `lockfiles` | Reads lockfiles and checks them against OSV.dev per repo. Skipped while OSV is off | Repos |
+| `matching` | Joins advisories to deployments and saves the findings | Repos |
+| `ranking` | Opens and resolves blind spots and records the run | None (0 of 0) |
 
 ### Findings
 
@@ -103,6 +122,15 @@ A test answers `{ ok: true, message, version?, login?, scopes? }` or `{ ok: fals
 | `GET /api/scans/:id` | One run with per source results |
 | `POST /api/scans` | Starts a scan: 202 `{ started: true, run }`, or 200 `{ started: false, run }` with the scan already running |
 
+### Onboarding
+
+| Method and path | Does |
+|---|---|
+| `GET /api/onboarding` | `{ finished, alertsSkipped }` |
+| `PATCH /api/onboarding` | Any of them. The SPA sets `alertsSkipped` when the alerts step is skipped and `finished` when the first scan ends without failing |
+
+Both live on the server, so every tab and browser sees the same setup progress. `/` sends people to `/onboarding` while nothing is connected or `finished` is false. When `finished` was never set, it counts as true once any scan has succeeded or partly succeeded, so an install from before this setting does not go back to setup.
+
 ### Notifications
 
 | Method and path | Does |
@@ -119,4 +147,4 @@ See [notifications.md](notifications.md) for what is sent and when.
 
 ## Scheduler
 
-One scan at a time, in the server process. Scans run every `scanIntervalMinutes` after the previous one started, right away on boot when one is overdue, and right away once the first Coolify or GitHub source is connected. Scheduled scans are skipped while nothing is connected. A scan run left `running` by a crash or restart is marked failed on boot. After each scan the notifier gets the summary; a failing listener is logged and never stops the scheduler.
+One scan at a time, in the server process. Scans run every `scanIntervalMinutes` after the previous one started, right away on boot when one is overdue, and right away once the first Coolify or GitHub source is connected. Scheduled scans are skipped while nothing is connected. A scan run left `running` by a crash is marked failed on boot. On SIGTERM or SIGINT the server starts no new scan (`POST /api/scans` answers 503), waits up to 8 seconds for the running one, then closes storage; a scan still running after that is marked interrupted first. A second signal exits at once. After each scan the notifier gets the summary; a failing listener is logged and never stops the scheduler.
