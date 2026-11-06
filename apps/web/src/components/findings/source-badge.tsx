@@ -17,7 +17,7 @@ export function SourceBadge({
     <Badge
       variant="outline"
       title={sourcesTitle(sources)}
-      className={cn('h-5 px-1.5 text-[11px] text-muted-foreground [&_svg]:size-3', className)}
+      className={cn('h-[22px] px-1.5 text-xs text-muted-foreground [&_svg]:size-3.5', className)}
     >
       <IconCmp aria-hidden="true" stroke={1.75} />
       {sourcesLabel(sources)}

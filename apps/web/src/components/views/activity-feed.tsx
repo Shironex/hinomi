@@ -37,7 +37,7 @@ export function ActivityPanel({ items }: { items: readonly ActivityItem[] }) {
                     <Link
                       to="/finding/$id"
                       params={{ id: String(event.finding.id) }}
-                      className={`text-accent-ink hover:underline ${event.finding.kind === 'advisory' ? 'font-mono text-[12.5px]' : ''}`}
+                      className={`text-accent-ink hover:underline ${event.finding.kind === 'advisory' ? 'font-mono text-[13px]' : ''}`}
                     >
                       {activityTitle(event.finding)}
                     </Link>

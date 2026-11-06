@@ -120,7 +120,7 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
                 </span>
               ) : null}
               {advisory?.cvssScore != null ? (
-                <span className="font-mono text-[11px] text-muted-foreground">
+                <span className="font-mono text-xs text-muted-foreground">
                   CVSS {advisory.cvssScore.toFixed(1)}
                 </span>
               ) : null}

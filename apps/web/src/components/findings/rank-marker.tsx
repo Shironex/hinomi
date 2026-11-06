@@ -58,7 +58,7 @@ export function FactorLegend({ className }: { className?: string }) {
         <span key={letter} className="inline-flex items-center gap-1.5">
           <b
             aria-hidden="true"
-            className="inline-flex size-4 items-center justify-center rounded-[3px] bg-muted font-mono text-[10px] font-semibold text-foreground-2"
+            className="inline-flex size-5 items-center justify-center rounded-[3px] bg-muted font-mono text-[13px] font-semibold text-foreground-2"
           >
             {letter}
           </b>
