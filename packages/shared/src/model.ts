@@ -28,11 +28,18 @@ export const FINDING_KINDS = ['advisory', 'blind_spot'] as const
 export const findingKindSchema = z.enum(FINDING_KINDS)
 export type FindingKind = z.infer<typeof findingKindSchema>
 
+/**
+ * Missing coverage on something deployed. `alerts_unknown` is a repo whose
+ * Dependabot setting the token may not read (distinct from disabled);
+ * `lockfile_unparseable` is a lockfile that was found but could not be read.
+ */
 export const BLIND_SPOT_TYPES = [
   'alerts_disabled',
+  'alerts_unknown',
   'archived_deployed',
   'no_repo_mapping',
   'lockfile_missing',
+  'lockfile_unparseable',
 ] as const
 export const blindSpotTypeSchema = z.enum(BLIND_SPOT_TYPES)
 export type BlindSpotType = z.infer<typeof blindSpotTypeSchema>
