@@ -1,0 +1,41 @@
+[
+  {
+    "uuid": "app-web-001",
+    "name": "kestrel-web",
+    "git_repository": "https://github.com/kestrel-co/web.git",
+    "git_branch": "main",
+    "fqdn": "https://www.example.dev,https://example.dev",
+    "status": "running:healthy",
+    "watch_paths": "apps/web/**\npackages/ui/**",
+    "destination": { "server": { "name": "edge-1", "id": 1 } },
+    "updated_at": "2026-10-30T10:15:00.000000Z"
+  },
+  {
+    "uuid": "app-api-002",
+    "name": "kestrel-api",
+    "git_repository": "git@github.com:kestrel-co/api.git",
+    "git_branch": "release",
+    "fqdn": "https://api.example.dev",
+    "status": "running:unhealthy",
+    "server_id": 2,
+    "updated_at": "2026-11-01T08:00:00Z"
+  },
+  {
+    "uuid": "app-worker-003",
+    "name": "kestrel-worker",
+    "git_repository": "kestrel-co/worker",
+    "git_branch": "main",
+    "fqdn": null,
+    "status": "exited",
+    "destination": { "server_id": 1 }
+  },
+  {
+    "uuid": "app-img-004",
+    "name": "static-docs",
+    "docker_registry_image_name": "ghcr.io/kestrel-co/docs",
+    "docker_registry_image_tag": "1.4.2",
+    "fqdn": "docs.example.dev",
+    "status": "running:healthy"
+  },
+  { "name": "no uuid, must be skipped" }
+]
