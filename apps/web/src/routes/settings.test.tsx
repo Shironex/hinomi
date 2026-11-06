@@ -186,4 +186,41 @@ describe('settings', () => {
       }),
     )
   })
+
+  it('labels image only deployments instead of asking to map them, and lists them last', async () => {
+    mockApi({
+      ...configuredRoutes(),
+      'GET /deployments': {
+        items: [
+          deployment({
+            id: 12,
+            name: 'status-board',
+            gitRepository: null,
+            image: 'ghcr.io/kestrel-co/board:1',
+            mapping: 'none',
+            repos: [],
+            coverage: { alerts: 'none', blindSpots: [], covered: false, imageOnly: true },
+          }),
+          deployment({
+            id: 13,
+            name: 'worker-api',
+            mapping: 'none',
+            repos: [],
+            gitRepository: null,
+          }),
+        ],
+      },
+    })
+    await renderApp('/settings')
+    const region = within(await screen.findByRole('region', { name: 'Repo mapping' }))
+    const rows = await region.findAllByRole('heading', { level: 3 })
+    // The git based app that needs a repo comes first.
+    expect(rows.map((r) => r.textContent)).toEqual(['worker-api', 'status-board'])
+    const board = within(rows[1]!.closest('li')!)
+    expect(board.getByText('Image only')).toBeInTheDocument()
+    expect(board.queryByText('Needs mapping')).not.toBeInTheDocument()
+    expect(board.getByText(/nothing to map/)).toBeInTheDocument()
+    expect(board.getByRole('button', { name: 'Map a repo to status-board' })).toBeVisible()
+    expect(within(rows[0]!.closest('li')!).getByText('Needs mapping')).toBeInTheDocument()
+  })
 })
