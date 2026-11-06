@@ -4,6 +4,7 @@ import type {
   DeploymentReach,
   FindingKind,
   FindingScope,
+  FindingTier,
   Severity,
 } from '@hinomi/shared'
 
@@ -155,6 +156,17 @@ export function reachOf(deployments: readonly ReachInput[]): ExposureReach {
   const running = runningDeployments(deployments)
   if (running.length === 0) return 'none'
   return running.some((d) => d.reach !== 'internal') ? 'public' : 'internal'
+}
+
+/** Display tier of a ranked finding (see FINDING_TIERS in the shared contract). */
+export function tierOf(ranked: { kind: FindingKind; factors: ExposureFactors }): FindingTier {
+  if (ranked.kind === 'blind_spot') return 'blind_spot'
+  if (ranked.kind === 'coverage_note') return 'coverage'
+  const { factors } = ranked
+  if (!factors.deployed) return 'not_deployed'
+  if (!factors.runtime) return 'dev'
+  if (!factors.public) return 'internal'
+  return factors.severity === 'critical' || factors.severity === 'high' ? 'exposed' : 'public_low'
 }
 
 /** Descending by rank; stable for equal ranks. */

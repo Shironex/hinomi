@@ -23,6 +23,7 @@ export {
   isStoppedStatus,
   rankExposure,
   reachOf,
+  tierOf,
   type ExposureFactors,
   type ExposureInput,
   type ExposureRank,

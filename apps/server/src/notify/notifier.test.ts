@@ -8,9 +8,11 @@ import type { FindingChange, ScanSummary } from '../scan/index.js'
 import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
 import { maskWebhookUrl, type ResolvedEmail } from './channels.js'
 import { SmtpError, type MailMessage } from './email.js'
+import { findingNotifications } from './history.js'
 import { createNotifier } from './notifier.js'
 import { msUntilNextDigest } from './schedule.js'
 import { writePublicBaseUrl } from './settings.js'
+import { readState, writeState } from './state.js'
 
 const DISCORD_URL =
   'https://discord.com/api/webhooks/1234567890/SECRETTOKENabcdefghijklmnopqrstuvwxyz0123'
@@ -53,7 +55,26 @@ beforeEach(() => {
 })
 afterEach(() => handle.close())
 
-function notifier(options: { secret?: boolean } = {}) {
+/**
+ * A notifier whose channels count as past their first scan, so a scan
+ * announces item by item. `fresh: true` keeps new channels unprimed, for the
+ * first scan summary tests.
+ */
+function notifier(options: { secret?: boolean; fresh?: boolean } = {}) {
+  const n = rawNotifier(options)
+  if (options.fresh) return n
+  const add = n.channels.add.bind(n.channels)
+  n.channels.add = (input) => {
+    const channel = add(input)
+    const state = readState(repos.settings)
+    state.primed[channel.id] = 0
+    writeState(repos.settings, state)
+    return channel
+  }
+  return n
+}
+
+function rawNotifier(options: { secret?: boolean }) {
   return createNotifier({
     repositories: repos,
     secretBox: options.secret === false ? null : createSecretBox(TEST_SECRET),
@@ -185,7 +206,8 @@ describe('immediate messages', () => {
 
     expect(calls).toHaveLength(1)
     const titles = calls[0]?.body.embeds.map((e) => e.title)
-    expect(titles).toEqual(['[HIGH] example-lib', '[CRITICAL] Dependabot alerts are off'])
+    // Highest rank first: the alerts-off blind spot ranks like a critical.
+    expect(titles).toEqual(['[CRITICAL] Dependabot alerts are off', '[HIGH] example-lib'])
   })
 
   it('never sends a coverage note, right away or in the digest', async () => {
@@ -312,6 +334,125 @@ describe('immediate messages', () => {
     expect(calls).toHaveLength(2)
     expect(calls[1]?.body.type).toBe('digest')
     expect(calls[1]?.body.items[0]?.findingId).toBe(finding.id)
+  })
+})
+
+describe('first scan summary and large batches', () => {
+  /** Findings on one public app, one per severity given, in creation order. */
+  function seedMany(severities: ('critical' | 'high')[]) {
+    const repo = repos.repos.getByName('kestrel-co', 'harbor-web') ?? seedDeployedRepo()
+    return severities.map((severity, i) => seedAdvisoryFinding(repo.id, severity, `pkg-${i}`))
+  }
+
+  const notified = (findingId: number) =>
+    findingNotifications(repos.settings, findingId, repos.findings.listEvents(findingId))
+
+  it("sends one summary on a channel's first scan and records every finding", async () => {
+    writePublicBaseUrl(repos.settings, 'https://hinomi.example.dev')
+    const n = notifier({ fresh: true })
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    const findings = seedMany(['high', 'high', 'critical', 'high', 'high', 'high', 'critical'])
+
+    await n.handleScanFinished(summary(findings.map((f) => opened(f.id))))
+
+    expect(calls).toHaveLength(1)
+    const message = calls[0]!.body
+    expect(message.content).toContain('Hinomi first scan: 7 items need attention')
+    expect(message.content).toContain('Exposed on a public app: 7')
+    expect(message.content).toContain('By severity: 2 critical, 5 high')
+    expect(message.content).toContain('Exposure view: https://hinomi.example.dev/')
+    // The top five by rank: the criticals first.
+    expect(message.embeds).toHaveLength(5)
+    expect(message.embeds.slice(0, 2).map((e) => e.title)).toEqual([
+      '[CRITICAL] pkg-2',
+      '[CRITICAL] pkg-6',
+    ])
+    // Every finding counts as announced, so neither the next scan nor the digest repeats it.
+    for (const f of findings) expect(notified(f.id)).toHaveLength(1)
+    expect(notified(findings[0]!.id)[0]).toMatchObject({ channelName: 'alerts', event: 'opened' })
+
+    // Later scans announce item by item.
+    const next = seedAdvisoryFinding(repos.repos.getByName('kestrel-co', 'harbor-web')!.id, 'high')
+    await n.handleScanFinished(summary([opened(next.id)]))
+    expect(calls).toHaveLength(2)
+    expect(calls[1]!.body.content).toBe('Hinomi: 1 new item needs attention')
+    advance(60 * 24)
+    await n.sendDigest()
+    expect(calls).toHaveLength(2)
+  })
+
+  it('primes a channel on a scan with nothing to announce', async () => {
+    const n = notifier({ fresh: true })
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    await n.handleScanFinished(summary([]))
+    const [finding] = seedMany(['critical'])
+    await n.handleScanFinished(summary([opened(finding!.id)]))
+    expect(calls[0]!.body.content).toBe('Hinomi: 1 new item needs attention')
+  })
+
+  it('sends a summary instead of a message each above ten items', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    const ten = seedMany(Array<'high'>(10).fill('high'))
+    await n.handleScanFinished(summary(ten.map((f) => opened(f.id))))
+    expect(calls[0]!.body).toMatchObject({ type: 'immediate' })
+    expect(calls[0]!.body.items).toHaveLength(10)
+
+    const eleven = seedMany([...Array<'high'>(10).fill('high'), 'critical'])
+    await n.handleScanFinished(summary(eleven.map((f) => opened(f.id))))
+    expect(calls).toHaveLength(2)
+    const body = calls[1]!.body as Body & { counts: unknown; omitted: number; link: unknown }
+    expect(body).toMatchObject({
+      type: 'summary',
+      summary: 'Hinomi: 11 new items need attention',
+      omitted: 6,
+      link: null,
+      counts: {
+        total: 11,
+        byTier: { exposed: 11 },
+        bySeverity: { critical: 1, high: 10, moderate: 0, low: 0 },
+      },
+    })
+    expect(body.items).toHaveLength(5)
+    expect(body.items[0]).toMatchObject({ findingId: eleven.at(-1)!.id })
+    for (const f of eleven) expect(notified(f.id)).toHaveLength(1)
+  })
+
+  it('orders every batch by rank: public criticals before internal ones', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    const internal = seedDeployedRepo('dock-worker', 'internal')
+    const exposed = seedDeployedRepo('harbor-web', 'public')
+    const a = seedAdvisoryFinding(internal.id, 'critical', 'internal-crit')
+    const b = seedAdvisoryFinding(exposed.id, 'high', 'public-high')
+    const c = seedAdvisoryFinding(exposed.id, 'critical', 'public-crit')
+    await n.handleScanFinished(summary([a, b, c].map((f) => opened(f.id))))
+    expect(calls[0]!.body.items.map((i) => i.title)).toEqual([
+      'public-crit',
+      'public-high',
+      'internal-crit',
+    ])
+  })
+
+  it('records each delivered Discord message before the next one goes out', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    const findings = seedMany(Array<'high'>(10).fill('high'))
+    // Long summaries push the embeds over Discord's size budget: several messages.
+    for (const f of findings) {
+      repos.advisories.upsert({
+        ...repos.advisories.get(f.advisoryId!)!,
+        summary: 'x'.repeat(390),
+        cveIds: Array.from({ length: 30 }, (_, i) => `CVE-2026-${1000 + i}`),
+      })
+    }
+    responses = [new Response(null, { status: 204 }), new Response('bad', { status: 400 })]
+    await n.handleScanFinished(summary(findings.map((f) => opened(f.id))))
+    expect(calls.length).toBe(2)
+    const firstBatch = calls[0]!.body.embeds.length
+    expect(firstBatch).toBeLessThan(10)
+    const recorded = findings.filter((f) => notified(f.id).length > 0)
+    expect(recorded).toHaveLength(firstBatch)
   })
 })
 
@@ -693,6 +834,19 @@ describe('email channel', () => {
     // Deduped like every channel.
     await n.handleScanFinished(summary([opened(a.id)]))
     expect(mails).toHaveLength(1)
+  })
+
+  it('sends the first scan summary as one email with the counts', async () => {
+    const n = notifier({ fresh: true })
+    n.channels.add({ kind: 'email', name: 'mail', email: emailInput })
+    const repo = seedDeployedRepo()
+    const a = seedAdvisoryFinding(repo.id, 'critical')
+    await n.handleScanFinished(summary([opened(a.id)]))
+    expect(mails).toHaveLength(1)
+    const { message } = mails[0]!
+    expect(message.subject).toBe('Hinomi first scan: 1 item needs attention')
+    expect(message.text).toContain('Exposed on a public app: 1')
+    expect(message.html).toContain('By severity: 1 critical')
   })
 
   it('leaves a failed email for the digest and never leaks the password', async () => {

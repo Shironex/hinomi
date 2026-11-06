@@ -14,11 +14,16 @@ import { NOTIFY_SETTING_KEYS } from './settings.js'
  *
  * `digestSince[channelId]` is the time (unix ms) up to which the digest of
  * that channel covers. It only moves when the digest was delivered.
+ *
+ * `primed[channelId]` is when (unix ms) the channel went through its first
+ * scan. Until then, a scan sends that channel one summary instead of a message
+ * per finding (see `isPrimed`).
  */
 const stateSchema = z.object({
   immediate: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   sentAt: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   digestSince: z.record(z.string(), z.number()).default({}),
+  primed: z.record(z.string(), z.number()).default({}),
 })
 
 export type NotifyState = z.infer<typeof stateSchema>
@@ -29,7 +34,20 @@ export function readState(settings: SettingsRepository): NotifyState {
       immediate: {},
       sentAt: {},
       digestSince: {},
+      primed: {},
     }
+  )
+}
+
+/**
+ * True once a channel went through a scan. A channel with anything sent
+ * already (state written before `primed` existed) counts as primed too.
+ */
+export function isPrimed(state: NotifyState, channelId: string): boolean {
+  return (
+    state.primed[channelId] !== undefined ||
+    Object.keys(state.immediate[channelId] ?? {}).length > 0 ||
+    state.digestSince[channelId] !== undefined
   )
 }
 
@@ -45,5 +63,6 @@ export function pruneState(state: NotifyState, channelIds: ReadonlySet<string>):
     immediate: keep(state.immediate),
     sentAt: keep(state.sentAt),
     digestSince: keep(state.digestSince),
+    primed: keep(state.primed),
   }
 }

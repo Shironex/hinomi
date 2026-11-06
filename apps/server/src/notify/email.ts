@@ -58,6 +58,8 @@ export function emailContent(
   items: NotificationItem[],
   summary: string,
   omitted = 0,
+  /** Lines under the heading (a summary's counts and link). */
+  details: readonly string[] = [],
 ): EmailContent {
   const labelEvent = type === 'digest'
   const textBlocks: string[] = []
@@ -86,10 +88,13 @@ export function emailContent(
     )
   }
   const tail = omitted > 0 ? `${omitted} more not shown. Open Hinomi to see everything.` : ''
-  const text = [summary, '', ...textBlocks.map((b) => `${b}\n`), tail].join('\n').trimEnd() + '\n'
+  const intro = details.length > 0 ? [...details, ''] : []
+  const text =
+    [summary, '', ...intro, ...textBlocks.map((b) => `${b}\n`), tail].join('\n').trimEnd() + '\n'
   const html =
     `<!doctype html><html><body style="margin:0;padding:16px;font-family:system-ui,sans-serif;font-size:14px;color:#111827">` +
     `<h1 style="margin:0 0 16px;font-size:16px">${escapeHtml(summary)}</h1>` +
+    details.map((line) => `<p style="margin:0 0 6px">${escapeHtml(line)}</p>`).join('') +
     htmlBlocks.join('') +
     (tail ? `<p style="color:#6b7280">${escapeHtml(tail)}</p>` : '') +
     `</body></html>`

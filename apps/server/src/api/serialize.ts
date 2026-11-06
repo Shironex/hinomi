@@ -5,7 +5,6 @@ import type {
   FindingEvent,
   FindingListItem,
   FindingNotification,
-  FindingTier,
   RepoRef,
   ScanRun,
   SourceDto,
@@ -18,7 +17,7 @@ import type {
   ScanRunRow,
 } from '../db/schema.js'
 import type { Source } from '../repository/index.js'
-import type { RankedFinding } from '../scan/index.js'
+import { tierOf, type RankedFinding } from '../scan/index.js'
 
 // Rows to API shapes. Dates become ISO strings; nothing secret is ever copied.
 
@@ -64,16 +63,7 @@ export function toAdvisorySummary(advisory: AdvisoryRow): AdvisorySummary {
   }
 }
 
-/** Display tier of a ranked finding (see FINDING_TIERS in the shared contract). */
-export function tierOf(ranked: Pick<RankedFinding, 'kind' | 'factors'>): FindingTier {
-  if (ranked.kind === 'blind_spot') return 'blind_spot'
-  if (ranked.kind === 'coverage_note') return 'coverage'
-  const { factors } = ranked
-  if (!factors.deployed) return 'not_deployed'
-  if (!factors.runtime) return 'dev'
-  if (!factors.public) return 'internal'
-  return factors.severity === 'critical' || factors.severity === 'high' ? 'exposed' : 'public_low'
-}
+export { tierOf }
 
 export function toFindingListItem(ranked: RankedFinding): FindingListItem {
   const { finding } = ranked
