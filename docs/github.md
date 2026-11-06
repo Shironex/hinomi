@@ -13,6 +13,8 @@ Hinomi reads Dependabot alerts, repo metadata and lockfiles from GitHub. It neve
 
 Fine-grained: Dependabot alerts (read) and Metadata (read) on the repos to watch, plus Contents (read) for the OSV.dev lockfile scan of private repos and Administration (read) to see whether Dependabot alerts are on. Classic: `repo` and `security_events`.
 
+In setup, the GitHub step links to the classic token form with both scopes ticked and to the fine-grained form. If the repos belong to an organization with SAML SSO, authorize the token for it (Configure SSO on the token's page), or its repos stay hidden.
+
 ## Create the GitHub App
 
 1. Open Settings, Developer settings, GitHub Apps, New GitHub App. For an organization, use the organization's settings instead, so the app belongs to it.

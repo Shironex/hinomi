@@ -6,6 +6,7 @@ import { AccessCallout } from '@/components/access-callout'
 import { OptionRow } from '@/components/form/field'
 import { ChannelForm } from '@/components/notifications/channel-form'
 import { FirstScan } from '@/components/onboarding/first-scan'
+import { GithubTokenHelp } from '@/components/onboarding/github-token-help'
 import { OnboardingStep, type StepState } from '@/components/onboarding/onboarding-step'
 import { TowerArt } from '@/components/onboarding/tower-art'
 import { SecretKeyCallout } from '@/components/sources/secret-key-callout'
@@ -178,13 +179,16 @@ function Steps() {
         ) : !canStoreTokens ? (
           <SecretKeyCallout onRecheck={recheck} rechecking={sources.isFetching} />
         ) : (
-          <SourceConnectForm
-            kind="github"
-            onConnected={({ test }) => {
-              setConnected((c) => ({ ...c, github: test.message }))
-              setOpen(2)
-            }}
-          />
+          <>
+            <GithubTokenHelp />
+            <SourceConnectForm
+              kind="github"
+              onConnected={({ test }) => {
+                setConnected((c) => ({ ...c, github: test.message }))
+                setOpen(2)
+              }}
+            />
+          </>
         )}
       </OnboardingStep>
 
