@@ -1,6 +1,6 @@
 # Access status
 
-Hinomi has no login yet, so it must sit behind something that has one: Tailscale or Cloudflare Access. On every page load the SPA asks `GET /api/access` how the current request reached the server and shows the answer in the sidebar, in onboarding and under Settings, Access.
+Hinomi has no login yet, so it must sit behind something that has one: Tailscale or Cloudflare Access. On every page load the SPA asks `GET /api/access` how the current request reached the server and shows the answer in the top bar, in onboarding and under Settings, Access.
 
 | State | Shown as | When |
 |---|---|---|
