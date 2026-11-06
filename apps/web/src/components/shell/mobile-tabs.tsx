@@ -17,7 +17,7 @@ export function MobileTabs({
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-border bg-card pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] tab:hidden"
+      className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-border bg-sidebar pt-1.5 pr-[max(4px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(4px,env(safe-area-inset-left))] tab:hidden"
     >
       {items.map((item) => {
         const IconCmp = item.icon
@@ -28,14 +28,14 @@ export function MobileTabs({
             to={item.to}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'relative flex min-h-14 flex-col items-center justify-center gap-[3px] px-0.5 pt-2 pb-[9px] text-[10.5px] font-medium text-muted-foreground',
+              'relative flex min-h-12 flex-col items-center justify-center gap-[3px] py-1.5 text-xs font-[550] text-foreground-2',
               active && 'text-accent-ink',
             )}
           >
-            <IconCmp aria-hidden="true" className="size-5" stroke={1.75} />
+            <IconCmp aria-hidden="true" className="size-[22px]" stroke={1.75} />
             {item.tabLabel}
             {item.hot && pip ? (
-              <span className="absolute top-[5px] left-[calc(50%+6px)] grid h-4 min-w-4 place-items-center rounded-full bg-sev-critical px-1 text-[10px] text-card">
+              <span className="absolute top-0 left-[calc(50%+6px)] rounded-full bg-primary px-1.5 text-xs leading-[18px] font-bold text-primary-foreground tabular-nums">
                 {pip}
                 <span className="sr-only"> need action</span>
               </span>

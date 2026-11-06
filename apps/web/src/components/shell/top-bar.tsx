@@ -1,61 +1,71 @@
 import { Fragment } from 'react'
 import { Link } from '@tanstack/react-router'
-import {
-  IconAlertTriangle,
-  IconChevronRight,
-  IconLoader2,
-  IconRefresh,
-  IconSearch,
-} from '@tabler/icons-react'
+import { IconAlertTriangle, IconLoader2, IconPlugConnected, IconRefresh } from '@tabler/icons-react'
 import type { ScanStatus } from '@/hooks/use-shell-data'
-import type { RouteMeta } from '@/lib/route-meta'
+import { formatClock, formatRelative } from '@/lib/format'
 import { describeScanning } from '@/lib/scan-phases'
-import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Kbd } from '@/components/ui/kbd'
+import { AccessStatusLink } from './access-status'
 import { BrandMark } from './brand-mark'
+import { useShell } from './shell-context'
 
 interface TopBarProps {
-  crumbs: RouteMeta['crumbs']
-  scan: ScanStatus
-  onSearch: () => void
-  /** Starts a scan. The button stays disabled until a handler exists. */
-  onScan?: () => void
+  /** Appended to the route's breadcrumb, for the item selected in a split view. */
+  extraCrumb?: string | undefined
+  className?: string
 }
 
-export function TopBar({ crumbs, scan, onSearch, onScan }: TopBarProps) {
+/**
+ * The top bar: breadcrumb, scan status, access status and Scan now. Page routes get it across
+ * the content column; split routes draw it over their detail pane from 1100 px. Below 761 px it
+ * becomes the phone header (brand, page name, icon buttons).
+ */
+export function TopBar({ extraCrumb, className }: TopBarProps) {
+  const { meta, scan, startScan } = useShell()
+  const crumbs = extraCrumb ? [...meta.crumbs, { label: extraCrumb }] : meta.crumbs
+  const title = crumbs.at(-1)?.label ?? 'Hinomi'
   return (
-    <header className="sticky top-0 z-10 flex min-h-[52px] items-center gap-3 border-b border-border bg-[color-mix(in_oklch,var(--background)_88%,transparent)] py-2.5 pr-[max(16px,env(safe-area-inset-right))] pl-[max(16px,env(safe-area-inset-left))] backdrop-blur-sm backdrop-saturate-[1.2] tab:pr-[max(24px,env(safe-area-inset-right))] tab:pl-[max(24px,env(safe-area-inset-left))]">
-      <Link to="/" className="flex items-center gap-2 font-semibold text-foreground tab:hidden">
-        <BrandMark size={20} />
-        Hinomi
+    <header
+      className={cn(
+        'flex min-h-[58px] shrink-0 items-center gap-3 border-b border-border text-sm text-foreground-2',
+        'bg-sidebar py-2 pr-[max(16px,env(safe-area-inset-right))] pl-[max(16px,env(safe-area-inset-left))]',
+        'tab:bg-background tab:py-3 tab:pr-[max(28px,env(safe-area-inset-right))] tab:pl-7',
+        className,
+      )}
+    >
+      <Link to="/" aria-label="Hinomi" className="rounded-md tab:hidden">
+        <BrandMark size={28} />
       </Link>
+      <span className="min-w-0 truncate text-md font-semibold text-foreground tab:hidden">
+        {title}
+      </span>
       <nav aria-label="Breadcrumb" className="hidden min-w-0 tab:block">
-        <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+        <ol className="flex min-w-0 items-center gap-2.5">
           {crumbs.map((crumb, i) => {
             const last = i === crumbs.length - 1
             return (
               <Fragment key={`${crumb.label}-${i}`}>
-                <li className={last ? 'min-w-0' : undefined}>
+                <li className={last ? 'min-w-0' : 'shrink-0'}>
                   {last || !crumb.to ? (
                     <span
                       aria-current={last ? 'page' : undefined}
-                      className="block truncate font-medium text-foreground"
+                      className={cn('block truncate', last && 'text-foreground')}
                     >
                       {crumb.label}
                     </span>
                   ) : (
                     <Link
                       to={crumb.to}
-                      className="whitespace-nowrap text-muted-foreground hover:text-foreground"
+                      className="whitespace-nowrap text-accent-ink hover:underline"
                     >
                       {crumb.label}
                     </Link>
                   )}
                 </li>
                 {last ? null : (
-                  <li aria-hidden="true">
-                    <IconChevronRight className="size-3.5" stroke={1.75} />
+                  <li aria-hidden="true" className="text-muted-foreground">
+                    /
                   </li>
                 )}
               </Fragment>
@@ -63,66 +73,82 @@ export function TopBar({ crumbs, scan, onSearch, onScan }: TopBarProps) {
           })}
         </ol>
       </nav>
-      <div className="flex-1" />
-      <SearchTrigger onSearch={onSearch} />
-      <ScanSlot scan={scan} onScan={onScan} />
+      <div className="ml-auto flex shrink-0 items-center gap-1 tab:gap-3">
+        <ScanState scan={scan} />
+        <AccessStatusLink />
+        <ScanButton scan={scan} onScan={startScan} />
+      </div>
     </header>
   )
 }
 
-function SearchTrigger({ onSearch }: { onSearch: () => void }) {
+/** Last scan in words. Hidden on the phone header, where the rail dot is not shown either. */
+function ScanState({ scan }: { scan: ScanStatus }) {
+  const base = 'hidden items-center gap-2 whitespace-nowrap desk:flex'
+  if (scan.state === 'unconfigured') {
+    return (
+      <Link to="/onboarding" className={cn(base, 'hover:text-foreground')}>
+        <IconPlugConnected aria-hidden="true" className="size-[15px]" stroke={1.75} />
+        Not connected yet
+      </Link>
+    )
+  }
+  if (scan.state === 'scanning' || scan.state === 'queued') {
+    // The button says "Scanning"; the phase goes here.
+    const detail = scan.state === 'scanning' ? describeScanning(scan) : 'First scan starting'
+    return (
+      <span className={cn(base, 'max-w-[360px]')} title={detail}>
+        <span className="truncate">{detail}</span>
+      </span>
+    )
+  }
+  if (scan.state === 'failed') {
+    return (
+      <span className={base} title={scan.message}>
+        <IconAlertTriangle aria-hidden="true" className="size-[15px] text-wait" stroke={1.75} />
+        Last scan failed
+      </span>
+    )
+  }
+  const text = `Scanned ${formatRelative(scan.lastScanAt)}`
   return (
-    <>
-      <button
-        type="button"
-        onClick={onSearch}
-        className="hidden h-8 w-56 cursor-pointer items-center gap-2 rounded-md border border-input bg-card pr-2 pl-2.5 text-sm text-muted-foreground transition-colors hover:border-[color-mix(in_oklch,var(--input),var(--foreground)_15%)] hover:text-foreground desk:flex"
-      >
-        <IconSearch aria-hidden="true" className="size-4" stroke={1.75} />
-        <span className="flex-1 text-left">Search alerts</span>
-        <Kbd aria-hidden="true">/</Kbd>
-      </button>
-      <Button
-        variant="ghost"
-        size="icon-lg"
-        onClick={onSearch}
-        aria-label="Search alerts"
-        className="-mr-1.5 tab:size-8 desk:hidden"
-      >
-        <IconSearch aria-hidden="true" stroke={1.75} />
-      </Button>
-    </>
+    <span
+      className={base}
+      title={scan.nextScanAt ? `${text}, next ${formatClock(scan.nextScanAt)}` : text}
+    >
+      <span aria-hidden="true" className="size-2 rounded-full bg-success" />
+      {text}
+    </span>
   )
 }
 
-function ScanSlot({ scan, onScan }: { scan: ScanStatus; onScan?: (() => void) | undefined }) {
-  // Nothing to scan before a source is connected; the sidebar links to setup instead.
+function ScanButton({ scan, onScan }: { scan: ScanStatus; onScan: (() => void) | undefined }) {
+  // Nothing to scan before a source is connected; the rail and the status link to setup instead.
   if (scan.state === 'unconfigured') return null
   if (scan.state === 'scanning' || scan.state === 'queued') {
-    const detail = scan.state === 'scanning' ? describeScanning(scan) : 'First scan starting'
+    const label =
+      scan.state === 'scanning' && scan.total > 0
+        ? `Scanning ${scan.done} of ${scan.total}`
+        : 'Scanning'
     return (
-      <Button variant="outline" size="sm" disabled title={detail}>
+      <Button variant="outline" size="sm" disabled className="max-tab:size-10 max-tab:px-0">
         <IconLoader2 aria-hidden="true" className="animate-spin" />
-        <span aria-live="polite">
-          {scan.state === 'scanning' && scan.total > 0
-            ? `Scanning ${scan.done} of ${scan.total}`
-            : 'Scanning'}
+        <span aria-live="polite" className="max-tab:sr-only">
+          {label}
         </span>
       </Button>
     )
   }
   return (
-    <div className="flex items-center gap-2">
-      {scan.state === 'failed' ? (
-        <Badge variant="critical" title={scan.message}>
-          <IconAlertTriangle aria-hidden="true" />
-          Scan failed
-        </Badge>
-      ) : null}
-      <Button variant="outline" size="sm" onClick={onScan} disabled={!onScan}>
-        <IconRefresh aria-hidden="true" />
-        Scan now
-      </Button>
-    </div>
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onScan}
+      disabled={!onScan}
+      className="max-tab:size-10 max-tab:px-0"
+    >
+      <IconRefresh aria-hidden="true" />
+      <span className="max-tab:sr-only">Scan now</span>
+    </Button>
   )
 }

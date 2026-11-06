@@ -1,3 +1,5 @@
+import type { ListAction } from './split-nav'
+
 /** Views reachable with `g` then a letter. */
 export const GO_TO = {
   e: '/',
@@ -12,7 +14,11 @@ export type GoToPath = (typeof GO_TO)[keyof typeof GO_TO]
 /** The list shown in the shortcuts dialog, in display order. */
 export const SHORTCUT_HELP: readonly { label: string; keys: readonly string[] }[] = [
   { label: 'Move down, up', keys: ['j', 'k'] },
-  { label: 'Open selected', keys: ['Enter'] },
+  { label: 'Open selected, or the focus view', keys: ['Enter'] },
+  { label: 'Back to the list', keys: ['Esc'] },
+  { label: 'Run the fix agent', keys: ['f'] },
+  { label: 'Snooze', keys: ['s'] },
+  { label: 'Accept the risk', keys: ['a'] },
   { label: 'Go to exposure', keys: ['g', 'e'] },
   { label: 'Go to deployments', keys: ['g', 'd'] },
   { label: 'Go to all alerts', keys: ['g', 'a'] },
@@ -31,6 +37,10 @@ export interface ShortcutActions {
   moveSelection: (delta: 1 | -1) => void
   /** Returns true when a selected row was opened. */
   openSelection: () => boolean
+  /** f, s, a on the selected item of a split view. */
+  listAction: (kind: ListAction) => void
+  /** Returns true when Esc closed something (focus view, narrow detail). */
+  escape: () => boolean
   /** While a dialog is open only `?` (close help) is handled; the dialog owns the rest. */
   isDialogOpen: () => boolean
 }
@@ -118,6 +128,18 @@ export function createShortcutHandler(actions: ShortcutActions) {
       case 'k':
         event.preventDefault()
         actions.moveSelection(-1)
+        return
+      case 'f':
+        actions.listAction('fix')
+        return
+      case 's':
+        actions.listAction('snooze')
+        return
+      case 'a':
+        actions.listAction('accept')
+        return
+      case 'Escape':
+        if (actions.escape()) event.preventDefault()
         return
       case 'Enter':
         // A focused link or button already handles Enter natively; opening the row too would double fire.

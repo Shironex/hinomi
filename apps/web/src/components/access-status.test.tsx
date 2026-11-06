@@ -31,8 +31,8 @@ describe('access status', () => {
       'href',
       expect.stringContaining('docs/access.md'),
     )
-    const sidebar = within(screen.getByRole('complementary', { name: 'Sidebar' }))
-    expect(sidebar.getByRole('link', { name: 'Protected by Tailscale' })).toBeInTheDocument()
+    const topBar = within(screen.getByRole('banner'))
+    expect(topBar.getByRole('link', { name: 'Protected by Tailscale' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -100,8 +100,8 @@ describe('access status', () => {
     expect(await access.findByText('Hinomi is reachable from the internet')).toBeVisible()
     expect(access.getByText('203.0.113.9')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Reachable from the internet.')
-    const sidebar = within(screen.getByRole('complementary', { name: 'Sidebar' }))
-    expect(sidebar.getByRole('link', { name: 'Public, no protection' })).toBeInTheDocument()
+    const topBar = within(screen.getByRole('banner'))
+    expect(topBar.getByRole('link', { name: 'Public, no protection' })).toBeInTheDocument()
   })
 
   it('keeps the warning and names the address when it cannot tell', async () => {
@@ -118,8 +118,8 @@ describe('access status', () => {
     const access = await accessSection()
     expect(await access.findByText(/a private or container address/)).toBeVisible()
     expect(access.getByText('Hinomi has no login yet')).toBeVisible()
-    const sidebar = within(screen.getByRole('complementary', { name: 'Sidebar' }))
-    expect(sidebar.getByRole('link', { name: 'Access not detected' })).toBeInTheDocument()
+    const topBar = within(screen.getByRole('banner'))
+    expect(topBar.getByRole('link', { name: 'Access not detected' })).toBeInTheDocument()
   })
 
   it('keeps the plain warning when the server cannot be asked', async () => {
