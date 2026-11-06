@@ -203,6 +203,15 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
         lastErrorAt: T0,
         lastError: 'Bad credentials',
       },
+      {
+        id: null,
+        kind: 'osv',
+        name: 'osv',
+        status: 'ok',
+        lastOkAt: T0,
+        lastErrorAt: null,
+        lastError: null,
+      },
     ],
     recentActivity: [
       {

@@ -469,12 +469,57 @@ describe('scans, overview and shell', () => {
     expect(overview.tiers).toMatchObject({ exposed: 1, dev: 1, not_deployed: 1, blind_spot: 1 })
     expect(overview.sources).toEqual([
       expect.objectContaining({ kind: 'coolify', name: 'main', status: 'never' }),
+      expect.objectContaining({ id: null, kind: 'osv', status: 'never' }),
     ])
     expect(overview.recentActivity).toHaveLength(4)
     expect(overview.recentActivity[0]?.finding.title).toBeTruthy()
 
     const counts = navCountsSchema.parse((await call('GET', '/shell/nav-counts')).json)
     expect(counts).toEqual({ needsAction: 1, deployments: 2, alerts: 4, activeFixRuns: null })
+  })
+})
+
+describe('OSV.dev on the overview', () => {
+  const osvRow = async (call: ReturnType<typeof createTestApi>['call']) =>
+    overviewResponseSchema
+      .parse((await call('GET', '/overview')).json)
+      .sources.filter((s) => s.kind === 'osv')
+
+  it('lists OSV.dev without a source row, from the last scans and the setting', async () => {
+    const { call, repos } = createTestApi()
+    const ok = repos.scanRuns.start('manual', new Date('2026-11-05T10:00:00Z'))
+    repos.scanRuns.finish(
+      ok.id,
+      { status: 'succeeded', sourceResults: { osv: { status: 'ok', counts: {} } } },
+      new Date('2026-11-05T10:05:00Z'),
+    )
+    expect(await osvRow(call)).toEqual([
+      expect.objectContaining({ id: null, status: 'ok', lastOkAt: '2026-11-05T10:05:00.000Z' }),
+    ])
+
+    const bad = repos.scanRuns.start('manual', new Date('2026-11-06T10:00:00Z'))
+    repos.scanRuns.finish(
+      bad.id,
+      {
+        status: 'partial',
+        sourceResults: { osv: { status: 'error', counts: {}, error: '1 of 3 failed' } },
+      },
+      new Date('2026-11-06T10:05:00Z'),
+    )
+    expect(await osvRow(call)).toEqual([
+      expect.objectContaining({ status: 'error', lastError: '1 of 3 failed' }),
+    ])
+
+    await call('PATCH', '/settings', { osvEnabled: false })
+    expect(await osvRow(call)).toEqual([expect.objectContaining({ status: 'disabled' })])
+  })
+
+  it('uses the OSV source row when there is one', async () => {
+    const { call } = createTestApi()
+    await call('POST', '/sources', { kind: 'osv', name: 'osv' })
+    const rows = await osvRow(call)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).toEqual(expect.any(Number))
   })
 })
 

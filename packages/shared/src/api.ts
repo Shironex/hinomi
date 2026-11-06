@@ -384,7 +384,11 @@ export type SourceTestResult = z.infer<typeof sourceTestResultSchema>
 // Overview
 
 export const sourceHealthSchema = z.object({
-  id,
+  /**
+   * The source row. Null for OSV.dev when it has none: it needs no connection,
+   * so it is listed from the scan setting and the last scans instead.
+   */
+  id: id.nullable(),
   kind: sourceKindSchema,
   name: z.string(),
   /** never: not synced yet; disabled: switched off; missing_token: cannot run. */

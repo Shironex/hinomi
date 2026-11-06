@@ -64,6 +64,8 @@ describe('overview', () => {
     expect(screen.getByText('No GitHub alerts')).toBeInTheDocument()
 
     expect(screen.getByText('Bad credentials')).toBeInTheDocument()
+    // OSV.dev has no source row, it is listed from the scan settings and runs.
+    expect(screen.getByText('OSV.dev lockfile scan')).toBeInTheDocument()
     expect(screen.getByText('Snooze expired, back in the ranking')).toBeInTheDocument()
     expect(screen.getByText(/3,731 alerts in repos that are not/)).toBeInTheDocument()
     // Each tier card below the line shows its severity mix.
