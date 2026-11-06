@@ -1,6 +1,8 @@
-# Hinomi
+<p align="center"><img src="assets/brand/icon.svg" width="96" alt="Hinomi"></p>
 
-**火の見** (hinomi): the fire lookout tower of Edo towns. The watchman did not watch every house; he looked for real smoke and rang the bell.
+<h1 align="center">Hinomi</h1>
+
+The name comes from the fire lookout towers of old Japanese towns. The watchman did not watch every house; he looked for real smoke and rang the bell.
 
 Hinomi is a small self-hosted app that answers one question: **is anything that is actually deployed and reachable right now exposed to a serious vulnerability?**
 
