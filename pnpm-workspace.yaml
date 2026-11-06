@@ -7,3 +7,8 @@ minimumReleaseAge: 10080
 
 onlyBuiltDependencies:
   - esbuild
+
+# better-sqlite3 ships N-API prebuilds (glibc, musl, macOS, Windows) inside the
+# package. Its binding.gyp would make pnpm run node-gyp, which is not needed.
+ignoredBuiltDependencies:
+  - better-sqlite3

@@ -28,4 +28,17 @@ docker compose up -d --build
 curl localhost:3000/api/health
 ```
 
-The container runs as uid 10001 and keeps its data in the `hinomi-data` volume at `/data`. No environment variables are required; see [.env.example](.env.example) for the optional ones.
+The container runs as uid 10001 and keeps its SQLite database in the `hinomi-data` volume at `/data`. Migrations run on boot.
+
+## Configuration
+
+No environment variables are required; see [.env.example](.env.example).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `HOST` | `0.0.0.0` | Address the server listens on. |
+| `PORT` | `3000` | Port the server listens on. |
+| `HINOMI_DATA_DIR` | `/data` in the container, `./data` in dev | Folder that holds `hinomi.db`. |
+| `HINOMI_SECRET_KEY` | unset | Key material for encrypting source tokens at rest (AES-256-GCM). At least 16 characters, for example `openssl rand -base64 32`. Without it Hinomi runs, but sources cannot be connected. Keep it stable: a new key makes stored tokens unreadable. |
+
+Tokens are never logged and never sent to the browser; the API only says whether one is set.
