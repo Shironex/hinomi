@@ -12,6 +12,7 @@ import { alertsSearchSchema } from '@/lib/alerts-search'
 import { NotFoundPage } from '@/routes/not-found'
 import { RouteError } from '@/routes/route-error'
 import { RoutePending } from '@/routes/route-pending'
+import { onboardingQuery } from '@/lib/onboarding-api'
 import { scanStatusQuery } from '@/lib/queries'
 import '@/lib/route-meta'
 
@@ -28,15 +29,18 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  // First run: with no Coolify or GitHub source the exposure view has nothing to show, so send
-  // people to setup. If the status cannot be read, stay here and let the view show the error.
+  // First run: until a source is connected and setup is finished (both kept on the server), send
+  // people to setup. If either cannot be read, stay here and let the view show the error.
   beforeLoad: async ({ context }) => {
-    const status = await context.queryClient
-      .fetchQuery({ ...scanStatusQuery, retry: false })
-      .catch(() => null)
-    // TanStack Router redirects by throwing its redirect object.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
-    if (status?.state === 'unconfigured') throw redirect({ to: '/onboarding' })
+    const [status, onboarding] = await Promise.all([
+      context.queryClient.fetchQuery({ ...scanStatusQuery, retry: false }).catch(() => null),
+      context.queryClient.fetchQuery({ ...onboardingQuery, retry: false }).catch(() => null),
+    ])
+    if (status?.state === 'unconfigured' || onboarding?.finished === false) {
+      // TanStack Router redirects by throwing its redirect object.
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw redirect({ to: '/onboarding' })
+    }
   },
   component: lazyRouteComponent(() => import('@/routes/overview'), 'OverviewPage'),
   staticData: { nav: 'overview', crumb: 'Exposure' },

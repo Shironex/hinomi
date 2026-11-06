@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  configuredRoutes,
   coolifySource,
   githubSource,
   mockApi,
@@ -20,6 +21,7 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
     activeFixRuns: null,
   },
   'GET /shell/scan-status': { state: 'unconfigured' },
+  'GET /onboarding': { finished: false, alertsSkipped: false },
   'GET /sources': { sources: [], canStoreTokens: true },
   'GET /notifications/channels': { items: [] },
   'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
@@ -29,7 +31,6 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
 describe('onboarding', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    sessionStorage.clear()
   })
 
   it('sends a fresh install from / to setup', async () => {
@@ -129,6 +130,12 @@ describe('onboarding', () => {
             : scanningStatus(),
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
         'GET /notifications/channels': { items: [] },
+        'GET /onboarding': { finished: false, alertsSkipped: true },
+        'PATCH /onboarding': (body: unknown) => ({
+          finished: false,
+          alertsSkipped: true,
+          ...(body as object),
+        }),
         'GET /scans': { items: [] },
         'POST /scans': reply(202, { started: true, run: scanRun() }),
         'GET /scans/7': () => {
@@ -145,7 +152,6 @@ describe('onboarding', () => {
         },
       }),
     )
-    sessionStorage.setItem('hinomi:onboarding-skip-alerts', '1')
     const user = userEvent.setup()
     await renderApp('/onboarding')
     await user.click(await screen.findByRole('button', { name: 'Run first scan' }))
@@ -155,6 +161,10 @@ describe('onboarding', () => {
     const lines = screen.getByRole('list', { name: 'Sources in this scan' })
     expect(within(lines).getByText(/38 repos, 4,917 open alerts/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open exposure view' })).toHaveAttribute('href', '/')
+    // Setup is finished on the server, so / stops sending people back here.
+    await waitFor(() =>
+      expect(api.called('PATCH', '/onboarding').map((c) => c.body)).toEqual([{ finished: true }]),
+    )
   })
 
   it('shows a running scan as phase lines with a progress bar', async () => {
@@ -162,11 +172,11 @@ describe('onboarding', () => {
       unconfigured({
         'GET /shell/scan-status': scanningStatus({ phase: 'lockfiles', skipped: ['deployments'] }),
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /onboarding': { finished: false, alertsSkipped: true },
         'GET /scans': { items: [scanRun()] },
         'GET /scans/7': scanRun(),
       }),
     )
-    sessionStorage.setItem('hinomi:onboarding-skip-alerts', '1')
     await renderApp('/onboarding')
     const bar = await screen.findByRole('progressbar', { name: 'First scan' })
     expect(bar).toHaveAttribute('aria-valuenow', '2')
@@ -187,10 +197,10 @@ describe('onboarding', () => {
       unconfigured({
         'GET /shell/scan-status': { state: 'queued', nextScanAt: new Date().toISOString() },
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /onboarding': { finished: false, alertsSkipped: true },
         'GET /scans': { items: [] },
       }),
     )
-    sessionStorage.setItem('hinomi:onboarding-skip-alerts', '1')
     await renderApp('/onboarding')
     expect(await screen.findByRole('list', { name: 'Scan phases' })).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'First scan' })).toHaveAttribute(
@@ -198,5 +208,54 @@ describe('onboarding', () => {
       'Starting the scan',
     )
     expect(screen.queryByRole('button', { name: 'Run first scan' })).not.toBeInTheDocument()
+  })
+
+  it('remembers a skipped alerts step on the server', async () => {
+    let state = { finished: false, alertsSkipped: false }
+    const api = mockApi(
+      unconfigured({
+        'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /onboarding': () => state,
+        'PATCH /onboarding': (body: unknown) => {
+          state = { ...state, ...(body as object) }
+          return state
+        },
+        'GET /scans': { items: [] },
+      }),
+    )
+    const user = userEvent.setup()
+    await renderApp('/onboarding')
+    await user.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    expect(api.called('PATCH', '/onboarding').map((c) => c.body)).toEqual([{ alertsSkipped: true }])
+    expect(await screen.findByRole('button', { name: 'Run first scan' })).toBeVisible()
+  })
+
+  it('opens on the scan step in a new tab once alerts were skipped', async () => {
+    mockApi(
+      unconfigured({
+        'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
+        'GET /onboarding': { finished: false, alertsSkipped: true },
+        'GET /scans': { items: [] },
+      }),
+    )
+    await renderApp('/onboarding')
+    expect(await screen.findByRole('button', { name: 'Run first scan' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()
+  })
+
+  it('sends / to setup while it is not finished, even with sources connected', async () => {
+    mockApi({
+      ...configuredRoutes(),
+      'GET /onboarding': { finished: false, alertsSkipped: false },
+      'GET /scans': { items: [] },
+    })
+    const { router } = await renderApp('/')
+    expect(router.state.location.pathname).toBe('/onboarding')
+  })
+
+  it('stays on / once setup is finished', async () => {
+    mockApi(configuredRoutes())
+    const { router } = await renderApp('/')
+    expect(router.state.location.pathname).toBe('/')
   })
 })

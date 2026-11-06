@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { useOnboarding } from '@/hooks/use-onboarding'
 import { useOsvSetting } from '@/hooks/use-osv-setting'
 import { hostOf } from '@/lib/form'
 import { channelsQuery, settingsKeys, sourcesQuery } from '@/lib/settings-api'
@@ -52,12 +53,26 @@ function Steps() {
   const channels = useQuery(channelsQuery)
   const [open, setOpen] = useState<number | null>(null)
   const [connected, setConnected] = useState<Partial<Record<ConnectableKind, string>>>({})
-  const [skippedAlerts, setSkippedAlerts] = useState(readSkippedAlerts)
+  const onboarding = useOnboarding()
+  const skippedAlerts = onboarding.state.alertsSkipped
   const [scanDone, setScanDone] = useState(false)
-  const markScanDone = useCallback((run: ScanRun) => setScanDone(run.status !== 'failed'), [])
+  const finishOnboarding = onboarding.update
+  // The finished run is reported again on every refetch; tell the server once.
+  const finishSent = useRef(onboarding.state.finished)
+  const markScanDone = useCallback(
+    (run: ScanRun) => {
+      const ok = run.status !== 'failed'
+      setScanDone(ok)
+      if (ok && !finishSent.current) {
+        finishSent.current = true
+        finishOnboarding({ finished: true })
+      }
+    },
+    [finishOnboarding],
+  )
   const headers = useRef<(HTMLButtonElement | null)[]>([])
 
-  if (sources.isPending) return <StepsSkeleton />
+  if (sources.isPending || onboarding.isPending) return <StepsSkeleton />
   if (sources.isError) {
     return (
       <ErrorState
@@ -205,8 +220,7 @@ function Steps() {
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setSkippedAlerts(true)
-                  writeSkippedAlerts()
+                  onboarding.update({ alertsSkipped: true })
                   goTo(4)
                 }}
               >
@@ -232,25 +246,6 @@ function Steps() {
       </OnboardingStep>
     </ol>
   )
-}
-
-// Skipping alerts is remembered for this tab, so a reload lands on the scan step again.
-const SKIP_ALERTS_KEY = 'hinomi:onboarding-skip-alerts'
-
-function readSkippedAlerts(): boolean {
-  try {
-    return sessionStorage.getItem(SKIP_ALERTS_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeSkippedAlerts() {
-  try {
-    sessionStorage.setItem(SKIP_ALERTS_KEY, '1')
-  } catch {
-    // Storage can be blocked; the skip still holds until the page reloads.
-  }
 }
 
 function Connected({ message }: { message: string }) {

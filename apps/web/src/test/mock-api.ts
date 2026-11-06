@@ -149,6 +149,7 @@ export function configuredRoutes(): Record<string, unknown> {
     'GET /health': { status: 'ok' },
     'GET /shell/nav-counts': { needsAction: 0, deployments: 1, alerts: 0, activeFixRuns: null },
     'GET /shell/scan-status': { state: 'idle', lastScanAt: at, nextScanAt: null },
+    'GET /onboarding': { finished: true, alertsSkipped: false },
     'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
     'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
     'GET /notifications/channels': { items: [] },
