@@ -10,6 +10,7 @@ import { formatClock, formatRelative } from '@/lib/format'
 import { describeScanning } from '@/lib/scan-phases'
 import { cn } from '@/lib/utils'
 import { Kbd } from '@/components/ui/kbd'
+import { AccessLine } from './access-line'
 import { BrandMark } from './brand-mark'
 import { DRIFT_NAV, formatCount, PRIMARY_NAV, SETTINGS_NAV, type NavItem, type NavKey } from './nav'
 import { ThemeCycleButton, ThemeSwitch } from './theme-switch'
@@ -60,6 +61,7 @@ export function Sidebar({ current, counts, scan, onOpenHelp }: SidebarProps) {
       </nav>
 
       <div className="mt-auto flex flex-col items-center gap-2 border-t border-border pt-2.5 desk:items-stretch desk:px-1">
+        <AccessLine labelClassName={LABEL} />
         <ScanLine scan={scan} />
         <ThemeSwitch className="hidden desk:flex" />
         <ThemeCycleButton className="desk:hidden" />
