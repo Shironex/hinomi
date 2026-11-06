@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { useNavCounts, useScanStatus } from '@/hooks/use-shell-data'
+import { useNavCounts, useScanStatus, useStartScan } from '@/hooks/use-shell-data'
 import { useShortcuts } from '@/hooks/use-shortcuts'
 import { clearListSelection, moveListSelection, openListSelection } from '@/lib/list-nav'
 import { useRouteMeta } from '@/lib/route-meta'
@@ -18,6 +18,7 @@ export function AppShell() {
   const meta = useRouteMeta()
   const counts = useNavCounts()
   const scan = useScanStatus()
+  const startScan = useStartScan()
   const [helpOpen, setHelpOpen] = useState(false)
   const [announcement, setAnnouncement] = useState('')
 
@@ -57,7 +58,7 @@ export function AppShell() {
         onOpenHelp={() => setHelpOpen(true)}
       />
       <div className="flex min-w-0 flex-col">
-        <TopBar crumbs={meta.crumbs} scan={scan} onSearch={focusSearch} />
+        <TopBar crumbs={meta.crumbs} scan={scan} onSearch={focusSearch} onScan={startScan} />
         <main
           id="main"
           tabIndex={-1}
