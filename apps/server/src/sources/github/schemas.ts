@@ -28,6 +28,8 @@ export const graphqlAlertsSchema = z.object({
               number: z.number().int(),
               createdAt: z.string(),
               dismissedAt: z.string().nullable(),
+              dismissReason: z.string().nullish(),
+              dismissComment: z.string().nullish(),
               vulnerableManifestPath: z.string().nullable(),
               dependencyScope: z.string().nullable(),
               securityVulnerability: z.object({

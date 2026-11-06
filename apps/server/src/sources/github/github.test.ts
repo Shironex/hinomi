@@ -112,9 +112,11 @@ function alertsPage(nodes: unknown[], next: string | null) {
   }
 }
 
+const noDismissed = alertsPage([], null)
+
 describe('fetchDependabotAlerts', () => {
   it('normalises an alert into advisory and repo records', async () => {
-    const { client } = setup([alertsPage([alertNode(1)], null)])
+    const { client } = setup([alertsPage([alertNode(1)], null), noDismissed])
     const result = await fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')
     expect(result.advisories).toEqual([
       {
@@ -156,6 +158,7 @@ describe('fetchDependabotAlerts', () => {
         ],
         null,
       ),
+      noDismissed,
     ])
     const { alerts } = await fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')
     expect(alerts.map((a) => a.scope)).toEqual(['runtime', 'dev', null])
@@ -165,9 +168,10 @@ describe('fetchDependabotAlerts', () => {
     const { client, requests } = setup([
       alertsPage([alertNode(1), alertNode(2)], 'cursor-1'),
       alertsPage([alertNode(3, {}, { package: { name: 'other-lib', ecosystem: 'PIP' } })], null),
+      noDismissed,
     ])
     const result = await fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')
-    expect(requests).toHaveLength(2)
+    expect(requests).toHaveLength(3)
     expect((requests[0]?.body as { variables: { cursor: unknown } }).variables.cursor).toBeNull()
     expect((requests[1]?.body as { variables: { cursor: unknown } }).variables.cursor).toBe(
       'cursor-1',
@@ -200,6 +204,7 @@ describe('fetchDependabotAlerts', () => {
         ],
         null,
       ),
+      noDismissed,
     ])
     const { advisories } = await fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')
     expect(advisories[0]).toMatchObject({
@@ -208,6 +213,54 @@ describe('fetchDependabotAlerts', () => {
       cveIds: [],
       publishedAt: null,
     })
+  })
+
+  it('fetches dismissed alerts as a separate list with the reason and comment', async () => {
+    const dismissed = alertNode(
+      7,
+      {
+        dismissedAt: '2026-10-20T08:00:00Z',
+        dismissReason: 'tolerable_risk',
+        dismissComment: 'only used in tests',
+      },
+      {
+        package: { name: 'other-lib', ecosystem: 'NPM' },
+        advisory: {
+          ghsaId: 'GHSA-gggg-hhhh-iiii',
+          summary: 'Another example',
+          publishedAt: null,
+          identifiers: [],
+          cvss: null,
+        },
+      },
+    )
+    const { client, requests } = setup([
+      alertsPage([alertNode(1)], null),
+      alertsPage([dismissed], null),
+    ])
+    const result = await fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')
+    expect(
+      requests.map((r) => (r.body as { query: string }).query.match(/states: (\w+)/)?.[1]),
+    ).toEqual(['OPEN', 'DISMISSED'])
+    expect(result.alerts.map((a) => a.alertNumber)).toEqual([1])
+    expect(result.dismissed).toEqual([
+      expect.objectContaining({
+        alertNumber: 7,
+        ghsaId: 'GHSA-gggg-hhhh-iiii',
+        dismissedAt: '2026-10-20T08:00:00Z',
+        dismissReason: 'tolerable_risk',
+        dismissComment: 'only used in tests',
+      }),
+    ])
+    expect(result.advisories.map((a) => a.ghsaId)).toEqual([
+      'GHSA-aaaa-bbbb-cccc',
+      'GHSA-gggg-hhhh-iiii',
+    ])
+  })
+
+  it('fails the whole fetch when the dismissed alerts cannot be read', async () => {
+    const { client } = setup([alertsPage([alertNode(1)], null), { status: 502, body: {} }])
+    await expect(fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')).rejects.toBeDefined()
   })
 
   it('throws not_found when the repository is null', async () => {
