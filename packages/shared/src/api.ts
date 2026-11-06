@@ -36,6 +36,7 @@ export const API_ERROR_CODES = [
   'secret_key_missing',
   'not_supported',
   'internal',
+  'unavailable',
 ] as const
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODES)
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>

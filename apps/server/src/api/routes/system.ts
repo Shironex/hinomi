@@ -29,10 +29,12 @@ import {
   isConfigured,
   readScanIntervalMinutes,
   SCAN_INTERVAL_KEY,
+  SchedulerClosedError,
   type Scheduler,
+  type StartScanResult,
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
-import { notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { tierOf, toFindingEvent, toScanRun } from '../serialize.js'
 
 const RECENT_ACTIVITY = 20
@@ -205,7 +207,14 @@ export function scansRoutes(deps: ApiDeps) {
 
   /** Starts a scan now. When one is running, answers 200 with that scan instead. */
   app.post('/', (c) => {
-    const result = scheduler.scanNow('manual')
+    let result: StartScanResult
+    try {
+      result = scheduler.scanNow('manual')
+    } catch (error) {
+      if (error instanceof SchedulerClosedError)
+        throw new HttpError(503, 'unavailable', error.message)
+      throw error
+    }
     return send(
       c,
       startScanResponseSchema,

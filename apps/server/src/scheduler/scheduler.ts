@@ -47,6 +47,17 @@ export interface ScanProgressState extends ScanProgress {
   startedAt: Date
 }
 
+/** Thrown by `scanNow` once `shutdown` was called: no new scan starts while the server stops. */
+export class SchedulerClosedError extends Error {
+  constructor() {
+    super('The server is shutting down, so no new scan starts')
+    this.name = 'SchedulerClosedError'
+  }
+}
+
+/** How long shutdown waits for a running scan by default. Below Docker's 10 s stop grace. */
+export const SHUTDOWN_TIMEOUT_MS = 8_000
+
 export interface Scheduler {
   /** Fails runs a crash left `running`, then plans the next scan (now, when one is overdue). */
   start(): void
@@ -67,6 +78,12 @@ export interface Scheduler {
   nextScanAt(): Date | null
   /** Resolves when no scan is running (for tests and shutdown). */
   idle(): Promise<void>
+  /**
+   * Stops the timer, refuses new scans and waits up to `timeoutMs` for the
+   * running one. On timeout the run is marked interrupted so storage can
+   * close. Resolves `drained` when no scan was left running.
+   */
+  shutdown(timeoutMs?: number): Promise<{ drained: boolean }>
 }
 
 export interface SchedulerOptions {
@@ -134,6 +151,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   let timer: unknown = null
   let nextAt: Date | null = null
   let running = false
+  let closed = false
 
   function failRun(run: ScanRunRow, error: string): void {
     repositories.scanRuns.finish(
@@ -248,6 +266,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   }
 
   function scanNow(trigger: ScanTrigger = 'manual'): StartScanResult {
+    if (closed) throw new SchedulerClosedError()
     if (active) {
       const run =
         (active.runId !== null ? repositories.scanRuns.get(active.runId) : undefined) ??
@@ -312,5 +331,28 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     },
 
     idle,
+
+    async shutdown(timeoutMs = SHUTDOWN_TIMEOUT_MS) {
+      closed = true
+      stop()
+      const state = active
+      if (!state) return { drained: true }
+      log.info('scheduler: waiting for the running scan', { scanRunId: state.runId, timeoutMs })
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const drained = await Promise.race([
+        idle().then(() => true),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), timeoutMs)
+        }),
+      ])
+      clearTimeout(timeout)
+      if (drained) return { drained: true }
+      const run = state.runId === null ? undefined : repositories.scanRuns.get(state.runId)
+      if (run?.status === 'running') failRun(run, INTERRUPTED_SCAN_MESSAGE)
+      log.warn('scheduler: the scan did not finish in time and was marked interrupted', {
+        scanRunId: state.runId,
+      })
+      return { drained: false }
+    },
   }
 }
