@@ -16,6 +16,8 @@ export function useShortcuts(actions: ShortcutActions) {
       focusSearch: () => latest.current.focusSearch(),
       moveSelection: (delta) => latest.current.moveSelection(delta),
       openSelection: () => latest.current.openSelection(),
+      listAction: (kind) => latest.current.listAction(kind),
+      escape: () => latest.current.escape(),
       isDialogOpen: () => latest.current.isDialogOpen(),
     })
     document.addEventListener('keydown', handler)

@@ -9,7 +9,7 @@ import {
 } from '@tabler/icons-react'
 import type { NavCounts } from '@/hooks/use-shell-data'
 
-/** Which sidebar item a route lights up. Detail routes point at their list. */
+/** Which rail item a route lights up. Detail routes point at their list. */
 export type NavKey =
   'overview' | 'deployments' | 'alerts' | 'fix-runs' | 'drift' | 'settings' | 'onboarding'
 
@@ -19,12 +19,16 @@ export interface NavItem {
   key: NavKey
   to: NavPath
   label: string
-  /** Shorter label for the phone tab bar. */
+  /** Label under the icon on the rail. */
+  railLabel: string
+  /** Label in the phone tab bar. */
   tabLabel: string
   icon: Icon
   count?: keyof NavCounts
-  /** Shows the count in the critical color (needs action). */
+  /** Shows the count as a badge on the icon (needs action). Other counts go in the tooltip. */
   hot?: boolean
+  /** Shows the count as a quiet badge while it is not zero (fix runs in progress). */
+  live?: boolean
 }
 
 export const PRIMARY_NAV: readonly NavItem[] = [
@@ -32,6 +36,7 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     key: 'overview',
     to: '/',
     label: 'Exposure',
+    railLabel: 'Exposure',
     tabLabel: 'Exposure',
     icon: IconRadar2,
     count: 'needsAction',
@@ -41,6 +46,7 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     key: 'deployments',
     to: '/deployments',
     label: 'Deployments',
+    railLabel: 'Deploys',
     tabLabel: 'Deploys',
     icon: IconServer2,
     count: 'deployments',
@@ -49,6 +55,7 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     key: 'alerts',
     to: '/alerts',
     label: 'All alerts',
+    railLabel: 'Alerts',
     tabLabel: 'Alerts',
     icon: IconListDetails,
     count: 'alerts',
@@ -57,9 +64,11 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     key: 'fix-runs',
     to: '/fix-runs',
     label: 'Fix runs',
+    railLabel: 'Fixes',
     tabLabel: 'Fixes',
     icon: IconRobot,
     count: 'activeFixRuns',
+    live: true,
   },
 ]
 
@@ -67,6 +76,7 @@ export const DRIFT_NAV: NavItem = {
   key: 'drift',
   to: '/drift',
   label: 'Drift guards',
+  railLabel: 'Drift',
   tabLabel: 'Drift',
   icon: IconRouteAltLeft,
 }
@@ -75,9 +85,13 @@ export const SETTINGS_NAV: NavItem = {
   key: 'settings',
   to: '/settings',
   label: 'Settings',
+  railLabel: 'Settings',
   tabLabel: 'More',
   icon: IconSettings2,
 }
+
+/** The rail, top to bottom; settings sits apart at the bottom. */
+export const RAIL_NAV: readonly NavItem[] = [...PRIMARY_NAV, DRIFT_NAV]
 
 const countFormat = new Intl.NumberFormat('en-US')
 

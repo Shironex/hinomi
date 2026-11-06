@@ -14,6 +14,8 @@ function makeActions(overrides: Partial<Record<keyof ShortcutActions, Mock>> = {
     focusSearch: vi.fn<ShortcutActions['focusSearch']>(),
     moveSelection: vi.fn<ShortcutActions['moveSelection']>(),
     openSelection: vi.fn<ShortcutActions['openSelection']>(() => true),
+    listAction: vi.fn<ShortcutActions['listAction']>(),
+    escape: vi.fn<ShortcutActions['escape']>(() => true),
     isDialogOpen: vi.fn<ShortcutActions['isDialogOpen']>(() => false),
     ...overrides,
   }
@@ -82,6 +84,23 @@ describe('createShortcutHandler', () => {
     expect(actions.focusSearch).toHaveBeenCalledOnce()
     expect(actions.moveSelection.mock.calls).toEqual([[1], [-1]])
     expect(actions.openSelection).toHaveBeenCalledOnce()
+  })
+
+  it('sends f, s, a and Esc to the list actions', () => {
+    const actions = makeActions()
+    const handler = createShortcutHandler(actions)
+    press(handler, 'f')
+    press(handler, 's')
+    press(handler, 'a')
+    expect(press(handler, 'Escape').defaultPrevented).toBe(true)
+    expect(actions.listAction.mock.calls).toEqual([['fix'], ['snooze'], ['accept']])
+    expect(actions.escape).toHaveBeenCalledOnce()
+  })
+
+  it('leaves Esc alone when nothing closes', () => {
+    const actions = makeActions({ escape: vi.fn<ShortcutActions['escape']>(() => false) })
+    const handler = createShortcutHandler(actions)
+    expect(press(handler, 'Escape').defaultPrevented).toBe(false)
   })
 
   it('ignores keys while typing in a field', () => {

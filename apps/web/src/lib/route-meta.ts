@@ -7,8 +7,13 @@ import { deploymentQuery, findingQuery } from './view-api'
 
 declare module '@tanstack/react-router' {
   interface StaticDataRouteOption {
-    /** Sidebar item this route lights up. */
+    /** Rail item this route lights up. */
     nav?: NavKey
+    /**
+     * `split` routes render a SplitView: the shell drops its padding and, from 1100 px, its top
+     * bar and key bar, which the split view draws inside its detail pane instead.
+     */
+    layout?: 'page' | 'split'
     /** Last breadcrumb. Routes with an `id` param append it. */
     crumb?: string
     /** Breadcrumb before this one, for detail routes. */
@@ -18,6 +23,7 @@ declare module '@tanstack/react-router' {
 
 export interface RouteMeta {
   nav: NavKey | undefined
+  layout: 'page' | 'split'
   crumbs: { label: string; to?: NavPath }[]
 }
 
@@ -51,8 +57,8 @@ export function useRouteMeta(): RouteMeta {
     ...deploymentQuery(id),
     enabled: id > 0 && match?.routeId === '/deployments/$id',
   })
-  if (!match) return { nav: undefined, crumbs: [] }
-  const { nav, crumb = '', parent } = match.staticData
+  if (!match) return { nav: undefined, layout: 'page', crumbs: [] }
+  const { nav, crumb = '', parent, layout = 'page' } = match.staticData
   const name =
     match.routeId === '/finding/$id' && finding.data
       ? findingCrumb(finding.data)
@@ -60,5 +66,5 @@ export function useRouteMeta(): RouteMeta {
         ? deployment.data.name
         : null
   const label = name ?? (params.id ? `${crumb} ${params.id}` : crumb)
-  return { nav, crumbs: parent ? [parent, { label }] : [{ label }] }
+  return { nav, layout, crumbs: parent ? [parent, { label }] : [{ label }] }
 }

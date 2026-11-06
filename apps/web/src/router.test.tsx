@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setTheme } from '@/lib/theme'
+import { configuredRoutes, mockApi } from '@/test/mock-api'
 import { renderApp } from '@/test/render-app'
 
 describe('routes', () => {
@@ -34,11 +35,42 @@ describe('routes', () => {
 
   it('marks the list view current on a detail route', async () => {
     await renderApp('/deployments/storefront-web')
-    const sidebar = screen.getByRole('complementary', { name: 'Sidebar' })
-    expect(within(sidebar).getByRole('link', { name: 'Deployments' })).toHaveAttribute(
+    const rail = screen.getByRole('complementary', { name: 'Rail' })
+    expect(within(rail).getByRole('link', { name: 'Deploys' })).toHaveAttribute(
       'aria-current',
       'page',
     )
+  })
+
+  it('shows the rail counts, the scan status and Scan now in the shell', async () => {
+    mockApi({
+      ...configuredRoutes(),
+      'GET /shell/nav-counts': {
+        needsAction: 267,
+        deployments: 12,
+        alerts: 4917,
+        activeFixRuns: 3,
+      },
+    })
+    await renderApp('/settings')
+    const rail = screen.getByRole('complementary', { name: 'Rail' })
+    expect(await within(rail).findByText('267')).toBeInTheDocument()
+    expect(within(rail).getByText('need action', { exact: false })).toBeInTheDocument()
+    expect(within(rail).getByRole('link', { name: /Fixes/ })).toHaveTextContent('3')
+    expect(within(rail).getByRole('link', { name: 'Alerts' })).toHaveAttribute(
+      'title',
+      'All alerts, 4,917',
+    )
+    const topBar = within(screen.getByRole('banner'))
+    expect(await topBar.findByText(/^Scanned /)).toBeInTheDocument()
+    expect(topBar.getByRole('button', { name: 'Scan now' })).toBeEnabled()
+  })
+
+  it('opens all keys from the key hint bar', async () => {
+    const user = userEvent.setup()
+    await renderApp('/settings')
+    await user.click(screen.getByRole('button', { name: /all keys/ }))
+    expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
   })
 
   it('shows the API health from /api/health on settings', async () => {
