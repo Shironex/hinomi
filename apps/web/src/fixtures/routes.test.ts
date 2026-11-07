@@ -1,0 +1,91 @@
+import {
+  accessStatusSchema,
+  deploymentDeploysResponseSchema,
+  deploymentDetailSchema,
+  deploymentsResponseSchema,
+  findingDetailSchema,
+  findingsResponseSchema,
+  fixesResponseSchema,
+  healthResponseSchema,
+  navCountsSchema,
+  notifyChannelsResponseSchema,
+  notifySettingsSchema,
+  onboardingStateSchema,
+  overviewResponseSchema,
+  reposResponseSchema,
+  scanRunSchema,
+  scanStatusSchema,
+  scansResponseSchema,
+  settingsSchema,
+  sourcesResponseSchema,
+} from '@hinomi/shared'
+import { describe, expect, it } from 'vitest'
+import type { z } from 'zod'
+import { DEPLOYMENTS, FINDINGS, LAST_SCAN } from './dataset'
+import { filterFindings, fixtureRoute, type FixtureScenario } from './routes'
+
+const get = (path: string, scenario?: FixtureScenario) =>
+  fixtureRoute('GET', new URL(`http://localhost/api${path}`), scenario)
+
+function expectShape(path: string, schema: z.ZodType, scenario?: FixtureScenario) {
+  const reply = get(path, scenario)
+  expect(reply.status, path).toBe(200)
+  const parsed = schema.safeParse(reply.body)
+  expect(parsed.error, path).toBeUndefined()
+}
+
+// Fixture mode feeds the real views, so every answer has to match the shared API contract.
+describe('fixture API', () => {
+  const routes: [string, z.ZodType][] = [
+    ['/health', healthResponseSchema],
+    ['/access', accessStatusSchema],
+    ['/onboarding', onboardingStateSchema],
+    ['/shell/nav-counts', navCountsSchema],
+    ['/shell/scan-status', scanStatusSchema],
+    ['/overview', overviewResponseSchema],
+    ['/findings', findingsResponseSchema],
+    ['/findings?tier=exposed,blind_spot&state=open&group=tier', findingsResponseSchema],
+    ['/fixes?limit=25', fixesResponseSchema],
+    ['/deployments', deploymentsResponseSchema],
+    ['/repos', reposResponseSchema],
+    ['/sources', sourcesResponseSchema],
+    ['/settings', settingsSchema],
+    ['/scans?limit=1', scansResponseSchema],
+    [`/scans/${LAST_SCAN.id}`, scanRunSchema],
+    ['/notifications/channels', notifyChannelsResponseSchema],
+    ['/notifications/settings', notifySettingsSchema],
+  ]
+
+  it.each(routes)('answers %s in the contract shape', (path, schema) => {
+    expectShape(path, schema)
+    expectShape(path, schema, 'setup')
+  })
+
+  it('answers every finding and deployment detail in the contract shape', () => {
+    for (const f of FINDINGS) expectShape(`/findings/${f.id}`, findingDetailSchema)
+    for (const d of DEPLOYMENTS) {
+      expectShape(`/deployments/${d.id}`, deploymentDetailSchema)
+      expectShape(`/deployments/${d.id}/deploys?limit=8`, deploymentDeploysResponseSchema)
+    }
+  })
+
+  it('refuses writes and unknown paths', () => {
+    expect(fixtureRoute('POST', new URL('http://localhost/api/scans')).status).toBe(403)
+    expect(get('/findings/999').status).toBe(404)
+    expect(get('/nothing').status).toBe(404)
+  })
+
+  it('opens setup on the GitHub step in the setup scenario', () => {
+    expect(get('/onboarding', 'setup').body).toEqual({ finished: false, alertsSkipped: false })
+    const sources = get('/sources', 'setup').body as z.infer<typeof sourcesResponseSchema>
+    expect(sources.sources.map((s) => s.kind)).toEqual(['coolify'])
+  })
+
+  it('filters findings like the server', () => {
+    const exposed = filterFindings(new URLSearchParams('tier=exposed&state=open'))
+    expect(exposed.items.every((f) => f.tier === 'exposed' && f.state === 'open')).toBe(true)
+    expect(exposed.total).toBe(exposed.items.length)
+    const tessera = filterFindings(new URLSearchParams('q=tessera'))
+    expect(tessera.items.map((f) => f.id)).toEqual([1, 7])
+  })
+})

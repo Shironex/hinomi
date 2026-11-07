@@ -10,3 +10,4 @@ coverage/
 data/
 *.db-wal
 *.db-shm
+dist-fixtures/

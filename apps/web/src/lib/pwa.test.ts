@@ -28,6 +28,14 @@ describe('service worker registration guard', () => {
     expect(registerServiceWorker()).toBe(false)
   })
 
+  it('never registers in a fixture mode build', () => {
+    vi.stubEnv('PROD', true)
+    vi.stubEnv('MODE', 'fixtures')
+    stubBrowser({ secure: true, supported: true })
+    expect(canRegisterServiceWorker()).toBe(false)
+    expect(registerServiceWorker()).toBe(false)
+  })
+
   it('never registers on an insecure context', () => {
     vi.stubEnv('PROD', true)
     stubBrowser({ secure: false, supported: true })
