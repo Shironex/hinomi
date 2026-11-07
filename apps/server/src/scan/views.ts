@@ -1,4 +1,4 @@
-import type { FindingKind, FindingState } from '@hinomi/shared'
+import type { FindingKind, FindingState, GuardCheck, GuardLevel } from '@hinomi/shared'
 import type {
   AdvisoryRow,
   DeploymentRow,
@@ -9,6 +9,12 @@ import type {
 import type { Repositories } from '../repository/index.js'
 import { countFindings, type FindingCounts } from './counts.js'
 import { indexDeployments, type DeploymentIndex } from './deployments.js'
+import {
+  loadOverrideIndex,
+  overridableCheckOf,
+  subjectOf,
+  type CoveringOverride,
+} from './overrides.js'
 import {
   allStopped,
   compareByRank,
@@ -25,6 +31,9 @@ export interface RankedFinding extends ExposureRank {
   state: FindingState
   stateUntil: Date | null
   reach: ExposureReach
+  /** Guard findings: the check and the current level. Null for every other kind. */
+  guardCheck: GuardCheck | null
+  guardLevel: GuardLevel | null
   /** Every deployment it runs in is stopped: ranked as not deployed, kept visible with a badge. */
   stopped: boolean
   /** GitHub's alert is stale: every resolved version in the lockfile is patched. */
@@ -34,6 +43,8 @@ export interface RankedFinding extends ExposureRank {
   repo: RepoRow | null
   /** Deployments the finding reaches: the repo's deployments, or the deployment itself. */
   deployments: DeploymentRow[]
+  /** Guards and blind spots: the check override that turns it off, null when none does. */
+  override: CoveringOverride | null
 }
 
 function deploymentsOf(finding: FindingRow, index: DeploymentIndex): DeploymentRow[] {
@@ -49,11 +60,15 @@ export function rankFinding(
   repo: RepoRow | null,
   deployments: DeploymentRow[],
 ): RankedFinding {
-  const reach = reachOf(deployments)
+  const deployedReach = reachOf(deployments)
+  // A desktop release finding on a repo nothing runs is in users' hands: the released tier.
+  const reach = finding.releaseTag !== null && deployedReach === 'none' ? 'released' : deployedReach
   const rank = rankExposure({
     kind: finding.kind,
     severity: advisory?.severity ?? null,
     blindSpotType: finding.blindSpotType,
+    guardCheck: finding.guardCheck,
+    guardLevel: finding.guardLevel,
     scope: finding.scope,
     reach,
     cvssScore: advisory?.cvssScore ?? null,
@@ -65,12 +80,15 @@ export function rankFinding(
     state: finding.state,
     stateUntil: finding.stateUntil,
     reach,
+    guardCheck: finding.kind === 'guard' ? finding.guardCheck : null,
+    guardLevel: finding.kind === 'guard' ? finding.guardLevel : null,
     stopped: allStopped(deployments),
     patchedInLockfile: finding.kind === 'advisory' && finding.patchedInLockfile,
     finding,
     advisory,
     repo,
     deployments,
+    override: null,
   }
 }
 
@@ -90,11 +108,20 @@ function cachedLookup<T>(get: (id: number) => T | undefined): (id: number | null
  */
 export function listRankedFindings(repositories: Repositories): RankedFinding[] {
   const index = indexDeployments(repositories)
+  const overrides = loadOverrideIndex(repositories, index)
   const advisoryOf = cachedLookup((id) => repositories.advisories.get(id))
   const repoOf = cachedLookup((id) => repositories.repos.get(id))
+  const overrideOf = (finding: FindingRow): CoveringOverride | null => {
+    const check = overridableCheckOf(finding)
+    const subject = subjectOf(finding)
+    return check && subject ? overrides.covering(check, subject) : null
+  }
   return repositories.findings
     .list()
-    .map((f) => rankFinding(f, advisoryOf(f.advisoryId), repoOf(f.repoId), deploymentsOf(f, index)))
+    .map((f) => ({
+      ...rankFinding(f, advisoryOf(f.advisoryId), repoOf(f.repoId), deploymentsOf(f, index)),
+      override: overrideOf(f),
+    }))
     .sort((a, b) => compareByRank(a, b) || a.finding.id - b.finding.id)
 }
 

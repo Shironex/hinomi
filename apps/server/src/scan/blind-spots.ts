@@ -4,6 +4,7 @@ import { blindSpotFindingKey, coverageNoteFindingKey } from '../repository/index
 import type { FindingChange } from './apply.js'
 import type { RepoScan } from './collect.js'
 import { isImageOnly, needsRepoMapping, type DeploymentIndex } from './deployments.js'
+import { loadOverrideIndex, reconcileOverride, type OverrideIndex } from './overrides.js'
 import { markFixed, reopenIfFixed } from './state.js'
 
 /** Blind spots about a repo, as opposed to `no_repo_mapping`, which is about a deployment. */
@@ -119,6 +120,7 @@ export function applyCoverageNotes(
 function applyCheck(
   repositories: Repositories,
   check: BlindSpotCheck,
+  overrides: OverrideIndex,
   now: Date,
   changes: FindingChange[],
 ): void {
@@ -143,6 +145,11 @@ function applyCheck(
     } else if (reopenIfFixed(findings, finding, now)) {
       changes.push({ findingId: finding.id, change: 'reopened' })
     }
+    const current = findings.get(finding.id)
+    const change =
+      current &&
+      reconcileOverride(findings, current, overrides.covering(check.type, check.subject), now)
+    if (change) changes.push({ findingId: finding.id, change })
     return
   }
   const existing = findings.getByKey(blindSpotFindingKey(check.type, check.subject))
@@ -152,7 +159,8 @@ function applyCheck(
 }
 
 /**
- * Opens, reopens and resolves blind spots and coverage notes. Repos checked are the ones scanned
+ * Opens, reopens and resolves blind spots and coverage notes, and applies check overrides to
+ * blind spots (Q5: `archived_deployed` can be turned off). Repos checked are the ones scanned
  * this run plus every repo that already has a blind spot (so one that is no
  * longer deployed resolves).
  */
@@ -174,7 +182,8 @@ export function applyBlindSpots(
       ),
       ...deploymentBlindSpotChecks(index),
     ]
-    for (const check of checks) applyCheck(repositories, check, now, changes)
+    const overrides = loadOverrideIndex(repositories, index)
+    for (const check of checks) applyCheck(repositories, check, overrides, now, changes)
     changes.push(...applyCoverageNotes(repositories, index, now))
     return changes
   })
