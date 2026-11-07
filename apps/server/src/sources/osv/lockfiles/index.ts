@@ -1,6 +1,7 @@
 export { parseBunLock } from './bun.js'
 export { parseCargoLock } from './cargo.js'
 export { parseGoMod } from './gomod.js'
+export { parseComposerLock } from './composer.js'
 export { dedupeDependencies } from './graph.js'
 export { parsePackageLock } from './npm.js'
 export {
