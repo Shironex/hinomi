@@ -31,6 +31,7 @@ const ERROR_TAXONOMY = [
   'ConnectionTestFailed',
   'CoolifyError',
   'FindingTransitionError',
+  'FixRunnerError',
   'FixPayloadError',
   'GitHubContentsError',
   'GithubError',
@@ -124,7 +125,7 @@ export default defineConfig(
     languageOptions: { globals: globals.serviceworker },
   },
   {
-    files: ['apps/server/**/*.ts', '**/*.config.ts'],
+    files: ['apps/server/**/*.ts', 'actions/**/*.ts', '**/*.config.ts'],
     languageOptions: { globals: globals.node },
   },
   {
@@ -184,6 +185,29 @@ export default defineConfig(
         {
           configModule: './config.js',
           allowedFiles: ['**/apps/server/src/config.ts', '**/*.test.ts'],
+        },
+      ],
+    },
+  },
+  {
+    files: ['actions/fix-runner/src/**/*.ts'],
+    rules: {
+      // src/index.ts is the entry tsdown bundles into dist/index.mjs, not a barrel.
+      'noctcore-architecture/barrel-purity': [
+        'error',
+        { allow: ['**/actions/fix-runner/src/index.ts'] },
+      ],
+      // The entry hands process.env to main(), which reads inputs from that one object; the
+      // test harness gives git a fixed identity on top of the real environment.
+      'noctcore-contracts/no-direct-process-env': [
+        'error',
+        {
+          configModule: './main.js',
+          allowedFiles: [
+            '**/actions/fix-runner/src/index.ts',
+            '**/actions/fix-runner/src/testing.ts',
+            '**/*.test.ts',
+          ],
         },
       ],
     },
@@ -276,6 +300,28 @@ export default defineConfig(
               message: 'The web app talks to the server over HTTP only.',
             },
             NODE_BUILTINS,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The fix runner action runs in a target repo's workflow, apart from the Hinomi server.
+    // It shares the contract in @hinomi/shared and imports no app.
+    files: ['actions/fix-runner/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@hinomi/server', '@hinomi/server/*', '@hinomi/web', '@hinomi/web/*'],
+              message: 'The fix runner never imports an app; share code through @hinomi/shared.',
+            },
+            {
+              regex: '(^|/)apps/',
+              message: 'The fix runner never imports an app; share code through @hinomi/shared.',
+            },
           ],
         },
       ],

@@ -1,0 +1,11 @@
+{
+  "schema": "hinomi.fix-dispatch/2",
+  "runId": "run-7",
+  "dispatchedAt": "2026-11-07T10:00:00.000Z",
+  "plan": { "version": 1, "scanRunId": 41, "createdAt": "2026-11-07T09:00:00.000Z" },
+  "repo": { "id": 3, "fullName": "kestrel-co/shop", "baseBranch": "main" },
+  "steps": [],
+  "risky": [],
+  "omitted": { "steps": 0, "risky": 0, "advisories": false },
+  "options": { "checks": "full", "agent": false, "linksAllowed": false, "releaseAgeDays": 7 }
+}

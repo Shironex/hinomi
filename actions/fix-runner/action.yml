@@ -1,0 +1,50 @@
+name: Hinomi fix runner
+description: Applies a Hinomi fix plan to the checkout and writes a patch plus hinomi-result.json. Meant for the read only apply job of the Hinomi fix workflow.
+author: Shironex
+
+inputs:
+  step:
+    description: 'detect (validate the dispatch and name the package manager, before the toolchain is set up) or apply'
+    required: false
+    default: apply
+  plan:
+    description: The dispatch from Hinomi, JSON or gzip plus base64.
+    required: true
+  encoding:
+    description: json or gzip-base64
+    required: false
+    default: json
+  run_id:
+    description: Hinomi's fix run id; when set it must match the dispatch.
+    required: false
+    default: ''
+  checks:
+    description: 'auto (the dispatch decides), install, full, or a comma list such as lint,test'
+    required: false
+    default: auto
+
+outputs:
+  package_manager:
+    description: Package manager of the first project (detect and apply).
+  package_manager_version:
+    description: Version from the packageManager field, empty when it has none (detect).
+  lockfile:
+    description: Lockfile of the first project (detect).
+  project_root:
+    description: Folder of the first project's lockfile (detect).
+  has_changes:
+    description: true when the apply step produced a patch.
+  agent_needed:
+    description: true when the dispatch asks for the optional majors job and carries risky steps.
+  output_dir:
+    description: Folder with hinomi-result.json and fix.patch, to upload as one artifact.
+  result_path:
+    description: Path of hinomi-result.json.
+  patch_path:
+    description: Path of fix.patch, empty when there is no patch.
+  rejected:
+    description: true when the dispatch or the checkout was refused before anything was applied.
+
+runs:
+  using: node24
+  main: dist/index.mjs

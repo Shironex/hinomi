@@ -1,0 +1,8 @@
+{
+  "name": "kestrel-real-pnpm",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "plover-parse": "^1.2.0"
+  }
+}

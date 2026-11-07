@@ -1,0 +1,36 @@
+{
+  "schema": "hinomi.fix-dispatch/1",
+  "runId": "run-7",
+  "dispatchedAt": "2026-11-07T10:00:00.000Z",
+  "plan": { "version": 1, "scanRunId": 41, "createdAt": "2026-11-07T09:00:00.000Z" },
+  "repo": { "id": 3, "fullName": "kestrel-co/shop", "baseBranch": "main" },
+  "steps": [
+    {
+      "id": "override:npm:wren-util:2.2.0:pnpm-lock.yaml",
+      "order": 1,
+      "tier": "internal",
+      "ecosystem": "npm",
+      "packageName": "wren-util",
+      "relationship": "transitive",
+      "lockfile": "pnpm-lock.yaml",
+      "packageManager": "pnpm",
+      "workspaces": [],
+      "from": ["2.1.0"],
+      "to": "2.2.0",
+      "level": "minor",
+      "apply": {
+        "type": "override",
+        "manifest": "../outside/package.json",
+        "field": "pnpm.overrides",
+        "key": "wren-util@<2.2.0",
+        "value": "2.2.0"
+      },
+      "advisories": [],
+      "releasedAt": null,
+      "releaseAge": "unknown"
+    }
+  ],
+  "risky": [],
+  "omitted": { "steps": 0, "risky": 0, "advisories": false },
+  "options": { "checks": "install", "agent": false, "linksAllowed": true, "releaseAgeDays": 7 }
+}

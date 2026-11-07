@@ -1,0 +1,11 @@
+{
+  "name": "@kestrel/api",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@kestrel/kit": "workspace:*"
+  },
+  "devDependencies": {
+    "plover-parse": "~1.2.0"
+  }
+}

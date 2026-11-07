@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+
+# Refuse releases younger than 14 days.
+minimumReleaseAge: 20160
+minimumReleaseAgeExclude:
+  - '@kestrel/*'
+
+overrides:
+  # Pinned while heron-log 2 settles.
+  heron-log@<2.0.0: 1.8.0
