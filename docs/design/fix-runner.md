@@ -530,7 +530,7 @@ Each slice is one PR. #61 must land its FixPlan schema first.
 1. **feat(server): fix runs table and state machine.** A Drizzle migration for `fix_runs` (repo, plan id and version, run id, branch, PR number, state, timestamps, result json, etags), pure transition function, tests.
 2. **feat(server): poll fix runs and read results.** A scheduler job with cadence per state, ETag support in `GithubClient` (`ifNoneMatch`, accept 304), artifact download and zip reader, PR and check polling, a shared request cap.
 3. **feat(server): link merged fixes to deployments and verify.** Coolify deployment of the merge commit, the watch path warning, a targeted rescan, `verified` or `not-cleared`.
-4. **feat(server): fix run notifications.** PR opened, checks failed, verified fixed, through the existing notifier (ranked, deduped).
+4. **feat(server): fix run notifications.** PR opened, checks failed, verified fixed, through the existing notifier (ranked, deduped). Built, see section 18.
 5. **feat(server): optional github webhook for fix runs.** HMAC verified endpoint, `workflow_run`, `pull_request` and `check_suite` handlers feeding the same transitions, docs for a single path tunnel ingress.
 
 Order: #61, then 62.1, then 62.2 and 63.1 in parallel, then 62.3, then 62.4, then 62.5 and 63.2, then 63.3, 63.4, 62.6, 62.7, 62.8, 63.5. #64 (UI) can start against the API after 62.4 and 63.1.
@@ -615,3 +615,13 @@ What linking merged runs to deployments and verifying them settled, where it dif
 3. **No deploy.** After 3 days without a deploy of the merge, the run keeps `merged` with a `deploy_not_seen` warning and polling stops. Repos with no mapped application are verified right after the merge, since the lockfile on the default branch is what Hinomi reads.
 4. **Watch paths.** Checked against the files the runner's patch changed, with Coolify's rules (ordered patterns, `!` negation, last match wins). A miss is a `watch_paths_skip` warning on the run, not a state.
 5. **Rescan.** A scoped rescan of the one repo through the scheduler (`scanRepo`), never beside a full scan, recording no scan run so the schedule and the last scan stay as they are. It counts only when every source read the repo fully; failures retry with backoff (5 tries), then the next full scan verifies the run. Partial results stay `not_cleared`: the state machine has no partial state, the counts and ids live in `verification`.
+
+## 18. Built in 63.4: notifications
+
+What announcing fix run events settled, where it differs from the slice plan. The user facing description is in [notifications.md](../notifications.md).
+
+1. **One hook, every writer.** `fixRuns.onChanged(listener)` on the repository fires after a committed write that changed a run (`applyEvent`, `saveVerify`, and the runs a new dispatch supersedes). The tracker, the publisher, the dispatch and the verification all write through it, so none needs its own callback and the runner layer never imports `notify`. `index.ts` connects it to `notifier.handleFixRunChanged`, like the scan listener. A listener that throws is swallowed; the write stands.
+2. **Derived from the row, not the event.** The notifier looks at the run's current row (state, PR, warnings) and sends what it calls for and was not sent yet (`apps/server/src/notify/fix-run-events.ts`). A missed intermediate poll therefore loses nothing, and a run first seen after its PR merged does not announce the PR.
+3. **Dedup in settings.** `notify.fixRunState` holds `sent[runId][event]` as the channel ids that got it. No migration. Failed deliveries stay open for the next change of the run; records of deleted runs are pruned on write.
+4. **Immediate, not batched.** Fix events skip the first scan summary, the batching and the digest, and ignore a channel's minimum severity.
+5. **Links.** The PR on GitHub always; the Hinomi run page only when the run was dispatched for a private repo (`checksMode` is `install`) and a public base URL is set, as in the PR body (decision 13).
