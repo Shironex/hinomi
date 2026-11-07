@@ -179,9 +179,9 @@ The GitHub Actions fix runner applies a repo's latest plan in the repo's own Act
 | Method and path | Does |
 |---|---|
 | `GET /api/repos/:id/runner` | Settings plus a live status (see below). Reads GitHub, never writes |
-| `PATCH /api/repos/:id/runner` | `{ enabled?, workflow? }`. `workflow` is a file name under `.github/workflows` ending in `.yml` or `.yaml`; `null` goes back to `hinomi-fix.yml`. Answers with the same status |
+| `PATCH /api/repos/:id/runner` | `{ enabled?, workflow?, majorsAgent? }`. `majorsAgent` is `off` (default) or `claude-code` (the optional majors agent, [docs/github.md](github.md#the-optional-majors-agent)). `workflow` is a file name under `.github/workflows` ending in `.yml` or `.yaml`; `null` goes back to `hinomi-fix.yml`. Answers with the same status |
 | `POST /api/repos/:id/runner/setup-pr` | Opens the PR that adds the caller workflow, or moves its pin to the latest release (see below). No body |
-| `POST /api/repos/:id/fix-runs` | Dispatches the repo's latest plan. Body `{ confirmReopen? }`. 201 `{ run, encoding, omittedStepIds }` |
+| `POST /api/repos/:id/fix-runs` | Dispatches the repo's latest plan. Body `{ confirmReopen? }`. 201 `{ run, encoding, omittedStepIds, majorsRun }`; `majorsRun` is the majors run dispatched beside `run`, else null (see below) |
 | `GET /api/repos/:id/fix-runs` | `{ items }`, newest first. `?kind=fix\|majors`, `?limit=` 1 to 100 (default 50) |
 | `GET /api/fix-runs/:id` | One run, plus `tracking`: `{ lastPolledAt, nextPollAt, lastError, pausedUntil }` from the tracker, null when it has not looked at the run since the server started or no longer follows it; `deployments`, `warnings` and `verification` (see below) |
 
@@ -189,19 +189,19 @@ The runner status:
 
 | Field | Meaning |
 |---|---|
-| `settings` | `{ enabled, workflow }` |
+| `settings` | `{ enabled, workflow, majorsAgent }` |
 | `ready` | On, the credential may dispatch, and the caller workflow calls Hinomi with every input |
 | `github` | `{ fullName, defaultBranch, visibility, checksMode }` as GitHub reports the repo now, null when it could not be read. `checksMode` is `full` on public repos and `install` on private ones |
 | `permissions` | `{ auth, ok, canOpenSetupPr, items, message }`. `auth` is `github_app`, `fine_grained_token` or `classic_token`. Each item is `{ name, label, purpose, required, status }` with `status` `granted`, `missing` or `unverified` (a fine grained token's write access cannot be read without writing, so a working read leaves it unverified) |
 | `setupPr` | `{ available, reason }`: whether the setup PR button can work. `reason` always says why, also when it is available but unverified (a fine grained token's Workflows write cannot be read in advance, so Hinomi tries and explains a refusal) |
-| `caller` | `{ state, path, ref, present, pinnedSha, latestSha, outdated, missingInputs, message, template }`. `present`: the file exists on the default branch. `pinnedSha`: the SHA it pins, null when unpinned or absent. `outdated`: pinned to a SHA other than `latestSha`. `state`: `missing`, `invalid` (not YAML), `not_hinomi`, `unpinned` (a tag or branch), `pinned` (a SHA, no release SHA known yet), `current`, `outdated`, `unknown` (could not be read). `template` is the caller workflow to paste |
+| `caller` | `{ state, path, ref, present, pinnedSha, latestSha, outdated, missingInputs, message, template }`. `present`: the file exists on the default branch. `pinnedSha`: the SHA it pins, null when unpinned or absent. `outdated`: pinned to a SHA other than `latestSha`. `state`: `missing`, `invalid` (not YAML), `not_hinomi`, `unpinned` (a tag or branch), `pinned` (a SHA, no release SHA known yet), `current`, `outdated`, `unknown` (could not be read). `template` is the caller workflow to paste; it hands `ANTHROPIC_API_KEY` to the reusable workflow when `majorsAgent` is on, and carries the same lines commented out otherwise. `passesAgentSecret`: the file passes that secret (`secrets: inherit` counts); absent when the file could not be read |
 | `latestRun` | The newest fix run, or null |
 | `closedUnmerged` | `{ runId, pr: { number, url }, closedAt }` when the last fix PR was closed without merging, else null |
-| `message` | What to do next, or `Ready to dispatch.` |
+| `message` | What to do next, or `Ready to dispatch.` (with a warning when the majors agent is on and the caller passes no secret) |
 
 The setup PR, `POST /api/repos/:id/runner/setup-pr` (`apps/server/src/runner/setup-pr.ts`):
 
-1. Renders the caller for the repo's workflow file name, pinned to the latest release SHA (read from GitHub as for `caller.latestSha`).
+1. Renders the caller for the repo's workflow file name, pinned to the latest release SHA (read from GitHub as for `caller.latestSha`), with the `secrets:` block when the majors agent is on (the PR body then says to add the repository secret).
 2. Reads the file on the default branch. If it is already exactly that text, answers `already_set_up` and opens nothing.
 3. Creates the branch `hinomi/setup-fix-runner` from the default branch head (or reuses it), puts the file on it, and opens a PR (`ci(hinomi): add the hinomi fix runner`, or `update the pin of the hinomi fix runner` when the file already exists). An open PR from an earlier call is reused and its text refreshed, so the call is safe to repeat.
 4. Answers `{ outcome, pr, path, sha, version }`: 201 with `outcome: "created"`, or 200 with `updated` (existing PR, now current) or `already_set_up` (`pr` is null).
@@ -211,10 +211,11 @@ Refused: 404 unknown repo; 409 when no release SHA is known yet (an instance tha
 How a dispatch goes:
 
 1. Refused without a run: 404 for an unknown repo or no plan, 409 when the runner is off, no GitHub source is connected or the plan has no safe step the runner can apply, 503 when GitHub could not be asked about the repo.
-2. When the last fix PR was closed unmerged and the body has no `confirmReopen: true`, the answer is 409 `{ error, previous: { runId, pr: { number, url }, closedAt } }`, so the UI can ask before a fresh PR is opened.
+2. When the last fix PR (or, with the majors agent on, the last majors PR) was closed unmerged and the body has no `confirmReopen: true`, the answer is 409 `{ error, previous: { runId, pr: { number, url }, closedAt } }`, so the UI can ask before a fresh PR is opened.
 3. Hinomi reads the repo's spelling, default branch and visibility from GitHub, projects the plan into the dispatch (public: `checks: full`, no links back to Hinomi; private: `checks: install`, links allowed), and encodes it (`json` when it fits in 60,000 characters, else `gzip-base64`, else trimmed by priority; trimmed step ids come back in `omittedStepIds`).
 4. The run is stored as `pending`, then Hinomi calls `POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches` with `{ ref: <default branch>, inputs: { run_id, plan, encoding }, return_run_details: true }`. `run_id` is the run's `correlationId`, also in the workflow's run name.
 5. Accepted: the run moves to `dispatched` with `github.runId` from the response (null on a GitHub that answers 204 without details). Refused: the run moves to `failed` and `stateReason` says what to fix (404 no caller workflow on the default branch, 403 no Actions write, 422 inputs the caller does not declare). Either way the answer is 201 with the run. A dispatch is never retried after a 5xx or a network error, since GitHub may have acted on it.
+6. Majors: with `majorsAgent` on and major upgrades in the plan (risky because of a semver major, with a lockfile), a second run of kind `majors` is dispatched the same way right after, with only those upgrades and the agent on; it comes back as `majorsRun`. A plan with no safe step but major upgrades gets the majors run alone, as `run` (and `majorsRun` null). A majors dispatch refused before a run was created is left out. The majors run has its own branch `hinomi/majors`, artifact `hinomi-majors-<correlationId>` and PR, always a draft, with the marker `<!-- hinomi:majors repo=<id> ... -->`. A majors run whose agent left no patch ends `failed` with the agent's reason. Its verification targets the major upgrades whose lockfile the agent changed.
 
 How the fix PR is opened (mode A, Hinomi opens it with its own credential):
 

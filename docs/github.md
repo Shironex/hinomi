@@ -116,6 +116,22 @@ A GitHub App is the recommended credential for the runner: the PR author is the 
    Replace `<40 char sha>` with the commit the runner status shows, and keep the version comment it adds (`# v0.2.0`) so readers can tell the release. Hinomi finds that commit by asking GitHub for the latest Hinomi release and the commit its tag points at (cached for 6 hours); an instance that cannot reach api.github.com falls back to the SHA built into it, and with none known it shows the placeholder. You can also look it up yourself: the commit of the latest release tag on [Shironex/hinomi](https://github.com/Shironex/hinomi/releases). Pin the full commit SHA, never a tag or branch: the pin covers the workflow and the action it runs, which comes from the same commit. The status reports the caller as missing, not calling Hinomi, unpinned, pinned, current or outdated, and lists any of the three inputs the file does not declare. To use another file name, set it in the repo's runner settings.
 3. Turn the runner on for the repo. When the status says ready, dispatch the latest plan.
 
-If the repo's last fix PR was closed without merging, Hinomi asks before opening a fresh one. Nothing secret is stored in the target repo, and no repo setting needs to change.
+If the repo's last fix PR was closed without merging, Hinomi asks before opening a fresh one. Nothing secret is stored in the target repo, and no repo setting needs to change (unless you turn on the majors agent, below).
 
 What the workflow does in the repo, job by job, is in [docs/runner/README.md](runner/README.md). It needs github.com (the self repository reference it uses is not available on GitHub Enterprise Server).
+
+### The optional majors agent
+
+Major upgrades never go into the fix PR. With the majors agent on, Hinomi also hands them to a coding agent (Claude Code, run headless in the repo's Actions), which sets the new versions, adapts the code and tries to make the tests pass. Its changes go to the branch `hinomi/majors` and a separate pull request that is **always a draft** and says plainly that an agent wrote it. Review it like any outside contribution. It is off for every repo.
+
+To turn it on for a repo:
+
+1. Create an Anthropic API key for this purpose only, with a spend limit, and add it to the repo as the Actions secret `ANTHROPIC_API_KEY` (Settings, Secrets and variables, Actions).
+2. Pass it to the reusable workflow: uncomment the `secrets:` lines at the end of the caller workflow (or use the setup PR button after step 3, which writes them). `secrets: inherit` works too but passes every secret; naming the one is better.
+3. Set the majors agent to `claude-code` in the repo's runner settings (`PATCH /api/repos/:id/runner` with `{ "majorsAgent": "claude-code" }`). The runner status warns while the caller passes no secret.
+
+Each dispatch of a plan with major upgrades then starts a second workflow run after the fix run. Only the majors job sees the key, and the action passes it to the agent process alone.
+
+**Cost.** Model usage is billed to the key: the agent stops at 80 turns or about 10 USD of usage per run, whichever comes first, and the runner stops it after 40 minutes. On private repos the majors job also uses up to about an hour of Actions minutes (public repos are free). Large upgrades can hit those limits; the draft then shows what the agent got done.
+
+**What the agent can and cannot do.** Its shell commands run in Claude Code's sandbox (bubblewrap): they write only inside the checkout, reach only the npm, yarn and crates registries, and cannot read the key. Its file tools read and edit inside the checkout, never `.github`. The job's GitHub token is read only, and a separate job pushes the branch after checking the patch: no files under `.github`, git hooks, CI, editor or registry configuration, `.env` files, binaries, deletions or more than 200 files or 1 MB. It cannot merge anything or touch the fix PR. It does send the repo's code to Anthropic as it works, so do not turn it on for repos whose code may not leave your hands, and dependency code or changelogs it reads could steer it (prompt injection), which is why the PR stays a draft. The full trust model is in [the design](design/fix-runner.md#20-built-in-628-the-majors-agent).

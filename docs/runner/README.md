@@ -14,8 +14,10 @@ Release step: nothing is required, the tag is the record. Optionally, when cutti
 
 | Job | Token | Steps |
 |---|---|---|
-| `apply` | `contents: read`, no secrets | checkout (no persisted credentials); `detect` (validates the plan, names every toolchain); setup of Node, pnpm, yarn, bun and Rust as needed; `apply` (manifest edits and lockfile only installs, no install scripts; sets `base_sha`, `patch_sha256` and `patch_files` as job outputs); `check` (full install and the repo's checks, full mode only); upload of `.hinomi/` as `hinomi-fix-<run_id>`, kept 7 days |
+| `apply` | `contents: read`, no secrets | checkout (no persisted credentials); `detect` (validates the plan, names every toolchain); setup of Node, pnpm, yarn, bun and Rust as needed (the [`actions/fix-toolchain`](../../actions/fix-toolchain) composite); `apply` (manifest edits and lockfile only installs, no install scripts; sets `base_sha`, `patch_sha256` and `patch_files` as job outputs); `check` (full install and the repo's checks, full mode only); upload of `.hinomi/` as `hinomi-fix-<run_id>`, kept 7 days |
 | `publish` | `contents: write` | only when there is a patch: checkout of the base commit; download of the artifact; `publish` (hash and file list against the apply job outputs, the dependency file allowlist, no renames, deletions, mode changes or symlinks), commit as `github-actions[bot]` with `fix(deps): apply hinomi fix plan <id>`, force push of `hinomi/fix-plan`. It never opens the PR. |
+| `majors` (optional) | `contents: read`, plus the caller's `ANTHROPIC_API_KEY` | only in a majors run (a separate dispatch whose plan carries only major upgrades, with the agent on): checkout; `detect` with `scope: majors`; toolchain setup; `agent` (the coding agent preset on the checkout, `.git` parked away, then the patch capture with the majors allowlist and caps; sets the same job outputs); upload as `hinomi-majors-<run_id>` |
+| `majors-publish` (optional) | `contents: write` | only when the agent left a patch: as `publish`, with `scope: majors` (the wider allowlist, no binaries, at most 200 files and 1 MB), force push of `hinomi/majors`. Hinomi opens the PR as a draft. |
 
 Runs are serialized per repo (`hinomi-fix-<owner/repo>`, never cancelled halfway). No step saves a cache. Every third party action is pinned by commit SHA.
 
@@ -23,8 +25,8 @@ Runs are serialized per repo (`hinomi-fix-<owner/repo>`, never cancelled halfway
 
 ## Self test
 
-[`.github/workflows/fix-selftest.yml`](../../.github/workflows/fix-selftest.yml) runs `fix.yml` on pull requests that touch it or the action (and by hand): a plan in `actions/fix-runner/fixtures/selftest-dispatch.json` bumps a real package in an npm and a pnpm fixture project inside this repo, and the publish job runs with `dry_run: true`, so the patch is verified, applied and committed but never pushed.
+[`.github/workflows/fix-selftest.yml`](../../.github/workflows/fix-selftest.yml) runs `fix.yml` on pull requests that touch it or the action (and by hand): a plan in `actions/fix-runner/fixtures/selftest-dispatch.json` bumps a real package in an npm and a pnpm fixture project inside this repo, and the publish job runs with `dry_run: true`, so the patch is verified, applied and committed but never pushed. A second call runs a majors dispatch (`selftest-majors-dispatch.json`) with the `stub` agent preset, which calls no model and needs no secret, and expects an unpushed `hinomi/majors` commit.
 
 ## Linting
 
-`.github/scripts/lint-workflows.sh` downloads pinned actionlint and zizmor (checked by SHA-256) and lints every workflow plus this template with a dummy SHA. CI runs it in the "Workflow lint" job.
+`.github/scripts/lint-workflows.sh` downloads pinned actionlint and zizmor (checked by SHA-256) and lints every workflow, the `actions/fix-toolchain` composite and this template with a dummy SHA. CI runs it in the "Workflow lint" job.
