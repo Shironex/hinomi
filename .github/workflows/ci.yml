@@ -30,6 +30,14 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Check the fix runner bundle is committed and current
+        run: |
+          changes=$(git status --porcelain -- actions/fix-runner/dist)
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "actions/fix-runner/dist is out of date: run pnpm --filter @hinomi/fix-runner build and commit it."
+            exit 1
+          fi
 
   docker:
     name: Docker build
