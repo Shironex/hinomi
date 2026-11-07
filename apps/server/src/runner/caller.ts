@@ -21,6 +21,15 @@ export interface LatestFixWorkflow {
 
 const SHA = /^[a-f0-9]{40}$/
 
+/** The facts of a caller file derived from its state, for the status. */
+function callerFacts(state: RunnerCallerState, ref: string | null) {
+  return {
+    present: state !== 'missing' && state !== 'unknown',
+    pinnedSha: ref !== null && SHA.test(ref) ? ref : null,
+    outdated: state === 'outdated',
+  }
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -120,6 +129,7 @@ export function unknownCaller(
     state: 'unknown',
     path: `${CALLER_WORKFLOW_DIR}/${workflow}`,
     ref: null,
+    ...callerFacts('unknown', null),
     latestSha: latest?.sha ?? null,
     missingInputs: [],
     message,
@@ -155,6 +165,7 @@ export async function readCaller(
       ...base,
       state: 'missing',
       ref: null,
+      ...callerFacts('missing', null),
       missingInputs: [],
       message: messageFor('missing', path, null, []),
     }
@@ -163,6 +174,7 @@ export async function readCaller(
   return {
     ...base,
     ...inspected,
+    ...callerFacts(inspected.state, inspected.ref),
     message: messageFor(inspected.state, path, inspected.ref, inspected.missingInputs),
   }
 }

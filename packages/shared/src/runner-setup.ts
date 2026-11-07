@@ -181,6 +181,12 @@ export const runnerCallerSchema = z.object({
   path: z.string(),
   /** The ref after `@` in the `uses:` line, when there is one. */
   ref: z.string().nullable(),
+  /** The file exists on the default branch (any content). False when missing or unreadable. */
+  present: z.boolean(),
+  /** The commit SHA the file pins the Hinomi workflow to; null when unpinned or absent. */
+  pinnedSha: z.string().nullable(),
+  /** Pinned to a SHA other than `latestSha`: the setup PR then opens an "update the pin" PR. */
+  outdated: z.boolean(),
   /** The release SHA callers should pin, null until one is known. */
   latestSha: z.string().nullable(),
   /** workflow_dispatch inputs Hinomi sends that the file does not declare. */
@@ -199,6 +205,16 @@ export const fixRunPreviousPrSchema = z.object({
 })
 export type FixRunPreviousPr = z.infer<typeof fixRunPreviousPrSchema>
 
+/**
+ * Whether the setup PR button can work. `reason` always says why, including when it is
+ * available but cannot be verified in advance (a fine grained token's Workflows write).
+ */
+export const runnerSetupPrSchema = z.object({
+  available: z.boolean(),
+  reason: z.string(),
+})
+export type RunnerSetupPr = z.infer<typeof runnerSetupPrSchema>
+
 export const runnerStatusSchema = z.object({
   repoId: id,
   settings: runnerSettingsSchema,
@@ -216,6 +232,8 @@ export const runnerStatusSchema = z.object({
     })
     .nullable(),
   permissions: runnerPermissionsSchema,
+  /** Whether Hinomi can open the setup PR (or the update the pin PR) for this repo. */
+  setupPr: runnerSetupPrSchema,
   caller: runnerCallerSchema,
   /** The repo's newest fix run. */
   latestRun: fixRunSchema.nullable(),
@@ -226,6 +244,34 @@ export const runnerStatusSchema = z.object({
   message: z.string(),
 })
 export type RunnerStatus = z.infer<typeof runnerStatusSchema>
+
+// ---------------------------------------------------------------------------
+// Setup PR: POST /api/repos/:id/runner/setup-pr
+
+/**
+ * - `created`: a new PR adds (or re-pins) the caller workflow.
+ * - `updated`: the PR from an earlier call is still open; its branch and text are current now.
+ * - `already_set_up`: the default branch already has exactly this caller; nothing was opened.
+ */
+export const SETUP_PR_OUTCOMES = ['created', 'updated', 'already_set_up'] as const
+export const setupPrOutcomeSchema = z.enum(SETUP_PR_OUTCOMES)
+export type SetupPrOutcome = z.infer<typeof setupPrOutcomeSchema>
+
+/** The setup PR branch Hinomi uses, so a second call finds the first one's work. */
+export const SETUP_PR_BRANCH = 'hinomi/setup-fix-runner'
+
+/** 200 (or 201 for a new PR). Errors: 404 repo, 409 no release SHA or no permission, 503 GitHub. */
+export const setupPrResponseSchema = z.object({
+  outcome: setupPrOutcomeSchema,
+  /** Null only for `already_set_up`. */
+  pr: z.object({ number: id, url: z.string() }).nullable(),
+  /** The file written, `.github/workflows/<file>`. */
+  path: z.string(),
+  /** The release commit the caller pins, and its version. */
+  sha: z.string(),
+  version: z.string(),
+})
+export type SetupPrResponse = z.infer<typeof setupPrResponseSchema>
 
 // ---------------------------------------------------------------------------
 // Fix runs: POST and GET /api/repos/:id/fix-runs, GET /api/fix-runs/:id

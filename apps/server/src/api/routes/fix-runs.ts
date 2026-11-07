@@ -7,6 +7,7 @@ import {
   fixRunsResponseSchema,
   idParamSchema,
   runnerStatusSchema,
+  setupPrResponseSchema,
   updateRunnerSettingsRequestSchema,
 } from '@hinomi/shared'
 import { Hono, type Context } from 'hono'
@@ -51,6 +52,18 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
       workflow: updated.runnerWorkflow,
     })
     return statusResponse(c, deps, updated)
+  })
+
+  app.post('/:id/runner/setup-pr', async (c) => {
+    const repo = repoOf(c)
+    const result = await deps.fixRuns.setupPr(repo.id)
+    if (result.kind === 'refused') throw new HttpError(result.status, result.code, result.message)
+    deps.log.info('runner: setup pr', {
+      repoId: repo.id,
+      outcome: result.response.outcome,
+      pr: result.response.pr?.number ?? null,
+    })
+    return send(c, setupPrResponseSchema, result.response, result.created ? 201 : 200)
   })
 
   app.get('/:id/fix-runs', (c) => {

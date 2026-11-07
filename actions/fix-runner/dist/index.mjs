@@ -7203,6 +7203,9 @@ const runnerCallerSchema = object({
 	state: runnerCallerStateSchema,
 	path: string(),
 	ref: string().nullable(),
+	present: boolean(),
+	pinnedSha: string().nullable(),
+	outdated: boolean(),
 	latestSha: string().nullable(),
 	missingInputs: array(string()),
 	message: string(),
@@ -7216,6 +7219,10 @@ const fixRunPreviousPrSchema = object({
 	}),
 	closedAt: isoDate.nullable()
 });
+const runnerSetupPrSchema = object({
+	available: boolean(),
+	reason: string()
+});
 const runnerStatusSchema = object({
 	repoId: id,
 	settings: runnerSettingsSchema,
@@ -7228,11 +7235,28 @@ const runnerStatusSchema = object({
 		checksMode: fixChecksModeSchema
 	}).nullable(),
 	permissions: runnerPermissionsSchema,
+	setupPr: runnerSetupPrSchema,
 	caller: runnerCallerSchema,
 	latestRun: fixRunSchema.nullable(),
 	closedUnmerged: fixRunPreviousPrSchema.nullable(),
 	checkedAt: isoDate,
 	message: string()
+});
+const SETUP_PR_OUTCOMES = [
+	"created",
+	"updated",
+	"already_set_up"
+];
+const setupPrOutcomeSchema = _enum(SETUP_PR_OUTCOMES);
+const setupPrResponseSchema = object({
+	outcome: setupPrOutcomeSchema,
+	pr: object({
+		number: id,
+		url: string()
+	}).nullable(),
+	path: string(),
+	sha: string(),
+	version: string()
 });
 const dispatchFixRunRequestSchema = strictObject({ confirmReopen: boolean().optional() });
 const dispatchFixRunResponseSchema = object({
