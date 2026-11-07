@@ -3,6 +3,14 @@
 // from the pushed branch.
 export { inspectCallerWorkflow, readCaller, unknownCaller } from './caller.js'
 export type { CallerInspection, LatestFixWorkflow, ReadCallerOptions } from './caller.js'
+export {
+  LATEST_RETRY_MS,
+  LATEST_TTL_MS,
+  fetchLatestFixWorkflow,
+  releaseLatestSource,
+  type LatestFixWorkflowSource,
+  type ReleaseLatestOptions,
+} from './latest.js'
 export { MAX_DECOMPRESSED_PLAN_BYTES, zlibCompressor } from './compressor.js'
 export {
   GithubActionsRunner,
