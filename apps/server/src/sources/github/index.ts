@@ -52,3 +52,14 @@ export {
   type WorkflowDispatchInput,
   type WorkflowDispatchResult,
 } from './actions.js'
+export {
+  addPullLabels,
+  createPull,
+  existingLabels,
+  listBranchPulls,
+  setPullDraft,
+  updatePull,
+  type BranchPullsQuery,
+  type CreatePullInput,
+  type GithubPull,
+} from './pulls.js'
