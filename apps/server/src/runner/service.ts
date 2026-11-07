@@ -1,6 +1,5 @@
 import {
   DEFAULT_CALLER_WORKFLOW,
-  LATEST_FIX_WORKFLOW,
   currentTime,
   type FixDispatchEncoding,
   type FixResultV1,
@@ -16,6 +15,7 @@ import { fetchRunnerRepoMeta, type RunnerRepoMeta } from '../sources/github/inde
 import { readCaller, unknownCaller, type LatestFixWorkflow } from './caller.js'
 import { GithubActionsRunner, callerWorkflowOf } from './github-actions.js'
 import { openRunnerGithub, type RunnerGithub } from './github.js'
+import { releaseLatestSource, type LatestFixWorkflowSource } from './latest.js'
 import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import type { FixRunner } from './runner.js'
@@ -56,8 +56,10 @@ export interface FixRunServiceOptions {
   /** Fetch for GitHub calls. Replaced in tests. */
   fetch?: typeof fetch
   now?: () => Date
-  /** The release SHA callers should pin. Defaults to LATEST_FIX_WORKFLOW. */
+  /** A fixed release SHA callers should pin, for tests. Wins over `latestSource`. */
   latest?: LatestFixWorkflow | null
+  /** Where the release SHA comes from. Defaults to the latest Hinomi release on GitHub. */
+  latestSource?: LatestFixWorkflowSource
   /** Replaces the GitHub Actions runner in tests. */
   runner?: FixRunner
   /**
@@ -111,7 +113,14 @@ function statusMessage(
 export function createFixRunService(options: FixRunServiceOptions) {
   const { repositories } = options
   const now = options.now ?? currentTime
-  const latest = options.latest === undefined ? LATEST_FIX_WORKFLOW : options.latest
+  const fixed = options.latest
+  const source =
+    fixed === undefined
+      ? (options.latestSource ??
+        releaseLatestSource({ ...(options.fetch && { fetch: options.fetch }) }))
+      : null
+  const resolveLatest = (): Promise<LatestFixWorkflow | null> =>
+    source ? source.get() : Promise.resolve(fixed ?? null)
   const github = (): RunnerGithub =>
     openRunnerGithub(repositories, { ...(options.fetch && { fetch: options.fetch }) })
   const runner: FixRunner = options.runner ?? new GithubActionsRunner({ repositories, github, now })
@@ -124,6 +133,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
     permissions: RunnerPermissions
     caller: RunnerCaller
   }> {
+    const latest = await resolveLatest()
     const unread = (message: string) => ({
       meta: null,
       permissions: NO_PERMISSIONS(message),
