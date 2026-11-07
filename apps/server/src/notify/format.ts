@@ -168,6 +168,7 @@ const TIER_LABELS: Record<FindingTier, string> = {
   blind_spot: 'Blind spots',
   exposed: 'Exposed on a public app',
   internal: 'Deployed, internal only',
+  released: 'Released desktop apps',
   public_low: 'Deployed and public, moderate or low',
   dev: 'Deployed, dev dependencies only',
   not_deployed: 'Not deployed',

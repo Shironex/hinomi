@@ -46,20 +46,25 @@ export const TIER_INFO: Record<FindingTier, { name: string; hint: string; number
     hint: 'Runtime code in an app with no public domain. Reachable from your network or a compromised neighbour.',
     number: 2,
   },
+  released: {
+    name: 'Released desktop apps',
+    hint: "Runtime code in the latest release of an app people install. No deployment, but it is in users' hands.",
+    number: 3,
+  },
   public_low: {
     name: 'Deployed and public, moderate or low',
     hint: 'Runtime code on a public app, below the alert threshold.',
-    number: 3,
+    number: 4,
   },
   dev: {
     name: 'Deployed, dev dependencies only',
     hint: 'Build and test tooling. Not in the running image unless the Dockerfile copies it.',
-    number: 4,
+    number: 5,
   },
   not_deployed: {
     name: 'Not deployed anywhere',
     hint: 'Repos with no matching deployment. Lowest rank, still listed.',
-    number: 5,
+    number: 6,
   },
   patched: {
     name: 'Patched in the lockfile',
@@ -179,6 +184,26 @@ export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
       ],
     ],
   },
+  release_lockfile_missing: {
+    title: 'Release has no lockfile Hinomi reads',
+    short: 'Release without lockfile',
+    explain:
+      "The latest release tag of this desktop app has no lockfile Hinomi can read, so the versions in users' hands are not checked.",
+    fix: [
+      ['Commit a lockfile', 'Commit the lockfile so the next release tag carries it.'],
+      [
+        'Not an installable app?',
+        'Turn the release tier off for this repo so it is not treated as released.',
+      ],
+    ],
+  },
+  requirements_unpinned: {
+    title: 'Requirements without exact versions',
+    short: 'Unpinned requirements',
+    explain:
+      'Some lines in requirements.txt name no exact version (ranges, URLs or editable installs), so Hinomi cannot tell which version is installed and does not check them.',
+    fix: [['Pin the versions', 'Use name==version, or a lockfile such as uv.lock or poetry.lock.']],
+  },
 }
 
 /** What a blind spot or a coverage note is about; null for advisories. */
@@ -191,7 +216,11 @@ export function gapInfo(
     : null
 }
 
-export const SOURCE_LABEL: Record<Reporter, string> = { github: 'GitHub', osv: 'OSV' }
+export const SOURCE_LABEL: Record<Reporter, string> = {
+  github: 'GitHub',
+  osv: 'OSV',
+  image: 'Image scan',
+}
 
 export function sourcesLabel(sources: readonly Reporter[]): string {
   if (sources.length === 0) return 'Hinomi'
