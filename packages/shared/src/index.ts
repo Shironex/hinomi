@@ -1,6 +1,7 @@
 export * from './access.js'
 export * from './api.js'
 export * from './clock.js'
+export * from './dockerfile.js'
 export * from './container-user.js'
 export * from './docker-image.js'
 export * from './docker-mount.js'
