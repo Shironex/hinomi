@@ -1,4 +1,4 @@
-import { runnerStatusSchema } from '@hinomi/shared'
+import { repoDetailSchema, runnerStatusSchema } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { createTestApi } from '../api/testing.js'
 import { createTestRepositories } from '../db/test-db.js'
@@ -124,6 +124,8 @@ describe("runner status through the repo's source", () => {
     expect([...harborAuth]).toEqual([`Bearer ${CO_TOKEN}`])
     expect([...lanternAuth]).toEqual([`Bearer ${LABS_TOKEN}`])
 
+    const detail = repoDetailSchema.parse((await api.call('GET', `/repos/${lantern.id}`)).json)
+    expect(detail.source.current).toMatchObject({ id: labs.id, name: 'kestrel-labs' })
     api.handle.close()
   })
 })

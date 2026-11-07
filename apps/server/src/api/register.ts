@@ -25,6 +25,7 @@ import { githubWebhookSettingsRoutes } from './routes/github-webhook.js'
 import { webhookRunnerSettingsRoutes } from './routes/webhook-runner.js'
 import { onboardingRoutes } from './routes/onboarding.js'
 import { notificationsRoutes, type NotificationsApiOptions } from './routes/notifications.js'
+import { repoDetailRoutes } from './routes/repos.js'
 import { sourcesRoutes } from './routes/sources.js'
 import { overviewRoutes, scansRoutes, settingsRoutes, shellRoutes } from './routes/system.js'
 import { createSourceTesters, type SourceTesters } from './source-testers.js'
@@ -105,6 +106,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   api.route('/deployments', deploymentsRoutes(deps))
   api.route('/repos', reposRoutes(deps))
   api.route('/repos', repoFixRunsRoutes(deps))
+  api.route('/repos', repoDetailRoutes(deps))
   api.route('/fix-runs', fixRunsRoutes(deps))
   api.route('/plans', plansRoutes(deps))
   api.route('/sources', sourcesRoutes(deps))

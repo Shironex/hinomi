@@ -262,6 +262,10 @@ export const sourceSchema = z.object({
   lastOkAt: isoDate.nullable(),
   lastErrorAt: isoDate.nullable(),
   lastError: z.string().nullable(),
+  /** GitHub: the repos read and fixed through this source. 0 for other kinds. */
+  repoCount: z.number().int().nonnegative(),
+  /** Coolify: the deployments this source reports (removed with it). 0 for other kinds. */
+  deploymentCount: z.number().int().nonnegative(),
   createdAt: isoDate,
   updatedAt: isoDate,
 })
@@ -1070,6 +1074,52 @@ export const repoOverrideParamsSchema = z.object({
 })
 
 export const reposResponseSchema = z.object({ items: z.array(repoRefSchema) })
+
+/**
+ * How a repo's GitHub source was chosen. override: picked by hand. auto: the scan's rule (the
+ * lowest id source that can read its alerts, else the lowest id source that can read it).
+ * fallback: no scan has chosen yet and only one GitHub source is connected. none: no connected
+ * GitHub source can read the repo.
+ */
+export const REPO_SOURCE_MODES = ['override', 'auto', 'fallback', 'none'] as const
+export const repoSourceModeSchema = z.enum(REPO_SOURCE_MODES)
+export type RepoSourceMode = z.infer<typeof repoSourceModeSchema>
+
+/** A GitHub source as a repo sees it. */
+export const repoSourceRefSchema = z.object({
+  id,
+  name: z.string(),
+  auth: sourceAuthSchema,
+  enabled: z.boolean(),
+})
+export type RepoSourceRef = z.infer<typeof repoSourceRefSchema>
+
+/** A GitHub source that saw the repo on the last scan that asked it. */
+export const repoSourceSeenSchema = repoSourceRefSchema.extend({
+  /** The source could tell whether the repo's Dependabot alerts are on. Null when unknown. */
+  alertsReadable: z.boolean().nullable(),
+  lastSeenAt: isoDate,
+})
+export type RepoSourceSeen = z.infer<typeof repoSourceSeenSchema>
+
+export const repoSourceViewSchema = z.object({
+  /** The GitHub source that reads and fixes the repo. Null when mode is none. */
+  current: repoSourceRefSchema.nullable(),
+  mode: repoSourceModeSchema,
+  /** The source picked by hand, also while it is switched off (then it does not apply). */
+  overrideId: id.nullable(),
+  /** GitHub sources that saw the repo, lowest id first. More than one: the source can be switched. */
+  seenBy: z.array(repoSourceSeenSchema),
+})
+export type RepoSourceView = z.infer<typeof repoSourceViewSchema>
+
+/** GET /api/repos/:id. */
+export const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema })
+export type RepoDetail = z.infer<typeof repoDetailSchema>
+
+/** PATCH /api/repos/:id. A GitHub source id picks the repo's source by hand; null clears it. */
+export const updateRepoRequestSchema = z.strictObject({ sourceId: id.nullable() })
+export type UpdateRepoRequest = z.infer<typeof updateRepoRequestSchema>
 
 // ---------------------------------------------------------------------------
 // Settings

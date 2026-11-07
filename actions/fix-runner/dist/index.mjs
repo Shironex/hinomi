@@ -6025,6 +6025,8 @@ const sourceSchema = object({
 	lastOkAt: isoDate$5.nullable(),
 	lastErrorAt: isoDate$5.nullable(),
 	lastError: string().nullable(),
+	repoCount: number$1().int().nonnegative(),
+	deploymentCount: number$1().int().nonnegative(),
 	createdAt: isoDate$5,
 	updatedAt: isoDate$5
 });
@@ -6524,6 +6526,31 @@ const repoOverrideParamsSchema = object({
 	repoId: number().int().positive()
 });
 const reposResponseSchema = object({ items: array(repoRefSchema) });
+const REPO_SOURCE_MODES = [
+	"override",
+	"auto",
+	"fallback",
+	"none"
+];
+const repoSourceModeSchema = _enum(REPO_SOURCE_MODES);
+const repoSourceRefSchema = object({
+	id: id$3,
+	name: string(),
+	auth: sourceAuthSchema,
+	enabled: boolean()
+});
+const repoSourceSeenSchema = repoSourceRefSchema.extend({
+	alertsReadable: boolean().nullable(),
+	lastSeenAt: isoDate$5
+});
+const repoSourceViewSchema = object({
+	current: repoSourceRefSchema.nullable(),
+	mode: repoSourceModeSchema,
+	overrideId: id$3.nullable(),
+	seenBy: array(repoSourceSeenSchema)
+});
+const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema });
+const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
 const SCAN_INTERVAL_MIN_MINUTES = 15;
 const SCAN_INTERVAL_MAX_MINUTES = 10080;
 const settingsSchema = object({

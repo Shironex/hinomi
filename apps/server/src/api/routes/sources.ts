@@ -7,6 +7,7 @@ import {
   testSourceRequestSchema,
   updateSourceRequestSchema,
   type SourceAuth,
+  type SourceDto,
   type SourceKind,
   type SourceTestResult,
 } from '@hinomi/shared'
@@ -135,20 +136,39 @@ async function runTest(
   throw new HttpError(400, 'not_supported', 'OSV.dev needs no connection test')
 }
 
+/** Every source as the API serves it, with the repos and deployments it holds. */
+function sourceDtos(repositories: Repositories, list: Source[]): SourceDto[] {
+  const repoCounts = repositories.repoSources.repoCounts()
+  const deploymentCounts = new Map<number, number>()
+  for (const d of repositories.deployments.list()) {
+    deploymentCounts.set(d.sourceId, (deploymentCounts.get(d.sourceId) ?? 0) + 1)
+  }
+  return list.map((source) =>
+    toSourceDto(source, {
+      repoCount: source.kind === 'github' ? (repoCounts.get(source.id) ?? 0) : 0,
+      deploymentCount: deploymentCounts.get(source.id) ?? 0,
+    }),
+  )
+}
+
+function sourceDto(repositories: Repositories, source: Source): SourceDto {
+  return sourceDtos(repositories, [source])[0]!
+}
+
 export function sourcesRoutes(deps: ApiDeps) {
   const app = new Hono()
   const { repositories, scheduler } = deps
 
   app.get('/', (c) =>
     send(c, sourcesResponseSchema, {
-      sources: repositories.sources.list().map(toSourceDto),
+      sources: sourceDtos(repositories, repositories.sources.list()),
       canStoreTokens: repositories.sources.canStoreTokens,
     }),
   )
 
   app.get('/:id', (c) => {
     const { id } = readParams(c, idParamSchema)
-    return send(c, sourceSchema, toSourceDto(requireSource(repositories, id)))
+    return send(c, sourceSchema, sourceDto(repositories, requireSource(repositories, id)))
   })
 
   app.post('/', async (c) => {
@@ -179,7 +199,7 @@ export function sourcesRoutes(deps: ApiDeps) {
       }),
     })
     scheduler.reschedule()
-    return send(c, sourceSchema, toSourceDto(source), 201)
+    return send(c, sourceSchema, sourceDto(repositories, source), 201)
   })
 
   app.patch('/:id', async (c) => {
@@ -226,7 +246,7 @@ export function sourcesRoutes(deps: ApiDeps) {
       if (secret !== undefined) repositories.sources.setToken(id, secret)
     })
     scheduler.reschedule()
-    return send(c, sourceSchema, toSourceDto(requireSource(repositories, id)))
+    return send(c, sourceSchema, sourceDto(repositories, requireSource(repositories, id)))
   })
 
   app.delete('/:id', (c) => {
