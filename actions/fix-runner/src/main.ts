@@ -1,19 +1,31 @@
-import { resolve } from 'node:path'
-import { FixPayloadError, currentTime } from '@hinomi/shared'
+import { readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { FixPayloadError, currentTime, parseFixResult } from '@hinomi/shared'
 import { consoleLogger, getInput, writeOutputs, type Env } from './actions-io.js'
-import { writeArtifacts } from './artifacts.js'
+import { RESULT_FILE, writeArtifacts, writeResult } from './artifacts.js'
 import { FixRunnerError } from './errors.js'
 import { nodeExec } from './exec.js'
-import { runApply, runDetect, type DispatchInputs } from './pipeline.js'
+import { runApply, runChecks, runDetect, type DispatchInputs } from './pipeline.js'
 import { registryPublishTimes, type HttpFetch } from './registry.js'
 import { nodeRepoFs } from './repo-fs.js'
 import { toolchainOutputs } from './toolchain.js'
 
-// The action entry: reads the inputs, runs the `detect` or `apply` step and sets outputs.
-// The plan reaches this code only through INPUT_PLAN, never through a shell.
+// The action entry: reads the inputs, runs the `detect`, `apply` or `check` step and sets
+// outputs. The plan reaches this code only through INPUT_PLAN, never through a shell.
 
 /** Folder inside the checkout the workflow uploads, as in the reusable workflow sketch. */
 export const OUTPUT_DIR = '.hinomi'
+
+async function readResult(dir: string) {
+  const text = await readFile(join(dir, RESULT_FILE), 'utf8').catch(() => null)
+  if (text === null) throw new FixRunnerError(`No ${RESULT_FILE} in ${dir}`)
+  try {
+    return parseFixResult(JSON.parse(text))
+  } catch (error) {
+    if (error instanceof FixPayloadError) throw error
+    throw new FixRunnerError(`${RESULT_FILE} is not JSON`, { cause: error })
+  }
+}
 
 export interface MainIo {
   env: Env
@@ -40,6 +52,7 @@ export async function main(io: MainIo): Promise<number> {
       runId: getInput(env, 'run_id'),
       repository: env.GITHUB_REPOSITORY ?? '',
     }
+    const outputDir = resolve(workspace, OUTPUT_DIR)
     if (step === 'detect') {
       const detected = await runDetect(dispatchInputs, fs)
       for (const problem of detected.problems) log.warning('Detection failed', { problem })
@@ -55,18 +68,31 @@ export async function main(io: MainIo): Promise<number> {
       flush()
       return 0
     }
-    if (step !== 'apply') throw new FixRunnerError(`Unknown step ${JSON.stringify(step)}`)
 
     const exec = nodeExec({ env, echo: (chunk) => io.write(chunk.replace(/\n$/, '')) })
+    const runnerDeps = {
+      fs,
+      exec,
+      publishTimes: registryPublishTimes(io.fetch),
+      log,
+      now: io.now ?? currentTime,
+    }
+    const applyInputs = { ...dispatchInputs, checks: getInput(env, 'checks') }
+    if (step === 'check') {
+      const result = await runChecks(applyInputs, runnerDeps, await readResult(outputDir))
+      await writeResult(outputDir, result)
+      const failed = result.checks.filter((check) => check.status !== 'passed').length
+      log.info('checks done', { checks: result.checks.length, failed })
+      flush()
+      return 0
+    }
+    if (step !== 'apply') throw new FixRunnerError(`Unknown step ${JSON.stringify(step)}`)
+
     const outcome = await runApply(
-      { ...dispatchInputs, checks: getInput(env, 'checks') },
-      { fs, exec, publishTimes: registryPublishTimes(io.fetch), log, now: io.now ?? currentTime },
+      { ...applyInputs, deferChecks: getInput(env, 'defer_checks') === 'true' },
+      runnerDeps,
     )
-    const written = await writeArtifacts(
-      resolve(workspace, OUTPUT_DIR),
-      outcome.result,
-      outcome.patch,
-    )
+    const written = await writeArtifacts(outputDir, outcome.result, outcome.patch)
     const applied = outcome.result.steps.filter((s) => s.status === 'applied').length
     log.info('done', {
       applied,
@@ -78,7 +104,7 @@ export async function main(io: MainIo): Promise<number> {
       agent_needed: String(outcome.dispatch.options.agent && outcome.dispatch.risky.length > 0),
       result_path: written.resultPath,
       patch_path: written.patchPath ?? '',
-      output_dir: resolve(workspace, OUTPUT_DIR),
+      output_dir: outputDir,
       package_manager: outcome.result.packageManager,
     })
     flush()

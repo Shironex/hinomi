@@ -66,6 +66,11 @@ export interface DispatchInputs {
 export interface ApplyInputs extends DispatchInputs {
   /** The `checks` input: auto, install, full or a comma list. */
   checks: string
+  /**
+   * Leave the full install and the checks to a later `check` step. The reusable workflow sets
+   * it, so the patch and its hash are final before any install script runs.
+   */
+  deferChecks?: boolean
 }
 
 /** Decodes, validates and matches the dispatch with this run. Throws on anything off. */
@@ -501,7 +506,7 @@ export async function runApply(inputs: ApplyInputs, deps: RunnerDeps): Promise<A
   const captured = await capturePatch(run.git, run.stepFiles)
   for (const path of captured.ignored) log.warning('Left out of the patch', { path })
 
-  if (selection.mode === 'full' && captured.text !== null) {
+  if (selection.mode === 'full' && captured.text !== null && inputs.deferChecks !== true) {
     for (const entry of opened) {
       if (entry.applied.length > 0 && !entry.installFailed) await run.checkProject(entry, selection)
     }
@@ -549,4 +554,44 @@ export async function runApply(inputs: ApplyInputs, deps: RunnerDeps): Promise<A
     finishedAt: deps.now().toISOString(),
   })
   return { result, patch: captured.text, captured, dispatch }
+}
+
+/**
+ * The check step after a deferred apply: in full mode, the full install and the checks of
+ * every project with applied steps, on the tree the apply step left. Returns the result with
+ * the checks and the install filled in; the patch and the steps stay as they were.
+ */
+export async function runChecks(
+  inputs: ApplyInputs,
+  deps: RunnerDeps,
+  result: FixResultV1,
+): Promise<FixResultV1> {
+  const dispatch = await readDispatch(inputs)
+  if (result.runId !== dispatch.runId) {
+    throw new FixRunnerError(`The result is for run ${result.runId}, not ${dispatch.runId}`)
+  }
+  const selection = selectChecks(inputs.checks, dispatch.options.checks)
+  if (selection.mode !== 'full' || result.patch === null) return result
+  const applied = new Set(result.steps.filter((s) => s.status === 'applied').map((s) => s.id))
+  const run = new ApplyRun(dispatch, deps, deps.now())
+  for (const project of groupProjects(dispatch.steps)) {
+    const ids = project.steps.filter((step) => applied.has(step.id)).map((step) => step.id)
+    if (ids.length === 0) continue
+    const entry = await run.openProject(project)
+    if (!entry) continue
+    entry.applied = ids
+    await run.checkProject(entry, selection)
+  }
+  const tail = truncateCheckOutput(run.install.output)
+  return parseFixResult({
+    ...result,
+    checks: run.checks,
+    install: {
+      status: run.install.failed ? 'failed' : result.install.status,
+      durationMs: result.install.durationMs + run.install.durationMs,
+      output: tail.output === '' ? result.install.output : tail.output,
+      truncated: tail.output === '' ? result.install.truncated : tail.truncated,
+    },
+    finishedAt: deps.now().toISOString(),
+  })
 }
