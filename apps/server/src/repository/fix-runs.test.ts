@@ -110,6 +110,30 @@ describe('fix runs repository', () => {
     expect(majors.branch).toBe('hinomi/majors')
   })
 
+  it('tells listeners about committed changes only, and survives a throwing one', () => {
+    const seen: string[] = []
+    const off = repos.fixRuns.onChanged((run) => seen.push(`${run.id}:${run.state}`))
+    repos.fixRuns.onChanged(() => {
+      throw new Error('listener failure')
+    })
+    const { run } = repos.fixRuns.create(input(storefront), T0)
+    expect(seen).toEqual([])
+    const accepted = { type: 'dispatch_accepted', githubRunId: 9001 } as const
+    expect(repos.fixRuns.applyEvent(run.id, accepted, T1)).toMatchObject({ changed: true })
+    expect(repos.fixRuns.applyEvent(run.id, accepted, T1)).toMatchObject({ changed: false })
+    expect(repos.fixRuns.applyEvent(run.id, { type: 'pr_closed' }, T1).ok).toBe(false)
+    expect(repos.fixRuns.saveVerify(run.id, {}, null, T1)).toMatchObject({ changed: false })
+    expect(repos.fixRuns.saveVerify(run.id, { warnings: [] }, null, T1)).toMatchObject({
+      changed: true,
+    })
+    const next = repos.fixRuns.create(input(storefront), T2).run
+    expect(seen).toEqual([`${run.id}:dispatched`, `${run.id}:dispatched`, `${run.id}:superseded`])
+    expect(next.state).toBe('pending')
+    off()
+    repos.fixRuns.applyEvent(next.id, { type: 'failed', reason: 'boom' }, T2)
+    expect(seen).toHaveLength(3)
+  })
+
   it('refuses a duplicate correlation id', () => {
     repos.fixRuns.create(input(storefront, { correlationId: 'same' }), T0)
     expect(() => repos.fixRuns.create(input(ledger, { correlationId: 'same' }), T0)).toThrow(

@@ -125,14 +125,44 @@ function applyTo(
   return { ok: true, run: row ?? next.run, changed: true }
 }
 
+/** Called after a write changed a run, once it is committed. Never throws into the writer. */
+export type FixRunChangedListener = (run: FixRunRow) => void
+
 export type FixRunsRepository = ReturnType<typeof createFixRunsRepository>
 
 export function createFixRunsRepository(db: Db) {
   const get = (id: number): FixRunRow | undefined =>
     db.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
 
+  const listeners = new Set<FixRunChangedListener>()
+  function emit(runs: readonly FixRunRow[]): void {
+    for (const run of runs) {
+      for (const listener of listeners) {
+        try {
+          listener(run)
+        } catch {
+          // A listener (a notification) must never fail the write that triggered it.
+        }
+      }
+    }
+  }
+  /** Emits for an applied result that changed the run. */
+  function emitChanged(result: ApplyFixRunEventResult): ApplyFixRunEventResult {
+    if (result.ok && result.changed) emit([result.run])
+    return result
+  }
+
   return {
     get,
+
+    /**
+     * Subscribes to runs a write changed (a state change, a warning, a verification), called
+     * after the write is committed. Returns the unsubscribe function.
+     */
+    onChanged(listener: FixRunChangedListener): () => void {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
 
     getByCorrelationId(correlationId: string): FixRunRow | undefined {
       return db.select().from(fixRuns).where(eq(fixRuns.correlationId, correlationId)).get()
@@ -143,7 +173,7 @@ export function createFixRunsRepository(db: Db) {
      * open runs of the same kind that have not merged yet, in one transaction.
      */
     create(input: CreateFixRunInput, now: Date = currentTime()): CreatedFixRun {
-      return db.transaction((tx) => {
+      const created = db.transaction((tx) => {
         const run = tx
           .insert(fixRuns)
           .values({
@@ -180,15 +210,19 @@ export function createFixRunsRepository(db: Db) {
         })
         return { run, superseded }
       })
+      emit(created.superseded)
+      return created
     },
 
     /** Applies one polled or webhook event through the state machine, in a transaction. */
     applyEvent(id: number, event: FixRunEvent, now: Date = currentTime()): ApplyFixRunEventResult {
-      return db.transaction((tx) => {
-        const run = tx.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
-        if (!run) return { ok: false, rejection: { code: 'not_found', message: `no run ${id}` } }
-        return applyTo(tx, run, event, now)
-      })
+      return emitChanged(
+        db.transaction((tx): ApplyFixRunEventResult => {
+          const run = tx.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
+          if (!run) return { ok: false, rejection: { code: 'not_found', message: `no run ${id}` } }
+          return applyTo(tx, run, event, now)
+        }),
+      )
     },
 
     /**
@@ -202,7 +236,7 @@ export function createFixRunsRepository(db: Db) {
       event: FixRunEvent | null = null,
       now: Date = currentTime(),
     ): ApplyFixRunEventResult {
-      return db.transaction((tx) => {
+      const saved = db.transaction((tx): ApplyFixRunEventResult => {
         const run = tx.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
         if (!run) return { ok: false, rejection: { code: 'not_found', message: `no run ${id}` } }
         let current = run
@@ -222,6 +256,7 @@ export function createFixRunsRepository(db: Db) {
         const row = tx.update(fixRuns).set(set).where(eq(fixRuns.id, id)).returning().get()
         return { ok: true, run: row ?? current, changed: true }
       })
+      return emitChanged(saved)
     },
 
     /** Stores the ETags of the latest polls. Undefined keeps a value, null clears it. */
