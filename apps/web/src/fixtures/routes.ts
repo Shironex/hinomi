@@ -1,5 +1,5 @@
 import type { FindingGroup, FindingListItem, FindingsResponse, FindingTier } from '@hinomi/shared'
-import { DEFAULT_FIX_RUN_NOTIFY_EVENTS, FINDING_TIERS } from '@hinomi/shared'
+import { DEFAULT_FIX_RUN_NOTIFY_EVENTS, FINDING_TIERS, releaseTierModeSchema } from '@hinomi/shared'
 import {
   ACCESS,
   CHANNELS,
@@ -18,7 +18,7 @@ import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } f
 import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 import { FIXTURE_VERSION, versionFor } from './version'
-import { repoDetailFor } from './repo-sources'
+import { repoDetailFor, setReleaseTier } from './repo-sources'
 import {
   RUNNER_SECRET,
   isRunnerScenario,
@@ -174,8 +174,8 @@ const withPlans = <T extends { repo: { id: number } | null; plan: unknown }>(ite
 })
 
 /**
- * Answers one API request from the fixed dataset. Only reads are served: fixture mode exists
- * for screenshots and demos, so every write is refused with a clear message.
+ * Answers one API request from the fixed dataset. Reads are served; fixture mode exists for
+ * screenshots and demos, so writes are refused with a clear message, except the few it keeps.
  */
 export function fixtureRoute(
   method: string,
@@ -193,6 +193,17 @@ export function fixtureRoute(
 
   if (method === 'POST' && path === '/settings/webhook-runner/secret') {
     return { status: 201, body: { secret: RUNNER_SECRET, settings: webhookRunnerFor(scenario) } }
+  }
+
+  if (method === 'PUT') {
+    // The release tier mode is the one repo write fixture mode keeps (in memory), so the panel's
+    // control can be tried. Anything else is refused.
+    const tierRepo = idFrom(path, /^\/repos\/(\d+)\/release-tier$/)
+    const mode = releaseTierModeSchema.safeParse((body as { tier?: unknown } | undefined)?.tier)
+    if (tierRepo !== null && mode.success) {
+      const repo = setReleaseTier(tierRepo, mode.data)
+      return repo ? ok(repo) : notFound(path)
+    }
   }
 
   if (method !== 'GET') {

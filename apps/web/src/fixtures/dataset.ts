@@ -55,6 +55,8 @@ export const REPOS = {
   ingest: repo(8, 'ingest'),
   marketing: repo(9, 'marketing', { archived: true }),
   cli: repo(10, 'kestrel-cli'),
+  // A desktop app: nothing deploys it, its latest release ships installers (see ./repo-sources).
+  desk: repo(24, 'kestrel-desk'),
 }
 
 const app = (
@@ -318,6 +320,40 @@ const ADVISORIES_AND_GAPS: FindingListItem[] = [
     tier: 'not_deployed',
     factors: { severity: 'critical', runtime: true, deployed: false, public: false },
     repo: REPOS.cli,
+    deployments: [],
+  }),
+  // The desktop app kestrel-desk: advisories at its latest release tag, no deployment.
+  finding(16, 48, {
+    ...advisory(16, {
+      key: 'GHSA-m6xr-3p8w-c9jh',
+      pkg: 'chromakit',
+      severity: 'high',
+      cvss: 7.8,
+      summary: 'Arbitrary file write through a crafted theme archive',
+      patched: '2.4.3',
+      installed: '2.4.0',
+    }),
+    tier: 'released',
+    factors: { severity: 'high', runtime: true, deployed: false, public: false },
+    releaseTag: 'v2.3.0',
+    fixedOnDefaultBranch: true,
+    repo: REPOS.desk,
+    deployments: [],
+  }),
+  finding(17, 47, {
+    ...advisory(17, {
+      key: 'GHSA-v3hn-q8d2-f7kp',
+      pkg: 'pixelmesh',
+      severity: 'moderate',
+      cvss: 5.9,
+      summary: 'Uncontrolled memory use when decoding oversized thumbnails',
+      patched: '3.0.2',
+      installed: '3.0.0',
+    }),
+    tier: 'released',
+    factors: { severity: 'moderate', runtime: true, deployed: false, public: false },
+    releaseTag: 'v2.3.0',
+    repo: REPOS.desk,
     deployments: [],
   }),
   finding(14, 2, {
@@ -786,7 +822,7 @@ export const OVERVIEW: OverviewResponse = overview({
     blind_spot: severity(1, 0),
     exposed: severity(3, 4),
     internal: severity(6, 14, 22, 4),
-    released: severity(0, 0),
+    released: severity(0, 1, 1),
     public_low: severity(0, 0, 41, 12),
     dev: severity(9, 38, 61, 20),
     not_deployed: severity(52, 310, 512, 186),
@@ -797,6 +833,7 @@ export const OVERVIEW: OverviewResponse = overview({
     blind_spot: 1,
     exposed: count('exposed'),
     internal: 46,
+    released: count('released'),
     public_low: 53,
     dev: 128,
     not_deployed: 1_060,
@@ -910,7 +947,7 @@ export const SOURCES: SourceDto[] = [
     appId: '1048576',
     installationId: '52428800',
     // Eight scanned repos and the thirteen that only have fix plans (see ./repo-sources).
-    repoCount: 21,
+    repoCount: 22,
   }),
   source({
     id: 3,

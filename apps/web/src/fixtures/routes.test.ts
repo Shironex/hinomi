@@ -252,6 +252,30 @@ describe('fixture API', () => {
     expect(post('/repos/1/fix-runs', {}).status).toBe(403)
   })
 
+  it('keeps the release tier mode a PUT sets and moves the repo in and out of the tier', () => {
+    const put = (id: number, tier: unknown) =>
+      fixtureRoute('PUT', new URL(`http://localhost/api/repos/${id}/release-tier`), 'default', {
+        tier,
+      })
+    const desk = ALL_REPOS.find((r) => r.name === 'kestrel-desk')!
+    const release = (reply: { body?: unknown }) => repoDetailSchema.parse(reply.body).release
+    expect(release(get(`/repos/${desk.id}`))).toMatchObject({ tier: 'auto', status: 'released' })
+    expect(release(put(desk.id, 'off'))).toMatchObject({ tier: 'off', status: 'turned_off' })
+    expect(release(get(`/repos/${desk.id}`)).tier).toBe('off')
+    expect(release(put(desk.id, 'auto'))).toMatchObject({ tier: 'auto', status: 'released' })
+    expect(put(desk.id, 'sometimes').status).toBe(403)
+    expect(put(9999, 'on').status).toBe(404)
+    // A repo a deployment runs is never asked for its release.
+    expect(release(get('/repos/1')).status).toBe('deployed')
+  })
+
+  it('serves release findings in the released tier, one fixed on the default branch', () => {
+    const rows = FINDINGS.filter((f) => f.releaseTag !== null)
+    expect(rows.length).toBeGreaterThan(1)
+    expect(rows.every((f) => f.tier === 'released')).toBe(true)
+    expect(rows.some((f) => f.fixedOnDefaultBranch)).toBe(true)
+  })
+
   it('refuses writes and unknown paths', () => {
     expect(fixtureRoute('POST', new URL('http://localhost/api/scans')).status).toBe(403)
     expect(get('/findings/999').status).toBe(404)
