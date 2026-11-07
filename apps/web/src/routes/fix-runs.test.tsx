@@ -273,7 +273,7 @@ describe('Fix with Hinomi', () => {
     await user.keyboard('f')
     const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
     expect(
-      await within(dialog).findByText('The last fix PR #118 was closed without merging'),
+      await within(dialog).findByText('The last Hinomi PR #118 was closed without merging'),
     ).toBeVisible()
     await user.click(within(dialog).getByRole('button', { name: 'Open a fresh PR' }))
     await waitFor(() =>
@@ -300,7 +300,7 @@ describe('Fix with Hinomi', () => {
     expect(await within(dialog).findByText(/3 safe steps clear 5 of 7 open findings/)).toBeVisible()
     await user.click(within(dialog).getByRole('button', { name: 'Dispatch the fix' }))
     expect(
-      await within(dialog).findByText('The last fix PR #118 was closed without merging'),
+      await within(dialog).findByText('The last Hinomi PR #118 was closed without merging'),
     ).toBeVisible()
     expect(calls.filter((c) => c.method === 'POST')[0]?.body).toEqual({})
     await user.click(within(dialog).getByRole('button', { name: 'Open a fresh PR' }))
@@ -408,5 +408,64 @@ describe('the majors agent', () => {
     expect(toggle).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(await screen.findByRole('alert')).toBeVisible()
+  })
+
+  it('says a second draft PR will be made, then shows both runs after the dispatch', async () => {
+    wideScreen()
+    const calls = fixtureApi({
+      'POST /repos/18/fix-runs': reply(201, { ...dispatched(52), majorsRun: runFor(51) }),
+    })
+    const { user } = await setup('/fix-runs?sel=plan-18')
+    await user.click(await screen.findByRole('button', { name: /Fix with Hinomi/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    expect(
+      await within(dialog).findByText(/takes 2 major upgrades into a second draft pull request/),
+    ).toBeVisible()
+    expect(within(dialog).queryByText('The majors run cannot start')).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: 'Dispatch the fix' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+    const list = await within(dialog).findByRole('list', { name: 'Dispatched runs' })
+    expect(within(list).getByRole('link', { name: 'Fix run 52' })).toBeVisible()
+    expect(within(list).getByRole('link', { name: 'Majors run 51' })).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Dispatch the fix' })).toBeDisabled()
+    await user.click(within(list).getByRole('link', { name: 'Majors run 51' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(await screen.findByText('Majors run', { selector: 'span' })).toBeVisible()
+  })
+
+  it('dispatches the agent alone for a plan with only major upgrades', async () => {
+    wideScreen()
+    fixtureApi({ 'POST /repos/16/fix-runs': reply(201, { ...dispatched(50), majorsRun: null }) })
+    const { user } = await setup('/fix-runs?sel=plan-16')
+    await user.click(await screen.findByRole('button', { name: /Fix with Hinomi/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    expect(
+      await within(dialog).findByText(/The latest plan has no safe step.*one draft pull request/),
+    ).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Dispatch the majors agent' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Running on kestrel-co/exporter' }),
+    ).toBeVisible()
+  })
+
+  it('warns in the dialog when the caller passes no key', async () => {
+    wideScreen()
+    fixtureApi()
+    const { user } = await setup('/fix-runs?sel=plan-17')
+    await user.click(await screen.findByRole('button', { name: /Fix with Hinomi/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    expect(await within(dialog).findByText('The majors run cannot start')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Dispatch the fix' })).toBeEnabled()
+  })
+
+  it('does not mention a second PR while the agent is off', async () => {
+    wideScreen()
+    fixtureApi()
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    await user.click(await screen.findByRole('button', { name: /Fix with Hinomi/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    await within(dialog).findByText(/3 safe steps clear/)
+    expect(dialog).not.toHaveTextContent('majors agent')
   })
 })
