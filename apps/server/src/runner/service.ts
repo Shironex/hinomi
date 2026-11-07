@@ -18,6 +18,7 @@ import { openRunnerGithub, type RunnerGithub } from './github.js'
 import { releaseLatestSource, type LatestFixWorkflowSource } from './latest.js'
 import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
+import { openSetupPr, setupPrCapability, type SetupPrResult } from './setup-pr.js'
 import type { FixRunner } from './runner.js'
 
 // What the API calls: runner settings and status per repo, and dispatching the latest plan.
@@ -186,6 +187,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
         checksMode: meta.visibility === 'public' ? 'full' : 'install',
       },
       permissions,
+      setupPr: setupPrCapability(permissions, meta),
       caller,
       latestRun: latestRun ?? null,
       closedUnmerged: closed ? previousPrOf(closed) : null,
@@ -197,6 +199,17 @@ export function createFixRunService(options: FixRunServiceOptions) {
   return {
     /** Live status of the repo's runner: settings, permissions, caller pin. Never throws on GitHub errors. */
     status,
+
+    /**
+     * Opens the PR that adds the caller workflow to the repo, or moves its pin to the latest
+     * release; reuses the branch and open PR of an earlier call. See openSetupPr.
+     */
+    async setupPr(repoId: number): Promise<SetupPrResult> {
+      const repo = repositories.repos.get(repoId)
+      if (!repo)
+        return { kind: 'refused', status: 404, code: 'not_found', message: 'Repo not found' }
+      return openSetupPr({ repo, github: github(), latest: await resolveLatest() })
+    },
 
     /** Saves the settings. Undefined when the repo does not exist. */
     updateSettings(repoId: number, patch: UpdateRunnerSettingsRequest): RepoRow | undefined {

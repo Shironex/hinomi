@@ -63,6 +63,13 @@ export {
   type ProbeTarget,
 } from './permissions.js'
 export {
+  openSetupPr,
+  setupPrCapability,
+  type OpenSetupPrOptions,
+  type SetupPrRefusal,
+  type SetupPrResult,
+} from './setup-pr.js'
+export {
   FIX_PR_LABELS,
   publishFailureReason,
   publishFixPr,
