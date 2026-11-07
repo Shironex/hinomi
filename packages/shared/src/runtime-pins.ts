@@ -40,7 +40,11 @@ export const runtimePinRecordSchema = runtimePinSchema.extend({
   job: z.string().nullable(),
   /** Dockerfile stage the pin was read from (0 based), null outside Dockerfiles. */
   stage: z.number().int().nonnegative().nullable(),
-  /** True when the Dockerfile stage is the final one or one it is built on; null outside Dockerfiles. */
+  /**
+   * True when the Dockerfile stage reaches the final image: the final stage, one it is built on,
+   * or one it copies `node_modules` from. Such a stage must run the production line (design
+   * section 5.5). Null outside Dockerfiles.
+   */
   finalStage: z.boolean().nullable(),
 })
 export type RuntimePinRecord = z.infer<typeof runtimePinRecordSchema>

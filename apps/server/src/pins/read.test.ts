@@ -163,7 +163,7 @@ COPY --from=deps /app/node_modules ./node_modules
     expect(
       pins.map((p) => [p.runtime, p.line, p.raw, p.lineName, p.scope, p.stage, p.finalStage]),
     ).toEqual([
-      ['node', 2, 'node:20-alpine', '20', 'dev', 0, false],
+      ['node', 2, 'node:20-alpine', '20', 'dev', 0, true],
       ['bun', 4, 'oven/bun:1.2', '1', 'dev', 1, false],
       ['node', 5, 'node:22-alpine', '22', 'production', 2, true],
       ['rust', 1, 'rust:1.82-slim', '1.82', 'dev', 0, true],
@@ -177,6 +177,29 @@ COPY --from=deps /app/node_modules ./node_modules
     expect(pins.map((p) => [p.path, p.scope])).toEqual([
       ['apps/api/Dockerfile', 'production'],
       ['Dockerfile', 'dev'],
+    ])
+  })
+
+  it('marks stages whose node_modules the final image copies, and only those', () => {
+    const pins = read({
+      Dockerfile: [
+        'FROM node:20 AS deps',
+        'FROM deps AS build',
+        'FROM node:18 AS assets',
+        'FROM node:16 AS tools',
+        'FROM node:22-alpine',
+        'COPY --from=BUILD /app/node_modules ./node_modules',
+        'COPY --from=assets /app/dist ./dist',
+        'COPY --from=0 /app .',
+        'COPY --from=node:24 /usr/local/lib/node_modules /x',
+        '',
+      ].join('\n'),
+    })
+    expect(pins.map((p) => [p.raw, p.scope, p.finalStage])).toEqual([
+      ['node:20', 'dev', true],
+      ['node:18', 'dev', false],
+      ['node:16', 'dev', false],
+      ['node:22-alpine', 'production', true],
     ])
   })
 
