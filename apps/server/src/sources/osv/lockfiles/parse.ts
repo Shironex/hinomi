@@ -3,6 +3,7 @@ import { parseBunLock } from './bun.js'
 import { parseCargoLock } from './cargo.js'
 import { parsePackageLock } from './npm.js'
 import { parsePnpmLock } from './pnpm.js'
+import { parseRequirementsTxt } from './requirements.js'
 import { parseYarnLock } from './yarn.js'
 
 /** Lockfile names Hinomi can read, in order of preference when a folder has several. */
@@ -34,6 +35,8 @@ export class UnsupportedLockfileError extends Error {
 export interface ParseLockfileOptions {
   /** package.json next to the lockfile; lets yarn.lock tell runtime from dev. */
   packageJson?: string
+  /** The lockfile's name or path; requirements.txt reads dev or test scope from it. */
+  filename?: string
 }
 
 const basename = (path: string) => path.slice(path.lastIndexOf('/') + 1)
@@ -56,6 +59,7 @@ const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
   'yarn.lock': (text, options) => parseYarnLock(text, options.packageJson),
   'bun.lock': (text) => parseBunLock(text),
   'Cargo.lock': (text) => parseCargoLock(text),
+  'requirements.txt': (text, options) => parseRequirementsTxt(text, { filename: options.filename }),
 }
 
 /** Whether `parseLockfile` can read a file of this name (a path is fine). */
@@ -73,5 +77,5 @@ export function parseLockfile(
   const name = basename(filename)
   const parser = isLockfileName(name) ? PARSERS[name] : undefined
   if (!parser) throw new UnsupportedLockfileError(name)
-  return parser(text, options)
+  return parser(text, { filename, ...options })
 }
