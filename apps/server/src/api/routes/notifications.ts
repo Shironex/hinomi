@@ -14,6 +14,7 @@ import {
   ChannelValidationError,
   readNotifySettings,
   writeDigestHour,
+  writeFixRunEvents,
   writePublicBaseUrl,
   type Notifier,
 } from '../../notify/index.js'
@@ -86,6 +87,7 @@ export function notificationsRoutes(deps: ApiDeps, options: NotificationsApiOpti
     deps.repositories.db.transaction(() => {
       if (body.publicBaseUrl !== undefined) writePublicBaseUrl(settings, body.publicBaseUrl)
       if (body.digestHour !== undefined) writeDigestHour(settings, body.digestHour)
+      if (body.fixRunEvents !== undefined) writeFixRunEvents(settings, body.fixRunEvents)
     })
     if (body.digestHour !== undefined) options.onDigestHourChanged?.()
     return send(c, notifySettingsSchema, readNotifySettings(settings))
