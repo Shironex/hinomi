@@ -11,6 +11,11 @@ export interface UpsertRepoInput {
   alertsEnabled?: boolean | null
 }
 
+export interface RepoRunnerPatch {
+  enabled?: boolean
+  workflow?: string | null
+}
+
 /** GitHub owner and repo names are case-insensitive; rows store them lowercased. */
 export function normalizeRepoName(owner: string, name: string): { owner: string; name: string } {
   return { owner: owner.trim().toLowerCase(), name: name.trim().toLowerCase() }
@@ -57,6 +62,21 @@ export function createReposRepository(db: Db) {
         })
         .returning()
         .get()
+    },
+
+    /**
+     * Changes the repo's runner settings. Undefined keeps a value; a null workflow goes back to
+     * the default file name. Undefined when the repo does not exist.
+     */
+    setRunner(id: number, patch: RepoRunnerPatch): RepoRow | undefined {
+      const set = {
+        ...(patch.enabled !== undefined && { runnerEnabled: patch.enabled }),
+        ...(patch.workflow !== undefined && { runnerWorkflow: patch.workflow }),
+      }
+      if (Object.keys(set).length === 0) {
+        return db.select().from(repos).where(eq(repos.id, id)).get()
+      }
+      return db.update(repos).set(set).where(eq(repos.id, id)).returning().get()
     },
 
     markScanned(id: number, at: Date = currentTime()): void {

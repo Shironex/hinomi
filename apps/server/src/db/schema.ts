@@ -87,6 +87,10 @@ export const repos = sqliteTable(
     /** Dependabot alerts switched on. Null until GitHub has been asked. */
     alertsEnabled: integer('alerts_enabled', { mode: 'boolean' }),
     lastScannedAt: timestamp('last_scanned_at'),
+    /** The GitHub Actions fix runner may dispatch fix plans for this repo. Off until turned on. */
+    runnerEnabled: integer('runner_enabled', { mode: 'boolean' }).notNull().default(false),
+    /** Caller workflow file under .github/workflows. Null means DEFAULT_CALLER_WORKFLOW. */
+    runnerWorkflow: text('runner_workflow'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
