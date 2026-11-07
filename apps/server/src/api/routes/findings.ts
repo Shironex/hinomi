@@ -217,7 +217,7 @@ function transition(run: () => unknown): void {
     run()
   } catch (error) {
     if (error instanceof FindingTransitionError) {
-      throw new HttpError(400, 'bad_request', error.message)
+      throw new HttpError(400, 'bad_request', error.message, { cause: error })
     }
     throw error
   }

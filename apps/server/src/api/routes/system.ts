@@ -286,7 +286,7 @@ export function scansRoutes(deps: ApiDeps) {
       result = scheduler.scanNow('manual')
     } catch (error) {
       if (error instanceof SchedulerClosedError)
-        throw new HttpError(503, 'unavailable', error.message)
+        throw new HttpError(503, 'unavailable', error.message, { cause: error })
       throw error
     }
     return send(

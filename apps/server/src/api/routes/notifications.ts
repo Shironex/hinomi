@@ -33,7 +33,7 @@ function channelCall<T>(run: () => T): T {
   } catch (error) {
     if (error instanceof ChannelNotFoundError) throw notFound('Channel')
     if (error instanceof ChannelValidationError) {
-      throw new HttpError(400, 'validation_failed', error.message)
+      throw new HttpError(400, 'validation_failed', error.message, { cause: error })
     }
     throw error
   }
