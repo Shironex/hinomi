@@ -8,10 +8,11 @@
  * never shows a real host or project. Any request outside /api still goes to the network
  * as usual (only the app's own assets are requested).
  *
- * `?fixture=setup` in the first URL serves a first run instead of a configured instance.
+ * `?fixture=setup` in the first URL serves a first run instead of a configured instance, and
+ * `?fixture=webhook-on` (and the other `webhook-*` names) the GitHub webhook in that state.
  */
 import { FIXED_NOW } from './dataset'
-import { fixtureRoute, type FixtureScenario } from './routes'
+import { fixtureRoute, isFixtureScenario, type FixtureScenario } from './routes'
 
 if (import.meta.env.MODE !== 'fixtures') {
   throw new Error('The fixture entry only runs in fixture mode (vite --mode fixtures)')
@@ -66,8 +67,8 @@ function installFixtureApi(scenario: FixtureScenario) {
   }
 }
 
-const scenario: FixtureScenario =
-  new URLSearchParams(window.location.search).get('fixture') === 'setup' ? 'setup' : 'default'
+const requested = new URLSearchParams(window.location.search).get('fixture')
+const scenario: FixtureScenario = isFixtureScenario(requested) ? requested : 'default'
 
 freezeClock(FIXED_NOW)
 pinTimeZone('UTC')

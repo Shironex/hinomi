@@ -22,6 +22,8 @@ import {
   scanRunSchema,
   scanStatusSchema,
   scansResponseSchema,
+  githubWebhookSettingsSchema,
+  rotateGithubWebhookSecretResponseSchema,
   settingsSchema,
   sourcesResponseSchema,
   FIX_RUN_DEPLOY_STATUSES,
@@ -33,6 +35,7 @@ import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import { DEPLOYMENTS, FINDINGS, LAST_SCAN } from './dataset'
 import { PLANS, RUNS } from './fix-runs'
+import { WEBHOOK_SCENARIOS } from './webhook'
 import { filterFindings, fixtureRoute, type FixtureScenario } from './routes'
 
 const get = (path: string, scenario?: FixtureScenario) =>
@@ -71,6 +74,20 @@ describe('fixture API', () => {
   it.each(routes)('answers %s in the contract shape', (path, schema) => {
     expectShape(path, schema)
     expectShape(path, schema, 'setup')
+  })
+
+  it.each(WEBHOOK_SCENARIOS)('answers the webhook settings in the %s scenario', (scenario) => {
+    expectShape('/settings/github-webhook', githubWebhookSettingsSchema, scenario)
+    expect(get('/settings', scenario).status).toBe(200)
+  })
+
+  it('answers a new webhook secret once, in the contract shape', () => {
+    const reply = fixtureRoute(
+      'POST',
+      new URL('http://localhost/api/settings/github-webhook/secret'),
+      'webhook-new',
+    )
+    expect(rotateGithubWebhookSecretResponseSchema.safeParse(reply.body).error).toBeUndefined()
   })
 
   it('answers every finding and deployment detail in the contract shape', () => {

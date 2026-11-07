@@ -14,13 +14,18 @@ import {
   deploysFor,
   detailFor,
 } from './dataset'
+import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 
 /**
  * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
- * and GitHub not yet, so setup opens on its second step.
+ * and GitHub not yet, so setup opens on its second step. The `webhook-*` scenarios are the
+ * default instance with the GitHub webhook in one state (see ./webhook).
  */
-export type FixtureScenario = 'default' | 'setup'
+export type FixtureScenario = 'default' | 'setup' | WebhookScenario
+
+export const isFixtureScenario = (value: string | null): value is FixtureScenario =>
+  value === 'default' || value === 'setup' || isWebhookScenario(value)
 
 export interface FixtureReply {
   status: number
@@ -156,6 +161,11 @@ export function fixtureRoute(
   const path = url.pathname.replace(/^\/api/, '')
   const setup = scenario === 'setup'
 
+  if (method === 'POST' && path === '/settings/github-webhook/secret') {
+    // The one write fixture mode serves, so the "shown once" state can be captured.
+    return ok({ secret: WEBHOOK_SECRET, settings: webhookFor(scenario) })
+  }
+
   if (method !== 'GET') {
     const dispatchId = method === 'POST' ? idFrom(path, /^\/repos\/(\d+)\/fix-runs$/) : null
     return dispatchId === null ? readOnly : dispatchReply(dispatchId, body)
@@ -207,6 +217,8 @@ export function fixtureRoute(
       return ok({ sources: setup ? SOURCES.slice(0, 1) : SOURCES, canStoreTokens: true })
     case '/settings':
       return ok({ scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false })
+    case '/settings/github-webhook':
+      return ok(webhookFor(scenario))
     case '/scans':
       return ok({ items: setup ? [] : [LAST_SCAN] })
     case '/notifications/channels':
