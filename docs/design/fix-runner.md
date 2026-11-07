@@ -605,3 +605,13 @@ What the reusable workflow, the caller template and the self test settled, where
 - **Repo owned code during the apply step.** A repo's `.pnpmfile.cjs` or yarn plugins run during the lockfile update; they are the repo's own committed code, trusted as much as the repo's CI.
 - **Pending runs.** A third dispatch while one runs and one waits replaces the waiting one; Hinomi sees that run as cancelled.
 - **Force push.** `--force` instead of a lease: anything pushed to `hinomi/fix-plan` by hand is overwritten by the next run.
+
+## 17. Built in 63.3: deployments and verification
+
+What linking merged runs to deployments and verifying them settled, where it differs from section 6.
+
+1. **Deploy link.** Not the scan's Coolify poll: the tracker reads each mapped application's deploy history itself (the same reader as the deployment detail view) while the run is `merged`, every 2 minutes for an hour, then every 15 minutes. A deploy ships the fix when its commit is the merge commit or a descendant of it (GitHub compare `identical` or `ahead`), so a deploy of a later commit counts. Answers are cached in memory and the compare calls share the tracker's request budget.
+2. **Several apps.** The first app that ships the fix moves the run to `deployed`; the others get one more hour before the rescan. Apps that deploy another branch are listed as `other_branch` and never waited for.
+3. **No deploy.** After 3 days without a deploy of the merge, the run keeps `merged` with a `deploy_not_seen` warning and polling stops. Repos with no mapped application are verified right after the merge, since the lockfile on the default branch is what Hinomi reads.
+4. **Watch paths.** Checked against the files the runner's patch changed, with Coolify's rules (ordered patterns, `!` negation, last match wins). A miss is a `watch_paths_skip` warning on the run, not a state.
+5. **Rescan.** A scoped rescan of the one repo through the scheduler (`scanRepo`), never beside a full scan, recording no scan run so the schedule and the last scan stay as they are. It counts only when every source read the repo fully; failures retry with backoff (5 tries), then the next full scan verifies the run. Partial results stay `not_cleared`: the state machine has no partial state, the counts and ids live in `verification`.
