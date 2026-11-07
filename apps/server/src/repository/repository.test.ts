@@ -196,6 +196,61 @@ describe('deployments', () => {
     })
   })
 
+  it('stores facts with their version and keeps them when a record leaves them out', () => {
+    const source = repos.sources.create({ kind: 'coolify', name: 'main' })
+    const base = {
+      source: 'main',
+      externalId: 'uuid-api',
+      name: 'api',
+      kind: 'application' as const,
+      repo: null,
+      branch: null,
+      domains: [],
+      isPublic: false,
+      server: null,
+      status: 'running',
+      image: null,
+      lastDeployAt: null,
+      watchPaths: null,
+    }
+    const facts = {
+      version: 1 as const,
+      fetchedAt: '2026-11-07T10:00:00.000Z',
+      buildPack: 'nixpacks',
+      image: null,
+      commit: null,
+      user: '1000',
+      services: [],
+      dockerfile: null,
+      mounts: [],
+      mountsChecked: ['run_options' as const],
+      networks: [],
+      hostNetwork: false,
+      privileged: false,
+      destination: null,
+      attachedToDestination: true,
+      project: null,
+      autoDeploy: null,
+      gaps: {},
+    }
+    const row = repos.deployments.upsert(
+      deploymentInputFromRecord(
+        { ...base, facts, factsVersion: '2026-11-01T08:00:00Z' },
+        source.id,
+      ),
+    )
+    expect(row).toMatchObject({
+      facts,
+      factsVersion: '2026-11-01T08:00:00Z',
+      factsUpdatedAt: new Date('2026-11-07T10:00:00.000Z'),
+      imageScannedAt: null,
+    })
+
+    const again = repos.deployments.upsert(deploymentInputFromRecord(base, source.id))
+    expect(again.facts).toEqual(facts)
+    expect(again.factsVersion).toBe('2026-11-01T08:00:00Z')
+  })
+
   it('cascades when the source is removed', () => {
     const { source } = seedDeployment()
     repos.sources.remove(source.id)
