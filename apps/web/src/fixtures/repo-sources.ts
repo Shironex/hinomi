@@ -144,5 +144,8 @@ export function repoDetailFor(id: number): RepoDetail | null {
       seenBy: placement.seenBy,
     },
     release: releaseFor(id),
+    // The runtime panel (phase 2 slice 13) fills these in its own fixtures.
+    runtimePins: [],
+    supportLines: { available: false, runtimes: [] },
   }
 }

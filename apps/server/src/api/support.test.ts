@@ -30,7 +30,10 @@ describe('GET /api/support/status', () => {
   it('reports the cache: age, source, counts and what each runtime publishes', async () => {
     const held: { data?: SupportData } = {}
     const { repos, call } = createTestApi({
-      support: { status: () => (held.data as SupportData).status() },
+      support: {
+        status: () => (held.data as SupportData).status(),
+        index: () => held.data?.index() ?? null,
+      },
     })
     repos.httpCache.put({
       key: PRODUCTS_FULL_KEY,

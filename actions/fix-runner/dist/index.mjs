@@ -6281,6 +6281,30 @@ function nowMs() {
 	return Date.now();
 }
 
+// ../../packages/shared/src/runtime-pins.ts
+const PIN_KINDS = [
+	"exact",
+	"range",
+	"floating",
+	"minimum",
+	"unknown"
+];
+const pinKindSchema = _enum(PIN_KINDS);
+const PIN_SCOPES = [
+	"production",
+	"ci",
+	"dev"
+];
+const pinScopeSchema = _enum(PIN_SCOPES);
+const runtimePinRecordSchema = runtimePinSchema.extend({
+	kind: pinKindSchema,
+	version: string().nullable(),
+	scope: pinScopeSchema,
+	job: string().nullable(),
+	stage: number$1().int().nonnegative().nullable(),
+	finalStage: boolean().nullable()
+});
+
 // ../../packages/shared/src/support.ts
 const SUPPORT_WINDOW_STATES = [
 	"supported",
@@ -7054,9 +7078,20 @@ const repoReleaseSchema = object({
 	fixedOnDefaultBranch: number$1().int().nonnegative(),
 	lockfileMissing: boolean()
 });
+const repoRuntimePinSchema = runtimePinRecordSchema.extend({
+	ref: string(),
+	scannedAt: isoDate$5,
+	disagrees: boolean()
+});
+const repoSupportLinesSchema = object({
+	available: boolean(),
+	runtimes: array(runtimeSupportEntrySchema)
+});
 const repoDetailSchema = repoRefSchema.extend({
 	source: repoSourceViewSchema,
-	release: repoReleaseSchema
+	release: repoReleaseSchema,
+	runtimePins: array(repoRuntimePinSchema),
+	supportLines: repoSupportLinesSchema
 });
 const updateRepoReleaseTierRequestSchema = strictObject({ tier: releaseTierModeSchema });
 const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
@@ -14161,30 +14196,6 @@ const updateWebhookRunnerRequestSchema = strictObject({
 const rotateWebhookRunnerSecretResponseSchema = object({
 	secret: string(),
 	settings: webhookRunnerSettingsSchema
-});
-
-// ../../packages/shared/src/runtime-pins.ts
-const PIN_KINDS = [
-	"exact",
-	"range",
-	"floating",
-	"minimum",
-	"unknown"
-];
-const pinKindSchema = _enum(PIN_KINDS);
-const PIN_SCOPES = [
-	"production",
-	"ci",
-	"dev"
-];
-const pinScopeSchema = _enum(PIN_SCOPES);
-const runtimePinRecordSchema = runtimePinSchema.extend({
-	kind: pinKindSchema,
-	version: string().nullable(),
-	scope: pinScopeSchema,
-	job: string().nullable(),
-	stage: number$1().int().nonnegative().nullable(),
-	finalStage: boolean().nullable()
 });
 
 // src/actions-io.ts

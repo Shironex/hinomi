@@ -55,7 +55,7 @@ export interface ApiOptions {
    * The endoflife.date data (its daily job runs in index.ts). Without it the routes serve what the
    * cache table holds and never fetch.
    */
-  support?: Pick<SupportData, 'status'>
+  support?: Pick<SupportData, 'status' | 'index'>
   /** The daily update check, looked at again when the Settings switch is turned on. */
   updates?: Pick<UpdateChecker, 'check'>
   /** The fix run tracker, for the tracking state on GET /api/fix-runs/:id. */

@@ -8,6 +8,7 @@ export {
   runtimeSupportGuard,
   type RuntimeSupportOptions,
 } from './runtime-support.js'
+export { repoRuntimeView, type RepoRuntimeView } from './runtime-view.js'
 export type {
   Guard,
   GuardContext,

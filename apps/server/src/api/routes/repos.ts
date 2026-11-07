@@ -19,8 +19,11 @@ import {
   cachedInstallerAssets,
   indexDeployments,
   isReleaseFinding,
+  lockfileRef,
   releaseStatus,
+  repoRuntimeView,
 } from '../../scan/index.js'
+import { readBehindReleases, readSupportWindowDays } from '../../support/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, send } from '../http.js'
 import { toRepoRef } from '../serialize.js'
@@ -51,8 +54,31 @@ export function toRepoRelease(repositories: Repositories, repo: RepoRow): RepoRe
   }
 }
 
-/** The repo with the GitHub source it is read and fixed through, and the sources that see it. */
-export function toRepoDetail(repositories: Repositories, repo: RepoRow): RepoDetail {
+/**
+ * The runtime pins the last scan stored at the branch it reads (the deployed branch, else the
+ * default one), judged with the current support data and settings.
+ */
+function runtimeOf(deps: Pick<ApiDeps, 'repositories' | 'support' | 'now'>, repo: RepoRow) {
+  const { repositories } = deps
+  const deployments = indexDeployments(repositories).byRepo.get(repo.id) ?? []
+  const ref = lockfileRef(repo, deployments, null)
+  const pins = ref === null ? [] : repositories.runtimePins.list(repo.id, ref)
+  return repoRuntimeView(pins, deps.support.index(), {
+    now: deps.now(),
+    windowDays: readSupportWindowDays(repositories.settings),
+    behindReleases: readBehindReleases(repositories.settings),
+  })
+}
+
+/**
+ * The repo with the GitHub source it is read and fixed through, the sources that see it, and its
+ * runtime pins and support lines.
+ */
+export function toRepoDetail(
+  deps: Pick<ApiDeps, 'repositories' | 'support' | 'now'>,
+  repo: RepoRow,
+): RepoDetail {
+  const { repositories } = deps
   const resolved = resolveRepoSource(repositories.sources, repo)
   const github = new Map(repositories.sources.listByKind('github').map((s) => [s.id, s]))
   const seenBy = repositories.repoSources.seenBy(repo.id).flatMap((row) => {
@@ -75,6 +101,7 @@ export function toRepoDetail(repositories: Repositories, repo: RepoRow): RepoDet
       seenBy,
     },
     release: toRepoRelease(repositories, repo),
+    ...runtimeOf(deps, repo),
   }
 }
 
@@ -91,7 +118,7 @@ export function repoDetailRoutes(deps: ApiDeps) {
 
   app.get('/:id', (c) => {
     const { id } = readParams(c, idParamSchema)
-    return send(c, repoDetailSchema, toRepoDetail(repositories, requireRepo(id)))
+    return send(c, repoDetailSchema, toRepoDetail(deps, requireRepo(id)))
   })
 
   app.patch('/:id', async (c) => {
@@ -110,7 +137,7 @@ export function repoDetailRoutes(deps: ApiDeps) {
       }
     }
     const repo = repositories.repoSources.setOverride(id, sourceId) ?? requireRepo(id)
-    return send(c, repoDetailSchema, toRepoDetail(repositories, repo))
+    return send(c, repoDetailSchema, toRepoDetail(deps, repo))
   })
 
   // The desktop tier mode. The next scan asks GitHub for the latest release again and moves the
@@ -120,7 +147,7 @@ export function repoDetailRoutes(deps: ApiDeps) {
     requireRepo(id)
     const { tier } = await readJson(c, updateRepoReleaseTierRequestSchema)
     const repo = repositories.repos.setReleaseTier(id, tier) ?? requireRepo(id)
-    return send(c, repoDetailSchema, toRepoDetail(repositories, repo))
+    return send(c, repoDetailSchema, toRepoDetail(deps, repo))
   })
 
   return app
