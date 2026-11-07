@@ -1,6 +1,7 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import { parseBunLock } from './bun.js'
 import { parseCargoLock } from './cargo.js'
+import { parseGoMod } from './gomod.js'
 import { parsePackageLock } from './npm.js'
 import { parsePnpmLock } from './pnpm.js'
 import { parseRequirementsTxt } from './requirements.js'
@@ -60,6 +61,7 @@ const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
   'bun.lock': (text) => parseBunLock(text),
   'Cargo.lock': (text) => parseCargoLock(text),
   'requirements.txt': (text, options) => parseRequirementsTxt(text, { filename: options.filename }),
+  'go.mod': (text) => parseGoMod(text),
 }
 
 /** Whether `parseLockfile` can read a file of this name (a path is fine). */

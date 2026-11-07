@@ -503,19 +503,13 @@ describe('parseLockfile', () => {
   })
 
   it('knows the names of formats without a parser and refuses them without misparsing', () => {
-    for (const name of [
-      'go.mod',
-      'go.sum',
-      'uv.lock',
-      'poetry.lock',
-      'composer.lock',
-      'Gemfile.lock',
-    ]) {
+    for (const name of ['go.sum', 'uv.lock', 'poetry.lock', 'composer.lock', 'Gemfile.lock']) {
       expect(isLockfileName(name)).toBe(true)
       expect(hasLockfileParser(`apps/api/${name}`)).toBe(false)
       expect(() => parseLockfile('anything', name)).toThrow(UnsupportedLockfileError)
     }
     expect(hasLockfileParser('apps/api/Cargo.lock')).toBe(true)
+    expect(hasLockfileParser('apps/api/go.mod')).toBe(true)
   })
 })
 
