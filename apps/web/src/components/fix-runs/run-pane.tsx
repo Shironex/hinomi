@@ -24,6 +24,7 @@ import {
   parseStepId,
   planKey,
   RUN_STATE_INFO,
+  RUNNER_KIND_INFO,
   runNext,
   runTimeline,
   STEP_REASON_LABEL,
@@ -146,7 +147,10 @@ function Checks({ run }: { run: FixRun }) {
   if (!result) {
     return (
       <p className="text-sm text-muted-foreground">
-        {prChecks ?? 'Check results arrive when the workflow run finishes.'}
+        {prChecks ??
+          (run.runner === 'github_actions'
+            ? 'Check results arrive when the workflow run finishes.'
+            : 'Check results arrive when the runner reports back.')}
       </p>
     )
   }
@@ -327,6 +331,9 @@ export function RunPane({
             <IconRobot aria-hidden="true" />
             {run.kind === 'majors' ? 'Majors run' : 'Fix run'}
           </Badge>
+          {run.runner === 'github_actions' ? null : (
+            <Badge variant="outline">{RUNNER_KIND_INFO[run.runner].label}</Badge>
+          )}
           <span>
             Run {run.id}, started {formatRelative(run.at.created)}
           </span>
@@ -407,13 +414,18 @@ export function RunPane({
               items={[
                 { label: 'Branch', value: run.branch, mono: true },
                 { label: 'Head commit', value: run.headSha?.slice(0, 7) ?? 'Not yet', mono: true },
-                {
-                  label: 'Workflow run',
-                  value: run.github
-                    ? `${run.github.runId}${run.github.runAttempt && run.github.runAttempt > 1 ? `, attempt ${run.github.runAttempt}` : ''}`
-                    : 'Not known yet',
-                  mono: true,
-                },
+                { label: 'Runner', value: RUNNER_KIND_INFO[run.runner].label },
+                ...(run.runner === 'github_actions'
+                  ? [
+                      {
+                        label: 'Workflow run',
+                        value: run.github
+                          ? `${run.github.runId}${run.github.runAttempt && run.github.runAttempt > 1 ? `, attempt ${run.github.runAttempt}` : ''}`
+                          : 'Not known yet',
+                        mono: true,
+                      },
+                    ]
+                  : []),
                 { label: 'Plan', value: `Scan ${run.plan.scanRunId}` },
                 {
                   label: 'Checks in the runner',

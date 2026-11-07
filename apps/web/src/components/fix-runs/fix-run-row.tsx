@@ -1,4 +1,5 @@
 import type { FixRun } from '@hinomi/shared'
+import { RUNNER_KIND_INFO } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { RunStateText } from './run-state-text'
 
@@ -12,6 +13,9 @@ export function FixRunRow({ run }: { run: FixRun }) {
       <span aria-hidden="true" />
       <span className="col-span-2 truncate text-xs text-muted-foreground">
         {run.kind === 'majors' ? 'Majors run' : 'Run'} {run.id}
+        {run.runner === 'github_actions'
+          ? ''
+          : `, ${RUNNER_KIND_INFO[run.runner].label.toLowerCase()}`}
         {run.pr ? `, PR #${run.pr.number}${run.pr.draft ? ' draft' : ''}` : ''}
       </span>
     </span>

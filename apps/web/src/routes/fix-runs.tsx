@@ -54,9 +54,9 @@ function NoPlans() {
       }
     >
       <p>
-        Every scan builds one upgrade plan per repo. Fix with Hinomi runs it in the repo&apos;s own
-        GitHub Actions, opens one pull request, follows its checks and shows each run here until a
-        rescan verifies the fix.
+        Every scan builds one upgrade plan per repo. Fix with Hinomi runs it on the runner you pick
+        per repo (its own GitHub Actions by default), opens one pull request, follows its checks and
+        shows each run here until a rescan verifies the fix.
       </p>
       <p className="text-sm text-muted-foreground">
         The runner is off for every repo until you turn it on, only gets the GitHub permissions you

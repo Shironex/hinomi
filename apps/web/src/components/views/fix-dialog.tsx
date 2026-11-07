@@ -35,7 +35,15 @@ import {
   runnerQuery,
   type DispatchOutcome,
 } from '@/lib/fix-api'
-import { MAJORS_BRANCH_NAME, planKey, previewPlan, type PlanPreview } from '@/lib/fix-run-meta'
+import {
+  LOCAL_MAJORS_NOTE,
+  MAJORS_BRANCH_NAME,
+  planKey,
+  previewPlan,
+  RUNNER_KIND_INFO,
+  runnerKindOf,
+  type PlanPreview,
+} from '@/lib/fix-run-meta'
 import { closeFix, type FixRequest } from '@/lib/fix-request'
 import { PlanDiff } from './plan-diff'
 
@@ -57,6 +65,13 @@ function findingNote(plan: FixPlan, preview: PlanPreview, findingId: number): st
 }
 
 function checksLine(runner: RunnerStatus | undefined): string {
+  const kind = runnerKindOf(runner)
+  if (kind === 'webhook') {
+    return "The webhook runner applies the plan with its own checks. The repo's own CI still runs on the pull request."
+  }
+  if (kind === 'local') {
+    return "The local runner installs from the lockfile only. The repo's own CI runs the checks on the pull request."
+  }
   if (!runner?.github) return 'GitHub decides the checks mode when the run starts.'
   return runner.github.checksMode === 'full'
     ? 'Public repo: the runner installs and runs the checks before it pushes.'
@@ -192,7 +207,11 @@ function DialogBody({ request }: { request: FixRequest }) {
 
   const preview = plan.data ? previewPlan(plan.data) : null
   const notReady = runner.data && !runner.data.ready
-  const majors = agentOn(runner.data) && preview ? preview.majors.length : 0
+  const kind = runnerKindOf(runner.data)
+  // The local runner never takes the majors agent: its majors are left out, not dispatched.
+  const majors = kind !== 'local' && agentOn(runner.data) && preview ? preview.majors.length : 0
+  const localMajorsLeftOut =
+    kind === 'local' && agentOn(runner.data) && preview !== null && preview.majors.length > 0
   const noSecret = majors > 0 && runner.data?.caller.passesAgentSecret === false
   const canDispatch =
     preview !== null &&
@@ -216,8 +235,8 @@ function DialogBody({ request }: { request: FixRequest }) {
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         <DialogDescription className="text-sm text-foreground-2">
           Runs the latest fix plan of{' '}
-          <span className="font-mono text-foreground">{repo?.fullName}</span> in its own GitHub
-          Actions and{' '}
+          <span className="font-mono text-foreground">{repo?.fullName}</span>{' '}
+          {RUNNER_KIND_INFO[kind].where} and{' '}
           {preview && preview.sent.length === 0 && majors > 0
             ? 'hands its major upgrades to the agent.'
             : 'opens one pull request with every safe step.'}
@@ -243,6 +262,9 @@ function DialogBody({ request }: { request: FixRequest }) {
               </p>
             ) : null}
             <p className="text-xs text-muted-foreground">{checksLine(runner.data)}</p>
+            {localMajorsLeftOut ? (
+              <p className="text-sm text-foreground-2">{LOCAL_MAJORS_NOTE}</p>
+            ) : null}
             {noSecret ? (
               <Callout icon={IconKey} variant="warn" title="The majors run cannot start">
                 The caller workflow passes no <span className="font-mono">ANTHROPIC_API_KEY</span>,
