@@ -5,9 +5,13 @@ import {
   FINDING_SCOPES,
   FINDING_STATES,
   FIX_RUN_KINDS,
+  PIN_KINDS,
+  PIN_SCOPES,
   RUNNER_MAJORS_AGENTS,
   FIX_RUN_STATES,
   FIX_RUNNER_KINDS,
+  RUNTIME_PIN_SOURCES,
+  RUNTIMES,
   SCAN_RUN_STATUSES,
   SCAN_TRIGGERS,
   SOURCE_AUTHS,
@@ -26,6 +30,8 @@ import {
   type FixRunVerification,
   type FixRunWarning,
   type Reporter,
+  type Runtime,
+  type RuntimePinSource,
   type SourceKind,
   currentTime,
 } from '@hinomi/shared'
@@ -504,6 +510,39 @@ export const fixRuns = sqliteTable(
   ],
 )
 
+/**
+ * What a repo pins a runtime to (Node, Bun, Rust), as read from its files at one ref. A scan
+ * replaces all pins of a repo and ref together. `kind` says how the value constrains the runtime
+ * (exact, range, floating, minimum, unknown); `scope` where it applies (production, ci, dev).
+ */
+export const runtimePins = sqliteTable(
+  'runtime_pins',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoId: integer('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    /** Branch or release tag the files were read at. */
+    ref: text('ref').notNull(),
+    runtime: text('runtime', { enum: RUNTIMES }).notNull().$type<Runtime>(),
+    source: text('source', { enum: RUNTIME_PIN_SOURCES }).notNull().$type<RuntimePinSource>(),
+    path: text('path').notNull(),
+    line: integer('line'),
+    raw: text('raw').notNull(),
+    /** The endoflife.date release name, null when the value does not name one. */
+    lineName: text('line_name'),
+    floating: integer('floating', { mode: 'boolean' }).notNull().default(false),
+    kind: text('kind', { enum: PIN_KINDS }).notNull(),
+    version: text('version'),
+    scope: text('scope', { enum: PIN_SCOPES }).notNull(),
+    job: text('job'),
+    stage: integer('stage'),
+    finalStage: integer('final_stage', { mode: 'boolean' }),
+    scannedAt: timestamp('scanned_at').notNull(),
+  },
+  (t) => [index('runtime_pins_repo_ref_idx').on(t.repoId, t.ref)],
+)
+
 /** Free-form key/value settings (scan interval, notification targets, ...). */
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
@@ -542,6 +581,7 @@ export type NewFindingEventRow = typeof findingEvents.$inferInsert
 export type CheckOverrideRow = typeof checkOverrides.$inferSelect
 export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
+export type RuntimePinRow = typeof runtimePins.$inferSelect
 export type HttpCacheRow = typeof httpCache.$inferSelect
 export type FixPlanRow = typeof fixPlans.$inferSelect
 export type FixRunRow = typeof fixRuns.$inferSelect
