@@ -2,11 +2,13 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { silentLogger, type Logger } from '../log.js'
 import type { Repositories } from '../repository/index.js'
+import { createFixRunService, type FixRunService } from '../runner/index.js'
 import type { Scheduler } from '../scheduler/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
 import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
+import { fixRunsRoutes, repoFixRunsRoutes } from './routes/fix-runs.js'
 import { fixesRoutes } from './routes/fixes.js'
 import { onboardingRoutes } from './routes/onboarding.js'
 import { notificationsRoutes, type NotificationsApiOptions } from './routes/notifications.js'
@@ -28,6 +30,8 @@ export interface ApiOptions {
   sourceFetch?: typeof fetch
   /** Notification channels and settings. Without it those routes are not registered. */
   notifications?: NotificationsApiOptions
+  /** Runner settings and fix run dispatch. Defaults to the GitHub Actions runner on `sourceFetch`. */
+  fixRuns?: FixRunService
 }
 
 /**
@@ -35,13 +39,21 @@ export interface ApiOptions {
  * response is checked against the zod contract in packages/shared/src/api.ts.
  */
 export function registerApiRoutes(api: Hono, options: ApiOptions): void {
+  const now = options.now ?? currentTime
   const deps: ApiDeps = {
     repositories: options.repositories,
     scheduler: options.scheduler,
     testers: options.testers ?? createSourceTesters(),
     log: options.log ?? silentLogger,
-    now: options.now ?? currentTime,
+    now,
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
+    fixRuns:
+      options.fixRuns ??
+      createFixRunService({
+        repositories: options.repositories,
+        now,
+        ...(options.sourceFetch && { fetch: options.sourceFetch }),
+      }),
   }
 
   api.use(
@@ -61,6 +73,8 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   api.route('/fixes', fixesRoutes(deps))
   api.route('/deployments', deploymentsRoutes(deps))
   api.route('/repos', reposRoutes(deps))
+  api.route('/repos', repoFixRunsRoutes(deps))
+  api.route('/fix-runs', fixRunsRoutes(deps))
   api.route('/plans', plansRoutes(deps))
   api.route('/sources', sourcesRoutes(deps))
   api.route('/settings', settingsRoutes(deps))
