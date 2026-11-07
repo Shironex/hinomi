@@ -78,7 +78,8 @@ export type FixRunTrackingConfig = { [K in keyof typeof FIX_RUN_TRACKING]: numbe
 export type TrackingPhase =
   'link' | 'run' | 'wait' | 'publish' | 'pr' | 'ended_run' | 'ended_pr' | 'deploy' | 'verify'
 
-const BEFORE_PUSH: readonly FixRunState[] = ['pending', 'dispatched', 'queued', 'running']
+/** States before the fix branch is pushed. */
+export const BEFORE_PUSH: readonly FixRunState[] = ['pending', 'dispatched', 'queued', 'running']
 export const TRACKED_PR_STATES: readonly FixRunState[] = [
   'pr_open',
   'checks_pending',

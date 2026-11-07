@@ -25,8 +25,9 @@ export interface FixRunDispatchRefusal {
    * step the runner can apply (for `majors`: no major upgrade for the agent). `plan`: the plan or
    * its payload is not valid. `unavailable`: the repo could not be read before dispatching.
    * `not_configured`: the repo's runner kind is not set up or not allowed on this host.
+   * `busy`: the runner takes one run at a time and one is in progress (the local runner).
    */
-  code: 'no_source' | 'nothing_to_send' | 'plan' | 'unavailable' | 'not_configured'
+  code: 'no_source' | 'nothing_to_send' | 'plan' | 'unavailable' | 'not_configured' | 'busy'
   message: string
 }
 

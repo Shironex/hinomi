@@ -38,6 +38,7 @@ const ERROR_TAXONOMY = [
   'GithubRateLimitError',
   'HttpError',
   'InvalidCidrError',
+  'LocalStepError',
   'OsvRequestError',
   'SchedulerClosedError',
   'SecretDecryptError',

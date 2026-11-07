@@ -118,3 +118,21 @@ export {
   type RunnerSettingsUpdate,
   type RunnerStatusView,
 } from './service.js'
+export {
+  LOCAL_MAJORS_UNSUPPORTED,
+  LOCAL_RUNNER_DIR,
+  LOCAL_STEP_TIMEOUTS_MS,
+  LocalRunner,
+  gitOrigin,
+  parseOutputs,
+  type LocalRunnerAvailability,
+  type LocalRunnerLog,
+  type LocalRunnerOptions,
+} from './local-runner.js'
+export {
+  nodeProcessRunner,
+  scrubSecrets,
+  type ProcessResult,
+  type ProcessRunner,
+  type ProcessSpec,
+} from './local-process.js'
