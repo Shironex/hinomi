@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fetchDependabotAlerts } from './alerts.js'
 import { createGithubClient } from './client.js'
+import { GithubError } from './errors.js'
 import { testGithubConnection } from './connection.js'
 import { fetchRepoHealth, listAccountRepos } from './repos.js'
 import { scriptedFetch, type CannedResponse } from './testing.js'
@@ -261,7 +262,9 @@ describe('fetchDependabotAlerts', () => {
 
   it('fails the whole fetch when the dismissed alerts cannot be read', async () => {
     const { client } = setup([alertsPage([alertNode(1)], null), { status: 502, body: {} }])
-    await expect(fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')).rejects.toBeDefined()
+    await expect(fetchDependabotAlerts(client, 'kestrel-co', 'harbor-web')).rejects.toThrow(
+      GithubError,
+    )
   })
 
   it('throws not_found when the repository is null', async () => {
