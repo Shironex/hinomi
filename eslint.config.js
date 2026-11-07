@@ -43,6 +43,7 @@ const ERROR_TAXONOMY = [
   'SchedulerClosedError',
   'SecretDecryptError',
   'SecretKeyMissingError',
+  'SupportDataError',
   'UnsupportedLockfileError',
 ]
 
@@ -59,6 +60,7 @@ const SERVER_LAYERS = {
   notify: ['crypto', 'db', 'repository', 'scan'],
   runner: ['db', 'repository', 'sources'],
   scheduler: ['db', 'notify', 'repository', 'scan'],
+  support: ['repository'],
   webhook: ['crypto', 'db', 'repository'],
   api: [
     'access',
@@ -70,6 +72,7 @@ const SERVER_LAYERS = {
     'scan',
     'scheduler',
     'sources',
+    'support',
     'webhook',
   ],
 }
@@ -82,6 +85,7 @@ const SERVER_BARRELS = [
   'runner',
   'scan',
   'scheduler',
+  'support',
   'webhook',
 ]
 
