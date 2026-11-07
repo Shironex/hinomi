@@ -9,6 +9,7 @@ import { createTestDatabase } from './test-db.js'
 
 const TABLES = [
   'advisories',
+  'check_overrides',
   'deployment_repo_overrides',
   'deployments',
   'finding_events',

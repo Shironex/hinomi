@@ -4,6 +4,9 @@ import type {
   FindingKind,
   FindingScope,
   FindingState,
+  GuardCheck,
+  GuardEvidence,
+  GuardLevel,
   Reporter,
 } from '@hinomi/shared'
 import { and, asc, desc, eq, gte, type SQL } from 'drizzle-orm'
@@ -37,6 +40,30 @@ export function coverageNoteFindingKey(type: CoverageNoteType, deploymentId: num
   return `note:${type}:deployment:${deploymentId}`
 }
 
+/** What a guard finding is about: one deployment or one repo. */
+export type GuardSubject = { deploymentId: number } | { repoId: number }
+
+/** Dedupe key of a guard finding: one row per check and subject; level and evidence update in place. */
+export function guardFindingKey(check: GuardCheck, subject: GuardSubject): string {
+  return 'deploymentId' in subject
+    ? `guard:${check}:deployment:${subject.deploymentId}`
+    : `guard:${check}:repo:${subject.repoId}`
+}
+
+/**
+ * Dedupe key of a desktop release advisory: a separate row from the default branch advisory on
+ * the same repo (the version at the tag can differ). It follows the latest tag (`release_tag`
+ * updates), it is not one row per tag.
+ */
+export function releaseAdvisoryFindingKey(advisoryId: number, repoId: number): string {
+  return `advisory:${advisoryId}:repo:${repoId}:release`
+}
+
+/** Dedupe key of an advisory an image scan reported on a deployment (`repo_id` may stay null). */
+export function imageAdvisoryFindingKey(advisoryId: number, deploymentId: number): string {
+  return `advisory:${advisoryId}:deployment:${deploymentId}:image`
+}
+
 export type ObserveFindingInput =
   | {
       kind: Extract<FindingKind, 'advisory'>
@@ -61,6 +88,14 @@ export type ObserveFindingInput =
       kind: Extract<FindingKind, 'coverage_note'>
       coverageNoteType: CoverageNoteType
       deploymentId: number
+    }
+  | {
+      kind: Extract<FindingKind, 'guard'>
+      guardCheck: GuardCheck
+      subject: GuardSubject
+      /** Written on create and on every later observation. */
+      guardLevel: GuardLevel
+      evidence: GuardEvidence
     }
 
 export interface ChangeStateInput {
@@ -89,6 +124,7 @@ function keyFor(input: ObserveFindingInput): string {
   if (input.kind === 'advisory') return advisoryFindingKey(input.advisoryId, input.repoId)
   if (input.kind === 'coverage_note')
     return coverageNoteFindingKey(input.coverageNoteType, input.deploymentId)
+  if (input.kind === 'guard') return guardFindingKey(input.guardCheck, input.subject)
   if (input.repoId !== undefined)
     return blindSpotFindingKey(input.blindSpotType, { repoId: input.repoId })
   if (input.deploymentId !== undefined)
@@ -172,11 +208,20 @@ export function createFindingsRepository(db: Db) {
                   }
                 : input.kind === 'coverage_note'
                   ? { deploymentId: input.deploymentId }
-                  : {
-                      blindSpotType: input.blindSpotType,
-                      repoId: input.repoId ?? null,
-                      deploymentId: input.deploymentId ?? null,
-                    }),
+                  : input.kind === 'guard'
+                    ? {
+                        guardCheck: input.guardCheck,
+                        guardLevel: input.guardLevel,
+                        evidence: input.evidence,
+                        repoId: 'repoId' in input.subject ? input.subject.repoId : null,
+                        deploymentId:
+                          'deploymentId' in input.subject ? input.subject.deploymentId : null,
+                      }
+                    : {
+                        blindSpotType: input.blindSpotType,
+                        repoId: input.repoId ?? null,
+                        deploymentId: input.deploymentId ?? null,
+                      }),
             })
             .returning()
             .get()
@@ -200,12 +245,21 @@ export function createFindingsRepository(db: Db) {
                 patchedInLockfile: input.patchedInLockfile,
               }),
             }),
+            ...(input.kind === 'guard' && {
+              guardLevel: input.guardLevel,
+              evidence: input.evidence,
+            }),
           })
           .where(eq(findings.id, existing.id))
           .returning()
           .get()
         return { finding, created: false }
       })
+    },
+
+    /** Replaces a guard finding's evidence without touching its level or state (a pass keeps what it read). */
+    setEvidence(id: number, evidence: GuardEvidence): void {
+      db.update(findings).set({ evidence }).where(eq(findings.id, id)).run()
     },
 
     /** Replaces the set of sources that report a finding (for example after a rescan). */

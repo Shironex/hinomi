@@ -12,8 +12,12 @@ import {
   SCAN_TRIGGERS,
   SOURCE_AUTHS,
   SOURCE_KINDS,
+  GUARD_CHECKS,
+  GUARD_LEVELS,
+  OVERRIDABLE_CHECKS,
   type AdvisorySeverity,
   type DeploymentFacts,
+  type GuardEvidence,
   type DeploymentKind,
   type FixChecksMode,
   type FixPlan,
@@ -256,9 +260,9 @@ export const advisories = sqliteTable(
 )
 
 /**
- * Something to act on: an advisory on a repo, or a blind spot (missing
- * coverage) on a repo or a deployment. `dedupeKey` keeps one row per subject;
- * see repository/findings.ts for how it is built.
+ * Something to act on: an advisory on a repo, a blind spot (missing coverage) on a repo or a
+ * deployment, a coverage note, or a guard (a configuration or support check). `dedupeKey` keeps
+ * one row per subject; see repository/findings.ts for how it is built.
  */
 export const findings = sqliteTable(
   'findings',
@@ -284,6 +288,14 @@ export const findings = sqliteTable(
     patchedInLockfile: integer('patched_in_lockfile', { mode: 'boolean' }).notNull().default(false),
     /** Package names from a direct dependency down to the vulnerable one, from a parsed lockfile. */
     dependencyPath: text('dependency_path', { mode: 'json' }).$type<string[]>(),
+    /** Guard findings: the check that wrote it. Null for every other kind. */
+    guardCheck: text('guard_check', { enum: GUARD_CHECKS }),
+    /** Guard findings: the current level. Null for every other kind. */
+    guardLevel: text('guard_level', { enum: GUARD_LEVELS }),
+    /** Guard findings: what the check read, validated against the check's evidence schema. */
+    evidence: text('evidence', { mode: 'json' }).$type<GuardEvidence>(),
+    /** Desktop release advisories: the release tag that was scanned. Null otherwise. */
+    releaseTag: text('release_tag'),
     state: text('state', { enum: FINDING_STATES }).notNull().default('open'),
     /** Why it was snoozed or accepted. */
     stateReason: text('state_reason'),
@@ -305,6 +317,7 @@ export const findings = sqliteTable(
     index('findings_advisory_idx').on(t.advisoryId),
     index('findings_deployment_idx').on(t.deploymentId),
     index('findings_state_idx').on(t.state),
+    index('findings_kind_check_idx').on(t.kind, t.guardCheck),
   ],
 )
 
@@ -330,6 +343,38 @@ export const findingEvents = sqliteTable(
     at: timestamp('at').notNull(),
   },
   (t) => [index('finding_events_finding_idx').on(t.findingId, t.at)],
+)
+
+/**
+ * A check turned off with a reason, for one deployment or one repo (exactly one of the two ids is
+ * set, checked in code). The check keeps running; its finding is stored as `accepted` with this
+ * reason. `check` is a guard check or a blind spot type. SQLite treats NULLs as distinct in a
+ * unique index, so uniqueness is two partial indexes, one per subject column.
+ */
+export const checkOverrides = sqliteTable(
+  'check_overrides',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    check: text('check', { enum: OVERRIDABLE_CHECKS }).notNull(),
+    deploymentId: integer('deployment_id').references(() => deployments.id, {
+      onDelete: 'cascade',
+    }),
+    repoId: integer('repo_id').references(() => repos.id, { onDelete: 'cascade' }),
+    /** Why it is off, 1 to 500 characters. */
+    reason: text('reason').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('check_overrides_deployment_unique')
+      .on(t.check, t.deploymentId)
+      .where(sql`${t.deploymentId} is not null`),
+    uniqueIndex('check_overrides_repo_unique')
+      .on(t.check, t.repoId)
+      .where(sql`${t.repoId} is not null`),
+    index('check_overrides_deployment_idx').on(t.deploymentId),
+    index('check_overrides_repo_idx').on(t.repoId),
+  ],
 )
 
 /** Outcome of one source within a scan run. */
@@ -494,6 +539,7 @@ export type FindingRow = typeof findings.$inferSelect
 export type NewFindingRow = typeof findings.$inferInsert
 export type FindingEventRow = typeof findingEvents.$inferSelect
 export type NewFindingEventRow = typeof findingEvents.$inferInsert
+export type CheckOverrideRow = typeof checkOverrides.$inferSelect
 export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
 export type HttpCacheRow = typeof httpCache.$inferSelect

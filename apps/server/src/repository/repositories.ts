@@ -1,6 +1,7 @@
 import type { SecretBox } from '../crypto/secret-box.js'
 import type { Db } from '../db/client.js'
 import { createAdvisoriesRepository } from './advisories.js'
+import { createCheckOverridesRepository } from './check-overrides.js'
 import { createDeploymentsRepository } from './deployments.js'
 import { createFindingsRepository } from './findings.js'
 import { createHttpCacheRepository } from './http-cache.js'
@@ -29,6 +30,7 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
     deployments: createDeploymentsRepository(db),
     advisories: createAdvisoriesRepository(db),
     findings: createFindingsRepository(db),
+    checkOverrides: createCheckOverridesRepository(db),
     scanRuns: createScanRunsRepository(db),
     fixPlans: createFixPlansRepository(db),
     fixRuns: createFixRunsRepository(db),

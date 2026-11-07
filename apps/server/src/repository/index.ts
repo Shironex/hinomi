@@ -1,4 +1,5 @@
 export * from './advisories.js'
+export * from './check-overrides.js'
 export * from './deployments.js'
 export * from './findings.js'
 export * from './fix-run-transitions.js'
