@@ -12,7 +12,9 @@ import {
   testGithubConnection,
   type GithubAppConnection,
 } from './connection.js'
+import { fetchLatestRelease, type GithubRelease } from './releases.js'
 import { fetchRepoHealth, listAccountRepos, listInstallationRepos } from './repos.js'
+import type { ConditionalRead } from './runs.js'
 
 /** The functions bound to one client, which is what the scheduler and the settings API hold. */
 export interface GithubSource {
@@ -22,6 +24,12 @@ export interface GithubSource {
   fetchDependabotAlerts(owner: string, name: string): Promise<DependabotAlertsResult>
   /** Token: the repos of the user and their orgs. GitHub App: the repos of the installation. */
   listAccountRepos(): Promise<AccountRepo[]>
+  /** The latest final release, read with the last ETag (see releases.ts). */
+  fetchLatestRelease(
+    owner: string,
+    name: string,
+    etag: string | null,
+  ): Promise<ConditionalRead<GithubRelease | null>>
   /** A bearer token for other GitHub calls (lockfile downloads). Minted on demand for an app. */
   getToken(): Promise<string>
 }
@@ -40,6 +48,7 @@ export function createGithubSource(options: GithubClientOptions): GithubSource {
     fetchRepoHealth: (owner, name) => fetchRepoHealth(client, owner, name),
     fetchDependabotAlerts: (owner, name) => fetchDependabotAlerts(client, owner, name),
     listAccountRepos: () => listAccountRepos(client),
+    fetchLatestRelease: (owner, name, etag) => fetchLatestRelease(client, owner, name, etag),
     getToken: () => (auth ? auth.getToken() : Promise.resolve(token ?? '')),
   }
 }
