@@ -4,7 +4,7 @@ import type {
   DependabotAlertsResult,
   RepoHealth,
 } from '@hinomi/shared'
-import type { Repositories, Source } from '../repository/index.js'
+import { cachedFactsOf, type Repositories, type Source } from '../repository/index.js'
 import { fetchCoolifyInventory } from '../sources/coolify/index.js'
 import { createGithubSourceFromConfig, type GithubSource } from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
@@ -89,11 +89,14 @@ function coolifySource(
     name: source.name,
     fetchInventory: async () => {
       if (!source.baseUrl) throw new Error(`Coolify source "${source.name}" has no URL`)
+      // Facts are read again only for resources that changed since the last scan.
+      const cached = cachedFactsOf(repositories.deployments.listBySource(source.id))
       return fetchCoolifyInventory({
         name: source.name,
         baseUrl: source.baseUrl,
         token: token(),
         ...(options.fetch && { fetch: options.fetch }),
+        facts: { cached: (externalId) => cached.get(externalId) },
       })
     },
   }
