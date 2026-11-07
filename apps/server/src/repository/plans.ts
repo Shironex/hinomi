@@ -1,9 +1,12 @@
-import type { FixPlan } from '@hinomi/shared'
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { FIX_RUN_TERMINAL_STATES, type FixPlan } from '@hinomi/shared'
+import { and, desc, eq, inArray, isNotNull, lt, notInArray, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
-import { fixPlans, type FixPlanRow } from '../db/schema.js'
+import { fixPlans, fixRuns, type FixPlanRow } from '../db/schema.js'
 
-/** Plans kept per repo; older ones are dropped when a scan saves a new one. */
+/**
+ * Plans kept per repo; older ones are dropped when a scan saves a new one, except plans an
+ * unfinished fix run still applies.
+ */
 export const FIX_PLANS_KEPT_PER_REPO = 20
 
 export type FixPlansRepository = ReturnType<typeof createFixPlansRepository>
@@ -12,7 +15,8 @@ export function createFixPlansRepository(db: Db) {
   return {
     /**
      * Stores the plan a scan built for a repo (replacing one the same scan saved before) and
-     * drops the repo's plans beyond FIX_PLANS_KEPT_PER_REPO, oldest first.
+     * drops the repo's plans beyond FIX_PLANS_KEPT_PER_REPO, oldest first. Plans of fix runs that
+     * have not ended are kept.
      */
     save(plan: FixPlan, createdAt: Date): FixPlanRow {
       return db.transaction((tx) => {
@@ -40,8 +44,23 @@ export function createFixPlansRepository(db: Db) {
           .offset(FIX_PLANS_KEPT_PER_REPO - 1)
           .get()
         if (keep) {
+          const inUse = tx
+            .select({ id: fixRuns.fixPlanId })
+            .from(fixRuns)
+            .where(
+              and(
+                isNotNull(fixRuns.fixPlanId),
+                notInArray(fixRuns.state, [...FIX_RUN_TERMINAL_STATES]),
+              ),
+            )
           tx.delete(fixPlans)
-            .where(and(eq(fixPlans.repoId, plan.repo.id), lt(fixPlans.scanRunId, keep.scanRunId)))
+            .where(
+              and(
+                eq(fixPlans.repoId, plan.repo.id),
+                lt(fixPlans.scanRunId, keep.scanRunId),
+                notInArray(fixPlans.id, inUse),
+              ),
+            )
             .run()
         }
         return row
