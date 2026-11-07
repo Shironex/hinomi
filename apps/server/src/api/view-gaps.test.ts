@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { ScanSummary } from '../scan/index.js'
 import { createTestApi, seedWorld } from './testing.js'
 
-// Endpoints and fields added for the views (#33). Every name and domain is fictional.
+// Endpoints and fields added for the views. Every name and domain is fictional.
 
 const future = (days = 7) => new Date(nowMs() + days * 86_400_000).toISOString()
 const HOOK_URL = 'https://hooks.example.dev/hinomi/fictional-0001'

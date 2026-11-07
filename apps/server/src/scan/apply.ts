@@ -14,7 +14,7 @@ import {
   type UpstreamDismissal,
 } from './state.js'
 
-/** A finding the scan created or changed, for notifications (#11) and the scan summary. */
+/** A finding the scan created or changed, for notifications and the scan summary. */
 export interface FindingChange {
   findingId: number
   change: 'opened' | 'reopened' | 'fixed' | 'reporters_changed' | 'expired' | 'dismissed_upstream'

@@ -19,7 +19,7 @@ import {
 } from './rank.js'
 import { currentTime } from '@hinomi/shared'
 
-/** A finding joined with what it is about and ranked. What the API (#7) serves. */
+/** A finding joined with what it is about and ranked. What the API serves. */
 export interface RankedFinding extends ExposureRank {
   kind: FindingKind
   state: FindingState
@@ -114,7 +114,7 @@ export interface FindingChangeSet {
 
 /**
  * Findings that were created or changed at or after `since`, for
- * notifications (#11). Pass the start of the previous scan run, or the last
+ * notifications. Pass the start of the previous scan run, or the last
  * time notifications went out.
  */
 export function findingChangesSince(repositories: Repositories, since: Date): FindingChangeSet[] {
