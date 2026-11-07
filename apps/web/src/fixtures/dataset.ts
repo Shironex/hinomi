@@ -858,8 +858,11 @@ const source = (over: Partial<SourceDto>): SourceDto => ({
   ...over,
 })
 
+// Two GitHub sources: the kestrel-co GitHub App reads most repos, and a personal token reads
+// the CLI (the app is not installed on it) and also sees storefront and auth, so those two can be
+// switched. See ./repo-sources for which source reads each repo.
 export const SOURCES: SourceDto[] = [
-  source({}),
+  source({ deploymentCount: DEPLOYMENTS.length }),
   source({
     id: 2,
     kind: 'github',
@@ -868,6 +871,18 @@ export const SOURCES: SourceDto[] = [
     auth: 'github_app',
     appId: '1048576',
     installationId: '52428800',
+    // Eight scanned repos and the thirteen that only have fix plans (see ./repo-sources).
+    repoCount: 21,
+  }),
+  source({
+    id: 3,
+    kind: 'github',
+    name: 'mara-kestrel',
+    baseUrl: null,
+    auth: 'token',
+    repoCount: 2,
+    createdAt: ago(24 * 9),
+    updatedAt: ago(24 * 9),
   }),
 ]
 
