@@ -969,7 +969,7 @@ const dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468
 function anchor(source) {
 	return new RegExp(`^${source}$`);
 }
-const date = /*@__PURE__*/ anchor(dateSource);
+const date$1 = /*@__PURE__*/ anchor(dateSource);
 function timeSource(args) {
 	const hhmm = `(?:[01]\\d|2[0-3]):[0-5]\\d`;
 	return typeof args.precision === "number" ? args.precision === -1 ? `${hhmm}` : args.precision === 0 ? `${hhmm}:[0-5]\\d` : `${hhmm}:[0-5]\\d\\.\\d{${args.precision}}` : args.seconds ? `${hhmm}:[0-5]\\d(?:\\.\\d+)?` : `${hhmm}(?::[0-5]\\d(?:\\.\\d+)?)?`;
@@ -1624,7 +1624,7 @@ const $ZodISODateTime = /*@__PURE__*/ $constructor("$ZodISODateTime", (inst, def
 	$ZodStringFormat.init(inst, def);
 });
 const $ZodISODate = /*@__PURE__*/ $constructor("$ZodISODate", (inst, def) => {
-	def.pattern ?? (def.pattern = date);
+	def.pattern ?? (def.pattern = date$1);
 	$ZodStringFormat.init(inst, def);
 });
 const $ZodISOTime = /*@__PURE__*/ $constructor("$ZodISOTime", (inst, def) => {
@@ -5531,6 +5531,9 @@ function preprocess(fn, schema) {
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/iso.js
 function datetime(params) {
 	return _isoDateTime(ZodISODateTime, params);
+}
+function date(params) {
+	return _isoDate(ZodISODate, params);
 }
 
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/coerce.js
@@ -13400,6 +13403,244 @@ const githubWebhookAckSchema = object({ status: _enum([
 	"ignored",
 	"duplicate"
 ]) });
+
+// ../../packages/shared/src/guards.ts
+const GUARD_CHECKS = [
+	"root_user",
+	"shared_network",
+	"docker_socket",
+	"watch_paths_skip",
+	"framework_support",
+	"runtime_support",
+	"runtime_pins_disagree",
+	"action_runtime"
+];
+const guardCheckSchema = _enum(GUARD_CHECKS);
+const GUARD_LEVELS = [
+	"warn",
+	"fail",
+	"unknown"
+];
+const guardLevelSchema = _enum(GUARD_LEVELS);
+const GUARD_RESULTS = ["pass", ...GUARD_LEVELS];
+const guardResultSchema = _enum(GUARD_RESULTS);
+const OVERRIDABLE_CHECKS = [...GUARD_CHECKS, ...BLIND_SPOT_TYPES];
+const overridableCheckSchema = _enum(OVERRIDABLE_CHECKS);
+const GUARD_CAPABILITIES = [
+	"full",
+	"partial",
+	"unknown"
+];
+const guardCapabilitySchema = _enum(GUARD_CAPABILITIES);
+const RUNTIMES = [
+	"node",
+	"bun",
+	"rust"
+];
+const runtimeSchema = _enum(RUNTIMES);
+const RUNTIME_PIN_SOURCES = [
+	"nvmrc",
+	"node_version",
+	"bun_version",
+	"tool_versions",
+	"mise",
+	"volta",
+	"engines",
+	"dev_engines",
+	"package_manager",
+	"rust_toolchain",
+	"cargo_rust_version",
+	"dockerfile",
+	"setup_node",
+	"setup_bun",
+	"rust_toolchain_action",
+	"action_runs_using"
+];
+const runtimePinSourceSchema = _enum(RUNTIME_PIN_SOURCES);
+const SUPPORT_BASES = ["security", "release_cycle"];
+const supportBasisSchema = _enum(SUPPORT_BASES);
+
+// ../../packages/shared/src/guard-evidence.ts
+const line = number$1().int().positive().nullable();
+const reason = string().max(500).nullable().default(null);
+const day = date();
+const CONTAINER_SIGNAL_SOURCES = [
+	"docker_inspect",
+	"run_options",
+	"compose",
+	"dockerfile",
+	"none"
+];
+const containerSignalSourceSchema = _enum(CONTAINER_SIGNAL_SOURCES);
+const rootUserServiceSchema = object({
+	name: string(),
+	user: string().nullable(),
+	image: string().nullable(),
+	result: guardResultSchema
+});
+const rootUserEvidenceSchema = object({
+	check: literal("root_user"),
+	source: containerSignalSourceSchema,
+	user: string().nullable(),
+	path: string().nullable(),
+	line,
+	from: string().nullable(),
+	stage: string().nullable(),
+	commit: string().nullable(),
+	services: array(rootUserServiceSchema),
+	reason
+});
+const MOUNT_SOURCES = [
+	"docker_inspect",
+	"run_options",
+	"compose",
+	"file_storage",
+	"persistent_storage"
+];
+const mountSourceSchema = _enum(MOUNT_SOURCES);
+const socketMountSchema = object({
+	source: mountSourceSchema,
+	hostPath: string(),
+	containerPath: string().nullable(),
+	readOnly: boolean(),
+	service: string().nullable()
+});
+const dockerSocketEvidenceSchema = object({
+	check: literal("docker_socket"),
+	mounts: array(socketMountSchema),
+	checked: array(mountSourceSchema),
+	reason
+});
+const NETWORK_BASES = [
+	"coolify_destination",
+	"external_network",
+	"docker_network",
+	"host_network"
+];
+const networkBasisSchema = _enum(NETWORK_BASES);
+const networkPeerSchema = object({
+	deploymentId: number$1().int().positive().nullable(),
+	name: string(),
+	project: string().nullable(),
+	database: boolean()
+});
+const sharedNetworkEvidenceSchema = object({
+	check: literal("shared_network"),
+	basis: networkBasisSchema.nullable(),
+	network: string().nullable(),
+	destination: object({
+		server: string().nullable(),
+		type: string().nullable(),
+		id: number$1().int()
+	}).nullable(),
+	project: string().nullable(),
+	peers: array(networkPeerSchema),
+	reason
+});
+const watchPathsSkipEvidenceSchema = object({
+	check: literal("watch_paths_skip"),
+	patterns: array(string()),
+	autoDeploy: boolean().nullable(),
+	checked: array(string()),
+	skipped: array(string()),
+	reason
+});
+const supportLineSchema = object({
+	product: string(),
+	line: string(),
+	eolFrom: day.nullable(),
+	isEol: boolean(),
+	isEoas: boolean().nullable(),
+	latest: string().nullable(),
+	basis: supportBasisSchema,
+	daysLeft: number$1().int().nullable()
+});
+const supportTargetSchema = object({
+	line: string(),
+	latest: string().nullable()
+});
+const runtimePinSchema = object({
+	runtime: runtimeSchema,
+	source: runtimePinSourceSchema,
+	path: string(),
+	line,
+	raw: string(),
+	lineName: string().nullable(),
+	floating: boolean()
+});
+const fixHintSchema = object({
+	path: string(),
+	line,
+	from: string(),
+	to: string()
+});
+const frameworkEntrySchema = object({
+	packageName: string(),
+	ecosystem: string(),
+	purl: string(),
+	installedVersion: string(),
+	manifestPath: string().nullable(),
+	result: guardResultSchema,
+	support: supportLineSchema.nullable(),
+	target: supportTargetSchema.nullable()
+});
+const frameworkSupportEvidenceSchema = object({
+	check: literal("framework_support"),
+	ref: string().nullable(),
+	frameworks: array(frameworkEntrySchema),
+	reason
+});
+const runtimeSupportEntrySchema = object({
+	runtime: runtimeSchema,
+	result: guardResultSchema,
+	pin: runtimePinSchema.nullable(),
+	support: supportLineSchema.nullable(),
+	resolvedTo: string().nullable(),
+	target: supportTargetSchema.nullable(),
+	fixHints: array(fixHintSchema)
+});
+const runtimeSupportEvidenceSchema = object({
+	check: literal("runtime_support"),
+	ref: string().nullable(),
+	runtimes: array(runtimeSupportEntrySchema),
+	reason
+});
+const runtimePinsEntrySchema = object({
+	runtime: runtimeSchema,
+	result: guardResultSchema,
+	productionLine: string().nullable(),
+	pins: array(runtimePinSchema),
+	fixHints: array(fixHintSchema)
+});
+const runtimePinsDisagreeEvidenceSchema = object({
+	check: literal("runtime_pins_disagree"),
+	ref: string().nullable(),
+	runtimes: array(runtimePinsEntrySchema),
+	reason
+});
+const actionRuntimeEntrySchema = object({
+	action: string(),
+	using: string(),
+	result: guardResultSchema,
+	support: supportLineSchema.nullable(),
+	workflowPath: string().nullable(),
+	workflowLine: line
+});
+const actionRuntimeEvidenceSchema = object({
+	check: literal("action_runtime"),
+	actions: array(actionRuntimeEntrySchema),
+	reason
+});
+const guardEvidenceSchema = discriminatedUnion("check", [
+	rootUserEvidenceSchema,
+	sharedNetworkEvidenceSchema,
+	dockerSocketEvidenceSchema,
+	watchPathsSkipEvidenceSchema,
+	frameworkSupportEvidenceSchema,
+	runtimeSupportEvidenceSchema,
+	runtimePinsDisagreeEvidenceSchema,
+	actionRuntimeEvidenceSchema
+]);
 
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({ status: literal("ok") });
