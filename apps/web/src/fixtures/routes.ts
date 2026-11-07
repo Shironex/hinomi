@@ -15,6 +15,7 @@ import {
   detailFor,
 } from './dataset'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
+import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 import { FIXTURE_VERSION, versionFor } from './version'
 import { repoDetailFor } from './repo-sources'
@@ -78,6 +79,9 @@ export function filterFindings(params: URLSearchParams): FindingsResponse {
   const source = list(params, 'source')
   const scope = list(params, 'scope')
   const kind = list(params, 'kind')
+  const check = list(params, 'check')
+  const level = list(params, 'level')
+  const release = params.get('release')
   const repo = list(params, 'repo')?.map(Number)
   const deployment = list(params, 'deployment')?.map(Number)
   const q = params.get('q')?.trim().toLowerCase()
@@ -90,13 +94,17 @@ export function filterFindings(params: URLSearchParams): FindingsResponse {
   if (source) rows = rows.filter((f) => f.sources.some((s) => source.includes(s)))
   if (scope) rows = rows.filter((f) => scope.includes(f.scope))
   if (kind) rows = rows.filter((f) => kind.includes(f.kind))
+  if (check) rows = rows.filter((f) => f.guard !== null && check.includes(f.guard.check))
+  if (level) rows = rows.filter((f) => f.guard !== null && level.includes(f.guard.level))
+  if (release === 'true') rows = rows.filter((f) => f.releaseTag !== null)
+  if (release === 'false') rows = rows.filter((f) => f.releaseTag === null)
   if (repo) rows = rows.filter((f) => f.repo !== null && repo.includes(f.repo.id))
   if (deployment) {
     rows = rows.filter((f) => f.deployments.some((d) => deployment.includes(d.id)))
   }
   if (q) {
     rows = rows.filter((f) =>
-      [f.advisory?.packageName, f.advisory?.advisoryKey, f.repo?.fullName]
+      [f.advisory?.packageName, f.advisory?.advisoryKey, f.repo?.fullName, f.guard?.title]
         .filter(Boolean)
         .some((text) => text!.toLowerCase().includes(q)),
     )
@@ -216,7 +224,7 @@ export function fixtureRoute(
               deployments: DEPLOYMENTS.length,
               alerts: OVERVIEW.funnel.total,
               activeFixRuns: null,
-              guards: null,
+              guards: guardNavCount(FINDINGS),
             },
       )
     case '/shell/scan-status':
@@ -241,6 +249,10 @@ export function fixtureRoute(
     }
     case '/deployments':
       return ok({ items: DEPLOYMENTS })
+    case '/guards':
+      return ok(guardsResponseOf(setup ? [] : FINDINGS))
+    case '/overrides':
+      return ok({ items: setup ? [] : overridesOf(FINDINGS) })
     case '/repos':
       return ok({ items: Object.values(REPOS) })
     case '/sources':
@@ -251,7 +263,7 @@ export function fixtureRoute(
         osvEnabled: true,
         includeAccountRepos: false,
         updateCheckEnabled: true,
-        supportWindowDays: 90,
+        supportWindowDays: 180,
       })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))

@@ -19,13 +19,13 @@ import type {
 import {
   deploymentItem,
   deploymentRef,
-  emptyGuardCounts,
   findingDetail,
   findingItem,
   fixItem,
   overview,
   repoRef,
 } from './builders'
+import { deploymentGuardsFor, guardCountsOf, guardFindings } from './guards'
 
 // The fictional instance fixture mode serves: Kestrel Co runs eleven apps on one Coolify
 // with three servers, and GitHub plus OSV.dev report on nine repos. Every name, host and
@@ -129,7 +129,7 @@ const blindSpot: Partial<FindingListItem> = {
   installedVersion: null,
 }
 
-export const FINDINGS: FindingListItem[] = [
+const ADVISORIES_AND_GAPS: FindingListItem[] = [
   finding(1, 100, {
     ...advisory(1, {
       key: 'GHSA-7q2m-48vx-hc3r',
@@ -348,6 +348,12 @@ export const FINDINGS: FindingListItem[] = [
   }),
 ]
 
+/** Advisories, blind spots, notes and guards, most urgent first (guards rank in the same tiers). */
+export const FINDINGS: FindingListItem[] = [
+  ...ADVISORIES_AND_GAPS,
+  ...guardFindings({ apps: APPS, repos: REPOS, ago }),
+].sort((a, b) => b.rank - a.rank)
+
 const event = (
   id: number,
   findingId: number,
@@ -376,6 +382,28 @@ const DESCRIPTION = [
 
 /** Same bump, same answer: how many open findings each package bump clears. */
 const SAME_FIX: Record<string, number> = { tessera: 5, tarstream: 3, authline: 1, quillparse: 2 }
+
+/** A guard's history: opened, an escalation on the root container, the turn off when it is off. */
+function guardHistory(item: FindingListItem): FindingEvent[] {
+  const n = item.id * 10
+  const opened = event(n, item.id, 'opened', 30, { toState: 'open' })
+  const override = item.guard?.override
+  if (override) {
+    return [
+      event(n + 2, item.id, 'turned_off', (FIXED_NOW - Date.parse(override.createdAt)) / HOUR, {
+        actor: 'user',
+        fromState: 'open',
+        toState: 'accepted',
+        reason: override.reason,
+      }),
+      opened,
+    ]
+  }
+  if (item.guard?.check === 'root_user' && item.guard.level === 'fail') {
+    return [event(n + 1, item.id, 'escalated', 6, { reason: 'warn -> fail' }), opened]
+  }
+  return [opened]
+}
 
 export function detailFor(item: FindingListItem): FindingDetail {
   const base = findingDetail()
@@ -421,7 +449,9 @@ export function detailFor(item: FindingListItem): FindingDetail {
           event(2, 1, 'reporters_changed', 40),
           event(1, 1, 'opened', 50, { toState: 'open' }),
         ]
-      : [event(item.id * 10, item.id, 'opened', 50, { toState: 'open' })],
+      : item.kind === 'guard'
+        ? guardHistory(item)
+        : [event(item.id * 10, item.id, 'opened', 50, { toState: 'open' })],
     notifications: lead
       ? [
           {
@@ -683,7 +713,7 @@ export function deploymentDetailFor(item: DeploymentItem): DeploymentDetail {
     findings: FINDINGS.filter(
       (f) => f.state !== 'fixed' && f.deployments.some((d) => d.id === item.id),
     ),
-    guards: [],
+    guards: deploymentGuardsFor(item, FINDINGS),
   }
 }
 
@@ -726,8 +756,11 @@ const lastScan: ScanRun = {
   error: null,
 }
 
-const count = (tier: FindingTier) => FINDINGS.filter((f) => f.tier === tier).length
-const exposedOpen = FINDINGS.filter((f) => f.tier === 'exposed' && f.state === 'open').length
+// The advisory funnel and tier counts never count guards (docs/guards.md).
+const count = (tier: FindingTier) => ADVISORIES_AND_GAPS.filter((f) => f.tier === tier).length
+const exposedOpen = ADVISORIES_AND_GAPS.filter(
+  (f) => f.tier === 'exposed' && f.state === 'open',
+).length
 
 export const OVERVIEW: OverviewResponse = overview({
   funnel: {
@@ -840,7 +873,7 @@ export const OVERVIEW: OverviewResponse = overview({
     },
   ],
   topFixes: FIXES.slice(0, 3),
-  guardCounts: emptyGuardCounts(),
+  guardCounts: guardCountsOf(FINDINGS),
 })
 
 const source = (over: Partial<SourceDto>): SourceDto => ({

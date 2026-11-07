@@ -25,6 +25,10 @@ import {
   scanStatusSchema,
   scansResponseSchema,
   githubWebhookSettingsSchema,
+  checkOverridesResponseSchema,
+  GUARD_CHECKS,
+  GUARD_COPY,
+  guardsResponseSchema,
   rotateWebhookRunnerSecretResponseSchema,
   webhookRunnerSettingsSchema,
   rotateGithubWebhookSecretResponseSchema,
@@ -77,6 +81,9 @@ describe('fixture API', () => {
     ['/notifications/channels', notifyChannelsResponseSchema],
     ['/notifications/settings', notifySettingsSchema],
     ['/plans', fixPlansResponseSchema],
+    ['/guards', guardsResponseSchema],
+    ['/overrides', checkOverridesResponseSchema],
+    ['/findings?kind=guard&check=root_user,docker_socket&level=fail', findingsResponseSchema],
   ]
 
   it.each(routes)('answers %s in the contract shape', (path, schema) => {
@@ -255,6 +262,31 @@ describe('fixture API', () => {
     expect(get('/onboarding', 'setup').body).toEqual({ finished: false, alertsSkipped: false })
     const sources = get('/sources', 'setup').body as z.infer<typeof sourcesResponseSchema>
     expect(sources.sources.map((s) => s.kind)).toEqual(['coolify'])
+  })
+
+  it('has a guard finding for every level each check can report, some turned off', () => {
+    const guards = FINDINGS.filter((f) => f.guard)
+    for (const check of GUARD_CHECKS) {
+      for (const level of GUARD_COPY[check].levels) {
+        expect(
+          guards.some((f) => f.guard!.check === check && f.guard!.level === level),
+          `${check} ${level}`,
+        ).toBe(true)
+      }
+    }
+    const off = guards.filter((f) => f.guard!.override)
+    expect(off.length).toBeGreaterThan(0)
+    expect(off.every((f) => f.state === 'accepted')).toBe(true)
+  })
+
+  it('filters guard findings on check and level, and findings on a release', () => {
+    const roots = filterFindings(new URLSearchParams('kind=guard&check=root_user&level=fail'))
+    expect(roots.items.length).toBeGreaterThan(0)
+    expect(
+      roots.items.every((f) => f.guard?.check === 'root_user' && f.guard.level === 'fail'),
+    ).toBe(true)
+    const released = filterFindings(new URLSearchParams('release=true'))
+    expect(released.items.every((f) => f.releaseTag !== null)).toBe(true)
   })
 
   it('filters findings like the server', () => {

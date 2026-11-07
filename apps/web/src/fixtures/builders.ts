@@ -1,4 +1,4 @@
-import { GUARD_CHECKS } from '@hinomi/shared'
+import { GUARD_CHECKS, GUARD_COPY } from '@hinomi/shared'
 import type {
   DeploymentDetail,
   DeploymentItem,
@@ -6,6 +6,7 @@ import type {
   FindingDetail,
   FindingListItem,
   FindingsResponse,
+  FindingGuard,
   FixesResponse,
   FixItem,
   OverviewResponse,
@@ -118,6 +119,49 @@ export function coverageNoteItem(over: Partial<FindingListItem> = {}): FindingLi
     installedVersion: null,
     repo: null,
     deployments: [deploymentRef({ id: 8, name: 'status-board', domains: [] })],
+    ...over,
+  })
+}
+
+/** The guard part of a root container finding: no non root USER, read from the Dockerfile. */
+export function findingGuard(over: Partial<FindingGuard> = {}): FindingGuard {
+  const check = over.check ?? 'root_user'
+  const level = over.level ?? 'fail'
+  return {
+    check,
+    level,
+    evidence: {
+      check: 'root_user',
+      source: 'dockerfile',
+      user: 'root',
+      path: 'Dockerfile',
+      line: 31,
+      from: 'node:22-bookworm-slim',
+      stage: 'runtime',
+      commit: '4f2c91a7d3e85b60c19f2a4e7d8b3c5a6f0e1d92',
+      services: [],
+      reason: null,
+    },
+    title: GUARD_COPY[check].title,
+    explanation: GUARD_COPY[check].explanation[level] ?? GUARD_COPY[check].question,
+    fixText: GUARD_COPY[check].fix[level] ?? '',
+    override: null,
+    ...over,
+  }
+}
+
+/** A guard finding: storefront-web runs as root, ranked in the exposed tier like a high. */
+export function guardItem(over: Partial<FindingListItem> = {}): FindingListItem {
+  return findingItem({
+    id: 30,
+    kind: 'guard',
+    rank: 35,
+    tier: 'exposed',
+    factors: { severity: 'high', runtime: true, deployed: true, public: true },
+    sources: [],
+    advisory: null,
+    installedVersion: null,
+    guard: findingGuard(),
     ...over,
   })
 }
@@ -372,4 +416,16 @@ export function fixItem(over: Partial<FixItem> = {}): FixItem {
 
 export function fixesResponse(items: FixItem[], over: Partial<FixesResponse> = {}): FixesResponse {
   return { items, total: items.length, offset: 0, limit: 25, nextOffset: null, ...over }
+}
+
+/** The detail of a guard finding (see guardItem), with an opened event. */
+export function guardDetail(over: Partial<FindingDetail> = {}): FindingDetail {
+  return findingDetail({
+    ...guardItem(),
+    advisory: null,
+    versions: { installed: null, firstPatched: null, vulnerableRanges: [] },
+    dependency: { scope: 'runtime', manifestPaths: [], path: null, pathSource: 'package' },
+    sameFixClears: 0,
+    ...over,
+  })
 }
