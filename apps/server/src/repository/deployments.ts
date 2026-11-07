@@ -13,7 +13,7 @@ import { currentTime } from '@hinomi/shared'
 /** What a deployment source reports for one deployment on each sync. */
 export type UpsertDeploymentInput = Omit<
   NewDeploymentRow,
-  'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'
+  'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt' | 'imageScannedAt'
 >
 
 /**
@@ -45,7 +45,20 @@ export function deploymentInputFromRecord(
     repoId,
     lastDeployedAt:
       lastDeployedAt && !Number.isNaN(lastDeployedAt.getTime()) ? lastDeployedAt : null,
+    // Facts left out of the record (not read this time) keep what is stored.
+    ...(record.facts !== undefined && {
+      facts: record.facts,
+      factsVersion: record.factsVersion ?? null,
+      factsUpdatedAt: record.facts ? new Date(record.facts.fetchedAt) : null,
+    }),
   }
+}
+
+/** Stored facts by external id, for a source to reuse what did not change. */
+export function cachedFactsOf(
+  rows: readonly Pick<DeploymentRow, 'externalId' | 'facts' | 'factsVersion'>[],
+): Map<string, { version: string | null; facts: DeploymentRow['facts'] }> {
+  return new Map(rows.map((r) => [r.externalId, { version: r.factsVersion, facts: r.facts }]))
 }
 
 export type DeploymentsRepository = ReturnType<typeof createDeploymentsRepository>

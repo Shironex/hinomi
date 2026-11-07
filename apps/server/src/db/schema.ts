@@ -13,6 +13,7 @@ import {
   SOURCE_AUTHS,
   SOURCE_KINDS,
   type AdvisorySeverity,
+  type DeploymentFacts,
   type DeploymentKind,
   type FixChecksMode,
   type FixPlan,
@@ -73,6 +74,8 @@ export const sources = sqliteTable(
     lastOkAt: timestamp('last_ok_at'),
     lastErrorAt: timestamp('last_error_at'),
     lastError: text('last_error'),
+    /** Kind specific settings that are not secrets (socket path, opt in flag). Null when none. */
+    config: text('config', { mode: 'json' }).$type<Record<string, unknown>>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -170,6 +173,18 @@ export const deployments = sqliteTable(
     /** Repo mapped automatically from gitRepository. Manual overrides live in deployment_repo_overrides. */
     repoId: integer('repo_id').references(() => repos.id, { onDelete: 'set null' }),
     lastDeployedAt: timestamp('last_deployed_at'),
+    /**
+     * Container configuration the source reported (user, mounts, networks, build pack and
+     * more, see packages/shared sources/deployment-facts.ts), so guards never call a source.
+     * Only parsed values, never raw files or environment variables. Null until first read.
+     */
+    facts: text('facts', { mode: 'json' }).$type<DeploymentFacts>(),
+    /** The source's change marker the facts were read at (Coolify `updated_at`). */
+    factsVersion: text('facts_version'),
+    /** When the facts were read from the source. */
+    factsUpdatedAt: timestamp('facts_updated_at'),
+    /** When the image of this deployment was last scanned (image scan slices). */
+    imageScannedAt: timestamp('image_scanned_at'),
     firstSeenAt: timestamp('first_seen_at').notNull(),
     lastSeenAt: timestamp('last_seen_at').notNull(),
     createdAt: createdAt(),
