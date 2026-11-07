@@ -46,7 +46,7 @@ One file, `.github/workflows/hinomi-fix.yml` (sketch in section 9), and nothing 
 Optional, behind a button "Add the runner to this repo":
 
 1. `GET /repos/{o}/{r}/contents/.github/workflows/hinomi-fix.yml` to see whether it exists and whether the pin is current.
-2. Create branch `hinomi/setup` from the default branch (`POST /git/refs`), `PUT /contents/.github/workflows/hinomi-fix.yml`, then open a PR "ci(hinomi): add the hinomi fix runner".
+2. Create branch `hinomi/setup-fix-runner` from the default branch (`POST /git/refs`), `PUT /contents/.github/workflows/hinomi-fix.yml`, then open a PR "ci(hinomi): add the hinomi fix runner".
 3. Writing a file under `.github/workflows` needs the **Workflows** permission (write) for an App or fine grained token ([permissions for Workflows](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps?apiVersion=2022-11-28#repository-permissions-for-workflows)), or the `workflow` scope on a classic token. That is a powerful permission (it can change any workflow), so the default is a copy paste panel with the YAML and the pinned SHA. The button shows only when the probe sees Workflows write, and the docs suggest granting it temporarily.
 
 ## 2. Dispatch transport
