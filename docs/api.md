@@ -266,16 +266,18 @@ The run detail adds:
 | `POST /api/deployments/:id/overrides` | `{ repo: "owner/name", note? }`. Overrides replace the automatic repo; blind spots follow on the next scan |
 | `DELETE /api/deployments/:id/overrides/:repoId` | Removes one |
 | `GET /api/repos` | Every known repo |
+| `GET /api/repos/:id` | The repo with `source: { current, mode, overrideId, seenBy }`: the GitHub source that reads and fixes it (`{ id, name, auth, enabled }`, null when none can), how it was chosen (`override`: picked by hand, `auto`: the scan's rule, `fallback`: not placed yet and only one GitHub source is connected, `none`), the source picked by hand (also while switched off) and every GitHub source that saw it on the last scan (`alertsReadable`, `lastSeenAt`), lowest id first. See [design/github-sources.md](design/github-sources.md) |
+| `PATCH /api/repos/:id` | `{ sourceId }` picks the repo's GitHub source by hand (404 when it is not a GitHub source, 409 when it is switched off or has no credential); `{ sourceId: null }` goes back to the scan's choice. Answers like `GET` |
 
 ### Sources
 
 | Method and path | Does |
 |---|---|
-| `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens) and `hasToken` (the token or the app's private key is stored) |
+| `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens), `hasToken` (the token or the app's private key is stored), `repoCount` (GitHub: the repos it reads, a source picked by hand included) and `deploymentCount` (Coolify: the deployments it reports) |
 | `GET /api/sources/:id` | One source |
 | `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, GitHub a token (URL only for Enterprise), OSV neither. A GitHub App instead sends `auth: "github_app"`, `appId`, `installationId` and `privateKey` (PEM) |
 | `PATCH /api/sources/:id` | Any of `name`, `baseUrl`, `token` (replaces the stored one), `enabled`; for a GitHub App `appId`, `installationId`, `privateKey`. Changing `auth` also needs the new token or private key |
-| `DELETE /api/sources/:id` | Removes it and its deployments |
+| `DELETE /api/sources/:id` | Removes it and its deployments. The repos a GitHub source read move to another GitHub source that saw them, or are left with no reader; findings and fix runs stay. Switching a source off (`enabled: false`) moves its repos the same way |
 | `POST /api/sources/test` | `{ kind, baseUrl?, token }` or `{ kind: "github", auth: "github_app", baseUrl?, appId, installationId, privateKey }`: tests credentials before saving them |
 | `POST /api/sources/:id/test` | Tests a saved source with its stored token or private key |
 
