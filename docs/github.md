@@ -64,6 +64,14 @@ Hinomi checks these on the runner status of each repo (Settings for the repo, or
 - **Classic token:** the scopes come from the `X-OAuth-Scopes` header of `GET /user`.
 - **Fine grained token:** GitHub cannot be asked what such a token may do, so Hinomi makes harmless reads (the workflow's metadata, one pull request, one commit). A refused read shows the permission as missing; a read that works leaves the write level as unverified until the first dispatch, which fails with a clear reason if write is not granted.
 
+The setup PR button (`setupPr` on the runner status, `POST /api/repos/:id/runner/setup-pr`) is shown only when the credential can write a file under `.github/workflows`, which is a powerful permission (it can change any workflow in the repo), so it is off by default and best granted temporarily:
+
+- **Classic token:** `repo` plus `workflow`, read from the scopes header, so the button is exact.
+- **GitHub App:** Contents: write and Workflows: write on the installation (the owner must accept the change), read from the installation, so the button is exact.
+- **Fine grained token:** Contents: write, Pull requests: write and Workflows: write. These cannot be read in advance, so the button shows and Hinomi tries; a refusal comes back with the permission to add. Without any of these, copy the caller from the runner status instead (below).
+
+The same button updates an outdated pin: when the caller on the default branch pins an older release commit, it opens a PR that moves the pin. It needs a known release commit, so on an instance that cannot reach api.github.com the answer is a 409 until one is.
+
 A GitHub App is the recommended credential for the runner: the PR author is the app's bot, so you can approve the fix PR yourself in repos with required reviews. A classic token cannot be narrowed (`repo` grants everything except workflow files).
 
 ### Set up a repo
