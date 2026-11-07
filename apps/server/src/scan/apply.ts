@@ -310,17 +310,16 @@ function applyMissing(
     }
     return
   }
-  if (!sameReporters(finding.reportedBy, reporters)) {
-    repositories.findings.setReportedBy(finding.id, reporters)
-    repositories.findings.addEvent({
-      findingId: finding.id,
-      type: 'reporters_changed',
-      actor: 'system',
-      data: { from: finding.reportedBy, to: reporters },
-      at: now,
-    })
-    changes.push({ findingId: finding.id, change: 'reporters_changed' })
-  }
+  if (sameReporters(finding.reportedBy, reporters)) return
+  repositories.findings.setReportedBy(finding.id, reporters)
+  repositories.findings.addEvent({
+    findingId: finding.id,
+    type: 'reporters_changed',
+    actor: 'system',
+    data: { from: finding.reportedBy, to: reporters },
+    at: now,
+  })
+  changes.push({ findingId: finding.id, change: 'reporters_changed' })
 }
 
 /**

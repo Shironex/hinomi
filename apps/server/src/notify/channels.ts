@@ -148,17 +148,16 @@ export function assertValidChannelUrl(kind: ChannelKind, url: string): void {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new ChannelValidationError('The webhook URL must be http or https')
   }
-  if (kind === 'discord') {
-    if (parsed.protocol !== 'https:' || !DISCORD_HOSTS.has(parsed.hostname)) {
-      throw new ChannelValidationError(
-        'A Discord webhook URL is https://discord.com/api/webhooks/...',
-      )
-    }
-    if (!parsed.pathname.startsWith('/api/webhooks/')) {
-      throw new ChannelValidationError(
-        'A Discord webhook URL is https://discord.com/api/webhooks/...',
-      )
-    }
+  if (kind !== 'discord') return
+  if (parsed.protocol !== 'https:' || !DISCORD_HOSTS.has(parsed.hostname)) {
+    throw new ChannelValidationError(
+      'A Discord webhook URL is https://discord.com/api/webhooks/...',
+    )
+  }
+  if (!parsed.pathname.startsWith('/api/webhooks/')) {
+    throw new ChannelValidationError(
+      'A Discord webhook URL is https://discord.com/api/webhooks/...',
+    )
   }
 }
 
