@@ -44,11 +44,11 @@ The private key is encrypted at rest with AES-256-GCM under `HINOMI_SECRET_KEY`,
 
 ## Several accounts or organizations
 
-Connect one GitHub source per account or organization: a token for your user and a GitHub App for an organization, two apps for two organizations, or any mix. Scans read every enabled GitHub source, and each repo is read and fixed through one of them:
+Connect one GitHub source per account or organization: a token for your user and a GitHub App for an organization, two apps for two organizations, or any mix. Add more after setup under Settings, Sources, Add source; each source there shows how many repos it reads. Scans read every enabled GitHub source, and each repo is read and fixed through one of them:
 
 - a repo only one source sees is read through that source;
 - a repo several sources see is read through the lowest id source that can tell whether its Dependabot alerts are on, else the lowest id source that can read it;
-- a source picked by hand for a repo (`PATCH /api/repos/:id`, see [api.md](api.md)) wins while it is enabled.
+- a source picked by hand for a repo (in the repo's runner panel on the Fixes page when several sources see it, or `PATCH /api/repos/:id`, see [api.md](api.md)) wins while it is enabled.
 
 Alerts, lockfiles and the fix runner (dispatch, setup PR, fix PRs, tracking) all use the repo's source, so permissions are checked per source. Removing or switching off a source moves its repos to another source that sees them; a repo no other source sees keeps its findings and history but is not read until a source can see it again. The rule in full is in [design/github-sources.md](design/github-sources.md).
 
