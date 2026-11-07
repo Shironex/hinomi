@@ -129,7 +129,7 @@ Returns `{ items, total, offset, limit, nextOffset }`. Each item is a fix:
 | `findingIds` | The findings, most urgent first |
 | `bestTier` | The most urgent tier among them |
 | `exposedCritical` | At least one finding is critical, shipped at runtime and on an app reachable from the internet (tier `exposed`) |
-| `repos` | `{ repo, target, findings, plan }` per repo, most findings first. `target` is the highest first patched version among that repo's findings of the package; `plan` links the repo's latest fix plan (see Fix plans below), null before one exists |
+| `repos` | `{ repo, target, findings, plan, planTarget }` per repo, most findings first. `target` is the highest first patched version among that repo's findings of the package; `plan` links the repo's latest fix plan (see Fix plans below), null before one exists; `planTarget` is the version that plan's steps for the package upgrade to, with its target check (`{ to, status, minimum, avoids, stillAffected }`, see below), null when the plan has no step for the package or did not check it |
 | `apps` | Deployments the findings reach |
 
 How findings are grouped:
