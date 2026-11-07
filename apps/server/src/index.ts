@@ -15,7 +15,7 @@ import { openStorage } from './storage.js'
 const log = createConsoleLogger()
 const config = loadConfig()
 const storage = openStorage(config)
-log.info(`database ready at ${config.databaseFile}`)
+log.info('database ready', { file: config.databaseFile })
 if (!storage.secretBox) {
   log.warn('HINOMI_SECRET_KEY is not set: sources cannot be connected until it is')
 }
@@ -23,10 +23,12 @@ log.warn(
   'Hinomi has no login yet: run it behind Tailscale or Cloudflare Access and never expose the port to the internet',
 )
 if (config.trustedProxies.length > 0) {
-  log.info(`access: trusting forwarded headers from ${config.trustedProxies.join(', ')}`)
+  log.info('access: trusting forwarded headers', { proxies: config.trustedProxies })
 }
 if (config.cfAccess)
-  log.info(`access: verifying Cloudflare Access tokens for ${config.cfAccess.teamDomain}`)
+  log.info('access: verifying Cloudflare Access tokens', {
+    teamDomain: config.cfAccess.teamDomain,
+  })
 
 const scheduler = createScheduler({
   repositories: storage.repositories,
@@ -59,7 +61,7 @@ const app = createApp({
 })
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
-  log.info(`hinomi listening on http://${info.address}:${info.port}`)
+  log.info('hinomi listening', { url: `http://${info.address}:${info.port}` })
   scheduler.start()
   digest = startDigestTimer({ notifier, settings: storage.repositories.settings, log })
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
@@ -73,11 +75,11 @@ let shuttingDown = false
  */
 async function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) {
-    log.warn(`received ${signal} again, exiting now`)
+    log.warn('received a second signal, exiting now', { signal })
     process.exit(1)
   }
   shuttingDown = true
-  log.info(`received ${signal}, shutting down`)
+  log.info('shutting down', { signal })
   digest?.stop()
   const { drained } = await scheduler.shutdown()
   if (drained) log.info('scheduler: no scan running, closing')

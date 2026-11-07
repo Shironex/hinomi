@@ -182,7 +182,8 @@ export function createNotifier(options: NotifierOptions) {
   }
 
   function failed(channel: ResolvedChannel, what: string, error: unknown): void {
-    log.warn(`could not send the ${what} to a notification channel`, {
+    log.warn('could not send to a notification channel', {
+      what,
       channel: channel.name,
       channelId: channel.id,
       error: error instanceof Error ? error.message : 'unknown error',
