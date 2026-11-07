@@ -1,80 +1,94 @@
 #!/usr/bin/env bash
-# Print release notes grouped by conventional commit type.
-# Usage: release-notes.sh <git-range-or-rev> <version-without-v> <image> [prerelease]
+# Print the GitHub release notes for a tag:
+#   1. the version's section of CHANGELOG.md (or a short line when it has none),
+#   2. Install,
+#   3. Pull requests merged into the base branch in the release range, oldest first,
+#   4. the full changelog compare link.
+#
+# Usage: release-notes.sh <tag> <previous-tag-or-empty> <version-without-v> <image> [prerelease]
+#
+# Needs git history and tags, and `gh` with a token that can read pull requests
+# (GH_TOKEN, and GITHUB_REPOSITORY as owner/name). It is read only, so it is safe to run
+# locally as a dry run against any past tag:
+#   GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=Shironex/hinomi \
+#     .github/scripts/release-notes.sh v0.2.0 v0.1.0 0.2.0 ghcr.io/shironex/hinomi
+# RELEASE_BASE_BRANCH (default main) is the branch whose merged PRs are listed.
 set -euo pipefail
 
-range=$1
-version=$2
-image=$3
-prerelease=${4:-false}
+tag=$1
+prev=$2
+version=$3
+image=$4
+prerelease=${5:-false}
 
-new="" bugs="" perf="" refac="" docs="" ci="" deps="" misc=""
-breaking=""
-total=0
+repo=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}
+base=${RELEASE_BASE_BRANCH:-main}
 
-# One record per commit: short sha, subject, body, separated by control characters.
-while IFS= read -r -d $'\x1e' record; do
-  record=${record#$'\n'}
-  [[ -z $record ]] && continue
-  sha=${record%%$'\x1f'*}
-  rest=${record#*$'\x1f'}
-  subject=${rest%%$'\x1f'*}
-  body=${rest#*$'\x1f'}
+if [[ -n $prev ]]; then range="${prev}..${tag}"; else range="$tag"; fi
 
-  re='^([a-z]+)(\(([^)]*)\))?(!)?: (.+)$'
-  [[ $subject =~ $re ]] || continue
-  type=${BASH_REMATCH[1]}
-  scope=${BASH_REMATCH[3]}
-  bang=${BASH_REMATCH[4]}
-  summary=${BASH_REMATCH[5]}
+# 1. The changelog section, read from the tag itself, without its heading line.
+section=$(git show "${tag}:CHANGELOG.md" 2>/dev/null | awk -v v="$version" '
+  /^## / {
+    if (inside) exit
+    if ($2 == v) { inside = 1; next }
+  }
+  inside { print }
+' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' | sed '/./,$!d') || section=""
 
-  line="- "
-  [[ -n $scope ]] && line+="**${scope}:** "
-  line+="${summary} (${sha})"
-  total=$((total + 1))
-
-  if [[ -n $bang || $body == *"BREAKING CHANGE"* ]]; then
-    breaking+="${line}"$'\n'
-  fi
-
-  if [[ $scope == deps ]]; then
-    deps+="${line}"$'\n'
-  else
-    case $type in
-      feat) new+="${line}"$'\n' ;;
-      fix) bugs+="${line}"$'\n' ;;
-      perf) perf+="${line}"$'\n' ;;
-      refactor) refac+="${line}"$'\n' ;;
-      docs) docs+="${line}"$'\n' ;;
-      build | ci) ci+="${line}"$'\n' ;;
-      *) misc+="${line}"$'\n' ;;
-    esac
-  fi
-done < <(git log --no-merges --reverse --format='%h%x1f%s%x1f%b%x1e' "$range")
-
-if [[ $prerelease == true ]]; then
+if [[ -n $section ]]; then
+  printf '%s\n' "$section"
+elif [[ $prerelease == true ]]; then
   echo "Pre-release ${version} of Hinomi. It does not move the \`latest\` image tag."
 else
-  echo "Hinomi ${version}: ${total} changes."
-fi
-echo
-echo '```sh'
-echo "docker pull ${image}:${version}"
-echo '```'
-
-if [[ -n $breaking ]]; then
-  printf '\n## Breaking changes\n\n%s' "$breaking"
+  echo "Hinomi ${version}."
 fi
 
-section() {
-  [[ -n $2 ]] || return 0
-  printf '\n## %s\n\n%s' "$1" "$2"
+# 2. Install.
+cat <<INSTALL
+
+### Install
+
+\`\`\`sh
+docker pull ${image}:${version}
+\`\`\`
+
+Or with the bundled compose file: \`HINOMI_VERSION=${version} docker compose up -d\`. The full guide is in [docs/self-hosting.md](https://github.com/${repo}/blob/main/docs/self-hosting.md). Verify the image with \`gh attestation verify oci://${image}:${version} -R ${repo}\`.
+INSTALL
+
+# 3. Pull requests. The pulls endpoint is keyed by commit, so a rebase-merged commit
+# resolves to the PR that landed it exactly. A PR is listed once, oldest (lowest number) first.
+# The previous release's own PR ("chore(release): <prev>") is left out.
+prev_release_title=""
+[[ -n $prev ]] && prev_release_title="chore(release): ${prev#v}"
+
+# One commit's merged PRs on the base branch as tab separated rows. Retries a few times
+# because a release should not fail on one flaky API call.
+pulls_of() {
+  local attempt
+  for attempt in 1 2 3 4; do
+    if gh api "repos/${repo}/commits/$1/pulls" --paginate \
+      --jq ".[] | select(.merged_at != null and .base.ref == \"${base}\") | [.merged_at, .number, .title, .user.login] | @tsv"; then
+      return 0
+    fi
+    sleep $((attempt * 2))
+  done
+  return 1
 }
-section "What's New" "$new"
-section "Bug Fixes" "$bugs"
-section "Performance" "$perf"
-section "Refactoring" "$refac"
-section "Documentation" "$docs"
-section "Build and CI" "$ci"
-section "Dependencies" "$deps"
-section "Under the Hood" "$misc"
+
+printf '\n### Pull requests\n\n'
+while IFS= read -r sha; do
+  pulls_of "$sha"
+done < <(git rev-list --reverse "$range") |
+  sort -t$'\t' -k2,2n -u |
+  while IFS=$'\t' read -r _ number title author; do
+    [[ $title == "$prev_release_title" ]] && continue
+    echo "- ${title} by @${author} in #${number}"
+  done
+
+# 4. Compare link.
+echo
+if [[ -n $prev ]]; then
+  echo "**Full changelog**: https://github.com/${repo}/compare/${prev}...${tag}"
+else
+  echo "**Full changelog**: https://github.com/${repo}/commits/${tag}"
+fi

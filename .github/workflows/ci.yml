@@ -56,6 +56,8 @@ jobs:
       # Pinned actionlint and zizmor, checked against their SHA-256, over every workflow and
       # the caller template in docs/runner.
       - run: .github/scripts/lint-workflows.sh
+      # The release notes script, against a throwaway repo and a stub gh.
+      - run: .github/scripts/release-notes.test.sh
 
   docker:
     name: Docker build
