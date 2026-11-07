@@ -3,6 +3,7 @@ import {
   guardResultSchema,
   runtimePinSourceSchema,
   runtimeSchema,
+  runtimeSupportRuleSchema,
   supportBasisSchema,
 } from './guards.js'
 
@@ -245,6 +246,16 @@ export const runtimeSupportEntrySchema = z.object({
   resolvedTo: z.string().nullable(),
   target: supportTargetSchema.nullable(),
   fixHints: z.array(fixHintSchema),
+  /** How the runtime is judged (Q12a): end of support dates (Node) or releases behind (Rust, Bun). */
+  rule: runtimeSupportRuleSchema.default('support_window'),
+  /** Newest version the support data knows (`1.91.1`), shown next to the pin. */
+  latest: z.string().nullable().default(null),
+  /** `behind_latest`: releases between the pin and the latest; null when not counted. */
+  releasesBehind: z.number().int().nonnegative().nullable().default(null),
+  /** `behind_latest`: the pin warns once it is more than this many releases behind (a setting). */
+  maxBehind: z.number().int().positive().nullable().default(null),
+  /** Why this entry is `unknown`, or a note on it (what a floating pin resolved to). */
+  reason,
 })
 export type RuntimeSupportEntry = z.infer<typeof runtimeSupportEntrySchema>
 
@@ -266,6 +277,10 @@ export const runtimePinsEntrySchema = z.object({
   /** Every pin of this runtime, the disagreeing ones included. */
   pins: z.array(runtimePinSchema),
   fixHints: z.array(fixHintSchema),
+  /** The pins that disagree with the rest, a subset of `pins`. */
+  disagreeing: z.array(runtimePinSchema).default([]),
+  /** One line summary, for example `Dockerfile runs 26, CI tests on 22 only`. */
+  reason,
 })
 export type RuntimePinsEntry = z.infer<typeof runtimePinsEntrySchema>
 

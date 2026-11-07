@@ -9,6 +9,15 @@ export const SUPPORT_WINDOW_DEFAULT_DAYS = 90
 export const SUPPORT_WINDOW_MIN_DAYS = 1
 export const SUPPORT_WINDOW_MAX_DAYS = 365
 
+/**
+ * The "behind latest" rule of Rust and Bun (decision Q12a): a pinned version warns once it is more
+ * than this many releases behind the latest (Rust: stable minor releases, about six weeks each;
+ * Bun: minor releases). Settings can change it per runtime.
+ */
+export const RUNTIME_BEHIND_DEFAULT_RELEASES = 4
+export const RUNTIME_BEHIND_MIN_RELEASES = 1
+export const RUNTIME_BEHIND_MAX_RELEASES = 50
+
 /** After this many days without a successful check the cached copy counts as stale. */
 export const SUPPORT_STALE_AFTER_DAYS = 7
 

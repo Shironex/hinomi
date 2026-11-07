@@ -5690,6 +5690,8 @@ const RUNTIMES = [
 	"rust"
 ];
 const runtimeSchema = _enum(RUNTIMES);
+const RUNTIME_SUPPORT_RULES = ["support_window", "behind_latest"];
+const runtimeSupportRuleSchema = _enum(RUNTIME_SUPPORT_RULES);
 const RUNTIME_PIN_SOURCES = [
 	"nvmrc",
 	"node_version",
@@ -5849,7 +5851,12 @@ const runtimeSupportEntrySchema = object({
 	support: supportLineSchema.nullable(),
 	resolvedTo: string().nullable(),
 	target: supportTargetSchema.nullable(),
-	fixHints: array(fixHintSchema)
+	fixHints: array(fixHintSchema),
+	rule: runtimeSupportRuleSchema.default("support_window"),
+	latest: string().nullable().default(null),
+	releasesBehind: number$1().int().nonnegative().nullable().default(null),
+	maxBehind: number$1().int().positive().nullable().default(null),
+	reason: reason$1
 });
 const runtimeSupportEvidenceSchema = object({
 	check: literal("runtime_support"),
@@ -5862,7 +5869,9 @@ const runtimePinsEntrySchema = object({
 	result: guardResultSchema,
 	productionLine: string().nullable(),
 	pins: array(runtimePinSchema),
-	fixHints: array(fixHintSchema)
+	fixHints: array(fixHintSchema),
+	disagreeing: array(runtimePinSchema).default([]),
+	reason: reason$1
 });
 const runtimePinsDisagreeEvidenceSchema = object({
 	check: literal("runtime_pins_disagree"),
