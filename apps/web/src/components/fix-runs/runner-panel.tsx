@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   callerWorkflowSchema,
+  type FixRunnerKind,
   type RunnerPermission,
   type RunnerStatus,
   type UpdateRunnerSettingsRequest,
@@ -19,6 +20,9 @@ import {
   IconKey,
   IconLoader2,
   IconRobot,
+  IconServer2,
+  IconWebhook,
+  type Icon,
 } from '@tabler/icons-react'
 import { Field } from '@/components/form/field'
 import { StatusText } from '@/components/findings/finding-state'
@@ -31,8 +35,15 @@ import { Switch } from '@/components/ui/switch'
 import { KeyValues, Panel, PanelBody, PanelHeader } from '@/components/views/panel'
 import { describeError } from '@/lib/errors'
 import { fixKeys, runnerQuery, updateRunner } from '@/lib/fix-api'
-import { CALLER_STATE_INFO, MAJORS_BRANCH_NAME, MAJORS_DOCS_URL } from '@/lib/fix-run-meta'
+import {
+  CALLER_STATE_INFO,
+  LOCAL_MAJORS_NOTE,
+  MAJORS_BRANCH_NAME,
+  MAJORS_DOCS_URL,
+  runnerKindOf,
+} from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
+import { RunnerKindPicker } from './runner-kind-picker'
 import { SetupPrButton } from './setup-pr-button'
 
 const AUTH_LABEL = {
@@ -46,6 +57,27 @@ const PERMISSION_STATUS = {
   missing: { icon: IconCircleX, tone: 'bad', word: 'Missing' },
   unverified: { icon: IconCircleDashed, tone: 'neutral', word: 'Not verified' },
 } as const
+
+const KIND_ICON: Record<FixRunnerKind, Icon> = {
+  github_actions: IconBrandGithub,
+  webhook: IconWebhook,
+  local: IconServer2,
+}
+
+const PANEL_TITLE: Record<FixRunnerKind, string> = {
+  github_actions: 'GitHub Actions runner',
+  webhook: 'Webhook runner',
+  local: 'Local runner',
+}
+
+const SWITCH_LABEL: Record<FixRunnerKind, string> = {
+  github_actions: 'Run fixes for this repo in GitHub Actions',
+  webhook: 'Run fixes for this repo on the webhook runner',
+  local: 'Run fixes for this repo on this Hinomi host',
+}
+
+/** Permissions only the caller workflow needs: dispatching it and adding it in a setup PR. */
+const ACTIONS_ONLY_PERMISSIONS = new Set(['actions', 'workflows', 'workflow'])
 
 const short = (sha: string | null) => (sha && /^[0-9a-f]{40}$/i.test(sha) ? sha.slice(0, 7) : sha)
 
@@ -175,11 +207,13 @@ function MajorsAgent({
   repoId,
   pending,
   onChange,
+  kind,
 }: {
   status: RunnerStatus
   repoId: number
   pending: boolean
   onChange: (on: boolean) => void
+  kind: 'github_actions' | 'webhook'
 }) {
   const on = (status.settings.majorsAgent ?? 'off') !== 'off'
   const headingId = `majors-${repoId}`
@@ -202,11 +236,24 @@ function MajorsAgent({
         </span>
       </div>
       <p id={`${headingId}-note`} className="max-w-[68ch] text-sm text-foreground-2">
-        An agent edits your code for the major upgrades of the plan and opens a separate{' '}
-        <b className="font-semibold">draft</b> pull request on{' '}
-        <span className="font-mono">{MAJORS_BRANCH_NAME}</span>. It needs the caller workflow to
-        pass <span className="font-mono">ANTHROPIC_API_KEY</span>, it costs money (each run is
-        capped on turns, time and spend) and a person reviews the draft: Hinomi never merges.{' '}
+        {kind === 'webhook' ? (
+          <>
+            The webhook runner gets the major upgrades of the plan as a separate run of kind{' '}
+            <span className="font-mono">majors</span> on{' '}
+            <span className="font-mono">{MAJORS_BRANCH_NAME}</span>, to hand to a coding agent of
+            its own. Hinomi opens a <b className="font-semibold">draft</b> pull request from the
+            branch, a person reviews it and Hinomi never merges.{' '}
+          </>
+        ) : (
+          <>
+            An agent edits your code for the major upgrades of the plan and opens a separate{' '}
+            <b className="font-semibold">draft</b> pull request on{' '}
+            <span className="font-mono">{MAJORS_BRANCH_NAME}</span>. It needs the caller workflow to
+            pass <span className="font-mono">ANTHROPIC_API_KEY</span>, it costs money (each run is
+            capped on turns, time and spend) and a person reviews the draft: Hinomi never
+            merges.{' '}
+          </>
+        )}
         <a
           href={MAJORS_DOCS_URL}
           target="_blank"
@@ -218,7 +265,7 @@ function MajorsAgent({
           <span className="sr-only">(opens in a new tab)</span>
         </a>
       </p>
-      {on && status.caller.passesAgentSecret === false ? (
+      {kind === 'github_actions' && on && status.caller.passesAgentSecret === false ? (
         <Callout icon={IconKey} variant="warn" title="The caller does not pass the agent key">
           The agent cannot run until {status.caller.path} passes{' '}
           <span className="font-mono">ANTHROPIC_API_KEY</span> to Hinomi. Open the setup PR or paste
@@ -238,9 +285,12 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
   const caller = CALLER_STATE_INFO[status.caller.state]
   const enabled = status.settings.enabled
   const github = status.github
+  const saved = runnerKindOf(status)
+  const kind = mutation.isPending && mutation.variables?.kind ? mutation.variables.kind : saved
+  const actions = kind === 'github_actions'
   return (
     <Panel>
-      <PanelHeader title="GitHub Actions runner" icon={IconBrandGithub}>
+      <PanelHeader title={PANEL_TITLE[kind]} icon={KIND_ICON[kind]}>
         {mutation.isPending ? (
           <IconLoader2
             aria-label="Saving"
@@ -251,7 +301,7 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
         <Switch
           checked={enabled}
           disabled={mutation.isPending}
-          aria-label="Run fixes for this repo in GitHub Actions"
+          aria-label={SWITCH_LABEL[kind]}
           onCheckedChange={(next) => mutation.mutate({ enabled: next })}
         />
       </PanelHeader>
@@ -274,53 +324,71 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
           ) : null}
         </div>
 
-        <WorkflowForm
-          key={status.settings.workflow}
+        <RunnerKindPicker
           status={status}
-          pending={mutation.isPending}
-          onSave={(workflow) => mutation.mutate({ workflow })}
+          value={kind}
+          disabled={mutation.isPending}
+          onChange={(next) => mutation.mutate({ kind: next })}
         />
 
-        <MajorsAgent
-          status={status}
-          repoId={repoId}
-          pending={mutation.isPending}
-          onChange={(on) => mutation.mutate({ majorsAgent: on ? 'claude-code' : 'off' })}
-        />
+        {actions ? (
+          <WorkflowForm
+            key={status.settings.workflow}
+            status={status}
+            pending={mutation.isPending}
+            onSave={(workflow) => mutation.mutate({ workflow })}
+          />
+        ) : null}
 
-        <section aria-labelledby={`caller-${repoId}`} className="flex flex-col gap-2.5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h3 id={`caller-${repoId}`} className="text-sm font-semibold">
-              Caller workflow
-            </h3>
-            <StatusText icon={caller.icon} tone={caller.tone}>
-              {caller.label}
-            </StatusText>
-          </div>
-          <p className="text-sm text-foreground-2">{status.caller.message}</p>
-          {status.caller.missingInputs.length ? (
-            <p className="text-sm text-foreground-2">
-              Missing inputs:{' '}
-              <span className="font-mono">{status.caller.missingInputs.join(', ')}</span>
-            </p>
-          ) : null}
-          <CallerPin status={status} />
-          <SetupPrButton status={status} repoId={repoId} />
-          <div className="flex flex-wrap items-center gap-2">
-            <CopyTemplate text={status.caller.template} />
-            <span className="text-xs text-muted-foreground">
-              Or paste it as <span className="font-mono">{status.caller.path}</span> on{' '}
-              {github?.defaultBranch ?? 'the default branch'} and commit.
-            </span>
-          </div>
-          <pre
-            aria-label="Caller workflow to paste"
-            tabIndex={0}
-            className="m-0 max-h-[260px] overflow-auto rounded-md border border-border bg-sidebar px-3 py-2.5 font-mono text-xs leading-[1.6] text-foreground-2"
-          >
-            {status.caller.template}
-          </pre>
-        </section>
+        {kind === 'local' ? (
+          <Callout icon={IconRobot} title="No majors agent on this runner">
+            {LOCAL_MAJORS_NOTE}
+          </Callout>
+        ) : (
+          <MajorsAgent
+            status={status}
+            repoId={repoId}
+            pending={mutation.isPending}
+            kind={kind}
+            onChange={(on) => mutation.mutate({ majorsAgent: on ? 'claude-code' : 'off' })}
+          />
+        )}
+
+        {actions ? (
+          <section aria-labelledby={`caller-${repoId}`} className="flex flex-col gap-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h3 id={`caller-${repoId}`} className="text-sm font-semibold">
+                Caller workflow
+              </h3>
+              <StatusText icon={caller.icon} tone={caller.tone}>
+                {caller.label}
+              </StatusText>
+            </div>
+            <p className="text-sm text-foreground-2">{status.caller.message}</p>
+            {status.caller.missingInputs.length ? (
+              <p className="text-sm text-foreground-2">
+                Missing inputs:{' '}
+                <span className="font-mono">{status.caller.missingInputs.join(', ')}</span>
+              </p>
+            ) : null}
+            <CallerPin status={status} />
+            <SetupPrButton status={status} repoId={repoId} />
+            <div className="flex flex-wrap items-center gap-2">
+              <CopyTemplate text={status.caller.template} />
+              <span className="text-xs text-muted-foreground">
+                Or paste it as <span className="font-mono">{status.caller.path}</span> on{' '}
+                {github?.defaultBranch ?? 'the default branch'} and commit.
+              </span>
+            </div>
+            <pre
+              aria-label="Caller workflow to paste"
+              tabIndex={0}
+              className="m-0 max-h-[260px] overflow-auto rounded-md border border-border bg-sidebar px-3 py-2.5 font-mono text-xs leading-[1.6] text-foreground-2"
+            >
+              {status.caller.template}
+            </pre>
+          </section>
+        ) : null}
 
         <section aria-labelledby={`perms-${repoId}`} className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -335,9 +403,11 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
             <p className="text-sm text-foreground-2">{status.permissions.message}</p>
           )}
           <ul className="m-0 flex list-none flex-col p-0">
-            {status.permissions.items.map((item) => (
-              <Permission key={item.name} item={item} />
-            ))}
+            {status.permissions.items
+              .filter((item) => actions || !ACTIONS_ONLY_PERMISSIONS.has(item.name))
+              .map((item) => (
+                <Permission key={item.name} item={item} />
+              ))}
           </ul>
         </section>
 
@@ -347,14 +417,18 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
               label: 'Repo on GitHub',
               value: github ? `${github.fullName}, ${github.visibility}` : 'Could not be read',
             },
-            {
-              label: 'Checks in the runner',
-              value: github
-                ? github.checksMode === 'full'
-                  ? 'Install and every check'
-                  : "Install only, the repo's CI checks"
-                : 'Unknown',
-            },
+            ...(kind === 'local'
+              ? []
+              : [
+                  {
+                    label: 'Checks in the runner',
+                    value: github
+                      ? github.checksMode === 'full'
+                        ? 'Install and every check'
+                        : "Install only, the repo's CI checks"
+                      : 'Unknown',
+                  },
+                ]),
             { label: 'Checked', value: formatRelative(status.checkedAt) },
           ]}
         />
@@ -363,7 +437,7 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
   )
 }
 
-/** Per repo runner setup: on or off, the caller workflow to paste and its pin, permissions. */
+/** Per repo runner setup: where plans run, on or off, the caller workflow and its pin, permissions. */
 export function RunnerPanel({ repoId }: { repoId: number }) {
   const query = useQuery(runnerQuery(repoId))
   if (query.error) {
@@ -378,7 +452,7 @@ export function RunnerPanel({ repoId }: { repoId: number }) {
   if (!query.data) {
     return (
       <Panel>
-        <PanelHeader title="GitHub Actions runner" icon={IconBrandGithub} />
+        <PanelHeader title="Fix runner" icon={IconBrandGithub} />
         <PanelBody className="flex flex-col gap-2.5" role="status" aria-label="Reading GitHub">
           <Skeleton className="h-4 w-2/5" />
           <Skeleton className="h-4 w-4/5" />

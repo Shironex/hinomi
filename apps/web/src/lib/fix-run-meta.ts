@@ -9,6 +9,7 @@ import {
   type FixPlanStep,
   type FixResultV1,
   type FixRun,
+  type FixRunnerKind,
   type FixRunDeployStatus,
   type FixRunDetail,
   type FixRunState,
@@ -16,6 +17,7 @@ import {
   type FixRunVerifyAfter,
   type FixRunWarningCode,
   type RunnerCallerState,
+  type RunnerStatus,
 } from '@hinomi/shared'
 import {
   IconAlertTriangle,
@@ -177,6 +179,64 @@ export const RUN_STATE_INFO: Record<FixRunState, RunStateInfo> = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Runner kinds
+
+export interface RunnerKindInfo {
+  /** "GitHub Actions", for the selector and the run detail. */
+  label: string
+  /** What the stage that applies the plan is called in a run's timeline. */
+  stage: string
+  /** Where the plan runs, to finish "Runs the latest fix plan of repo ...". */
+  where: string
+}
+
+export const RUNNER_KIND_INFO: Record<FixRunnerKind, RunnerKindInfo> = {
+  github_actions: {
+    label: 'GitHub Actions',
+    stage: 'Workflow run',
+    where: 'in its own GitHub Actions',
+  },
+  webhook: {
+    label: 'Webhook runner',
+    stage: 'Webhook runner',
+    where: 'on the webhook runner',
+  },
+  local: { label: 'Local runner', stage: 'Local runner', where: 'on this Hinomi host' },
+}
+
+/** The repo's runner kind; absent from an older server means GitHub Actions. */
+export const runnerKindOf = (status: Pick<RunnerStatus, 'settings'> | undefined): FixRunnerKind =>
+  status?.settings.kind ?? 'github_actions'
+
+/** Where the runner kinds are described, for the settings and the runner panel. */
+export const RUNNERS_DOCS_URL = 'https://github.com/Shironex/hinomi/blob/main/docs/runners.md'
+
+/** Why the majors agent does not run on the local runner (docs/runners.md). */
+export const LOCAL_MAJORS_NOTE =
+  'The majors agent does not run on the local runner: its preset installs packages as root and needs a sandbox a Hinomi host should not grant. Use GitHub Actions or the webhook runner for major upgrades.'
+
+/** What a state means for a run on a runner other than GitHub Actions, where it differs. */
+const EXTERNAL_NEXT: Record<'webhook' | 'local', Partial<Record<FixRunState, string>>> = {
+  webhook: {
+    pending: 'Hinomi is posting the plan to the webhook runner.',
+    dispatched:
+      'The webhook runner accepted the plan. Waiting for it to report back on the callback path.',
+    queued: 'The webhook runner reported the run as queued.',
+    running: 'The webhook runner applies the safe steps. Waiting for its result.',
+    cancelled: 'The webhook runner reported the run as cancelled.',
+    lost: 'The webhook runner sent no result within 2 hours of the dispatch, so Hinomi stopped waiting.',
+  },
+  local: {
+    pending: 'Hinomi is starting the local runner on this host.',
+    dispatched: 'The local runner is cloning the repo and applying the safe steps on this host.',
+    queued: 'The local runner is starting.',
+    running: 'The local runner applies the safe steps on this host.',
+    cancelled: 'The local run was cancelled.',
+    lost: 'The local run sent no result within 2 hours of the dispatch, so Hinomi stopped waiting.',
+  },
+}
+
 /** Where the setup and behaviour of the optional majors agent is written down. */
 export const MAJORS_DOCS_URL =
   'https://github.com/Shironex/hinomi/blob/main/docs/github.md#the-optional-majors-agent'
@@ -200,9 +260,12 @@ const MAJORS_NEXT: Partial<Record<FixRunState, string>> = {
 }
 
 /** One line on what happens next, for a fix run or a majors run. */
-export function runNext(run: Pick<FixRun, 'state' | 'kind'>): string {
+export function runNext(run: Pick<FixRun, 'state' | 'kind'> & { runner?: FixRunnerKind }): string {
+  const external = run.runner && run.runner !== 'github_actions' ? run.runner : null
   return (
-    (run.kind === 'majors' ? MAJORS_NEXT[run.state] : undefined) ?? RUN_STATE_INFO[run.state].next
+    (external ? EXTERNAL_NEXT[external][run.state] : undefined) ??
+    (run.kind === 'majors' ? MAJORS_NEXT[run.state] : undefined) ??
+    RUN_STATE_INFO[run.state].next
   )
 }
 
@@ -261,7 +324,7 @@ export interface TimelineStep {
 
 const STAGES: { key: TimelineStep['key']; title: string }[] = [
   { key: 'dispatch', title: 'Dispatched' },
-  { key: 'run', title: 'Workflow run' },
+  { key: 'run', title: RUNNER_KIND_INFO.github_actions.stage },
   { key: 'pr', title: 'Pull request' },
   { key: 'checks', title: 'Checks' },
   { key: 'merged', title: 'Merged by a person' },
@@ -393,6 +456,16 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
   const failing = status === 'fail' || status === 'skip'
   switch (key) {
     case 'dispatch':
+      if (run.runner === 'webhook') {
+        if (failing) return run.stateReason ?? 'The webhook runner refused the plan.'
+        return status === 'now'
+          ? 'Posting the plan to the webhook runner'
+          : 'The webhook runner accepted the plan'
+      }
+      if (run.runner === 'local') {
+        if (failing) return run.stateReason ?? 'The local runner could not start.'
+        return status === 'now' ? 'Starting the local runner' : 'The local runner started'
+      }
       if (failing) return run.stateReason ?? 'GitHub refused the dispatch.'
       return status === 'now'
         ? 'Asking GitHub to start the caller workflow'
@@ -461,7 +534,7 @@ export function runTimeline(run: TimelineRun): TimelineStep[] {
     if (skipDeploy && i === 5) s = 'skip'
     return {
       key: stage.key,
-      title: stage.title,
+      title: stage.key === 'run' ? RUNNER_KIND_INFO[run.runner].stage : stage.title,
       status: s,
       detail: stageDetail(run, stage.key, s),
       at: s === 'todo' || (skipDeploy && i === 5) ? null : stageTime(run, stage.key, s),

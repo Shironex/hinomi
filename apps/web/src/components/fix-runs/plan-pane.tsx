@@ -10,11 +10,17 @@ import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
 import { Section } from '@/components/views/panel'
 import { PlanDiff } from '@/components/views/plan-diff'
 import { planQuery, runnerQuery } from '@/lib/fix-api'
-import { previewPlan, RISK_REASON_LABEL, type PlanPreview } from '@/lib/fix-run-meta'
+import { previewPlan, RISK_REASON_LABEL, runnerKindOf, type PlanPreview } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { RunStateText } from './run-state-text'
 import { RunnerPanel } from './runner-panel'
+
+const RUNNER_WHERE = {
+  github_actions: "the repo's own GitHub Actions",
+  webhook: 'an external runner Hinomi posts it to',
+  local: 'this Hinomi host',
+} as const
 
 const number = new Intl.NumberFormat('en-US')
 const plural = (n: number, word: string) => `${number.format(n)} ${word}${n === 1 ? '' : 's'}`
@@ -173,7 +179,9 @@ export function PlanPane({
 }) {
   const query = useQuery(planQuery(repo.id))
   const runner = useQuery(runnerQuery(repo.id))
-  const agent = (runner.data?.settings.majorsAgent ?? 'off') !== 'off'
+  // The local runner never takes the majors agent, whatever the setting says.
+  const agent =
+    (runner.data?.settings.majorsAgent ?? 'off') !== 'off' && runnerKindOf(runner.data) !== 'local'
   const plan = query.data
   const preview = plan ? previewPlan(plan) : null
   const latest = runs[0]
@@ -252,7 +260,10 @@ export function PlanPane({
         </>
       )}
 
-      <Section title="Runner" description="Where the plan runs: the repo's own GitHub Actions">
+      <Section
+        title="Runner"
+        description={`Where the plan runs: ${RUNNER_WHERE[runnerKindOf(runner.data)]}`}
+      >
         <RunnerPanel repoId={repo.id} />
       </Section>
       <Section

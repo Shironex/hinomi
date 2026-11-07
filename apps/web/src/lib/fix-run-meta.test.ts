@@ -9,6 +9,7 @@ import {
   parseStepId,
   previewPlan,
   runNext,
+  runnerKindOf,
   runSummary,
   runTimeline,
   runUrgency,
@@ -210,5 +211,47 @@ describe('majors runs', () => {
     ])
     expect(formatCost(3.4)).toBe('$3.40')
     expect(formatCost(0)).toBe('$0.00')
+  })
+})
+
+describe('runs on other runners', () => {
+  it('names the runner kind, with GitHub Actions when an older server sends none', () => {
+    expect(runnerKindOf(undefined)).toBe('github_actions')
+    expect(runnerKindOf({ settings: { enabled: true, workflow: 'hinomi-fix.yml' } })).toBe(
+      'github_actions',
+    )
+    expect(
+      runnerKindOf({ settings: { enabled: true, workflow: 'hinomi-fix.yml', kind: 'local' } }),
+    ).toBe('local')
+  })
+
+  it('words what happens next without GitHub for a webhook or local run', () => {
+    expect(runNext(runFor(60)!)).toBe(
+      'The webhook runner applies the safe steps. Waiting for its result.',
+    )
+    expect(runNext(runFor(61)!)).toBe('The local runner applies the safe steps on this host.')
+    // From the push on the wording is shared.
+    expect(runNext(runFor(64)!)).toBe(runNext({ ...runFor(64)!, runner: 'github_actions' }))
+    expect(runNext(runFor(44)!)).toMatch(/runner applies the safe steps/)
+  })
+
+  it('titles the runner stage after the runner and drops the GitHub wording', () => {
+    const webhook = runTimeline(runFor(60)!)
+    expect(webhook[0]!.detail).toBe('The webhook runner accepted the plan')
+    expect(webhook[1]!.title).toBe('Webhook runner')
+    const local = runTimeline(runFor(61)!)
+    expect(local[1]!.title).toBe('Local runner')
+    expect(runTimeline(runFor(44)!)[1]!.title).toBe('Workflow run')
+  })
+
+  it('fails the dispatch with the reason the runner gave', () => {
+    const run = {
+      ...runFor(62)!,
+      state: 'failed' as const,
+      at: { ...runFor(62)!.at, dispatched: null },
+    }
+    const steps = runTimeline(run)
+    expect(steps[0]!.status).toBe('fail')
+    expect(steps[0]!.detail).toBe(run.stateReason)
   })
 })
