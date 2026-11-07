@@ -14095,6 +14095,30 @@ const rotateWebhookRunnerSecretResponseSchema = object({
 	settings: webhookRunnerSettingsSchema
 });
 
+// ../../packages/shared/src/runtime-pins.ts
+const PIN_KINDS = [
+	"exact",
+	"range",
+	"floating",
+	"minimum",
+	"unknown"
+];
+const pinKindSchema = _enum(PIN_KINDS);
+const PIN_SCOPES = [
+	"production",
+	"ci",
+	"dev"
+];
+const pinScopeSchema = _enum(PIN_SCOPES);
+const runtimePinRecordSchema = runtimePinSchema.extend({
+	kind: pinKindSchema,
+	version: string().nullable(),
+	scope: pinScopeSchema,
+	job: string().nullable(),
+	stage: number$1().int().nonnegative().nullable(),
+	finalStage: boolean().nullable()
+});
+
 // src/actions-io.ts
 function getInput(env, name) {
 	return (env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] ?? "").trim();
