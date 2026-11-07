@@ -17,6 +17,11 @@ export interface FixRunTrackingTimer {
   idle(): Promise<void>
   /** When the next tick runs, or null once stopped. */
   nextAt(): Date | null
+  /**
+   * Brings the next tick forward to within `wakeDelayMs` (runs were asked for by a webhook).
+   * A burst of calls makes one tick; during a tick, the next one follows it that soon.
+   */
+  wake(): void
 }
 
 export interface FixRunTrackingTimerOptions {
@@ -27,6 +32,8 @@ export interface FixRunTrackingTimerOptions {
   firstDelayMs?: number
   /** Delay after a tick that threw. */
   errorDelayMs?: number
+  /** How soon a `wake` ticks, so a burst of webhook deliveries is polled together. */
+  wakeDelayMs?: number
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
 }
@@ -46,10 +53,13 @@ export function startFixRunTracking(options: FixRunTrackingTimerOptions): FixRun
   const clearTimer =
     options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>))
   const errorDelayMs = options.errorDelayMs ?? 60_000
+  const wakeDelayMs = options.wakeDelayMs ?? 2_000
   let timer: unknown = null
   let next: Date | null = null
   let active: Promise<void> | null = null
   let stopped = false
+  /** A wake arrived during a tick. */
+  let woken = false
 
   function plan(ms: number): void {
     if (timer !== null) clearTimer(timer)
@@ -62,13 +72,14 @@ export function startFixRunTracking(options: FixRunTrackingTimerOptions): FixRun
   }
 
   function fire(): void {
+    woken = false
     timer = null
     next = null
     if (stopped) return
     active = options.ticker
       .tick()
       .then(
-        (result) => plan(result.nextDelayMs),
+        (result) => plan(woken ? Math.min(result.nextDelayMs, wakeDelayMs) : result.nextDelayMs),
         (error: unknown) => {
           // tick never throws by contract; guard anyway so tracking keeps going.
           log.error('tracker: a tick failed', {
@@ -79,6 +90,7 @@ export function startFixRunTracking(options: FixRunTrackingTimerOptions): FixRun
       )
       .finally(() => {
         active = null
+        woken = false
       })
   }
 
@@ -92,5 +104,14 @@ export function startFixRunTracking(options: FixRunTrackingTimerOptions): FixRun
       while (active) await active
     },
     nextAt: () => next,
+    wake() {
+      if (stopped) return
+      if (active) {
+        woken = true
+        return
+      }
+      if (next && next.getTime() <= now().getTime() + wakeDelayMs) return
+      plan(wakeDelayMs)
+    },
   }
 }
