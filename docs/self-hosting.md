@@ -17,6 +17,14 @@ cd hinomi
 docker build -t hinomi:local .
 ```
 
+A hand built image reports itself as `dev`. To record the commit, add `--build-arg HINOMI_BUILD_COMMIT=$(git rev-parse HEAD)`; it then shows as `dev 3f9a1c7`.
+
+## Version and update check
+
+The rail footer shows the running version (hover for the build commit), and Settings, About lists the version, commit, build date, release notes link and image tag. The release workflow bakes these in through the `HINOMI_BUILD_VERSION`, `HINOMI_BUILD_COMMIT` and `HINOMI_BUILD_DATE` build args; `GET /api/version` serves them.
+
+Once a day (and shortly after boot) Hinomi reads the latest final release from the GitHub releases API: one unauthenticated GET with an ETag and nothing else, no version, no instance id. When a newer release exists, the rail and About say so and link its notes; upgrade with `HINOMI_VERSION=<version> docker compose up -d` or by pulling the image tag. Pre-releases are ignored unless the running build is itself a pre-release. A dev build never checks. It is the only outbound call Hinomi makes that is not to a source you connected, and Settings, About, "Check for new releases" turns it off. Offline or rate limited, it fails quietly.
+
 ## Configuration in short
 
 Nothing is required to boot, but one value is needed before you can connect a source:
