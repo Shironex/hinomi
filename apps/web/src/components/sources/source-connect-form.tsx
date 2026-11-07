@@ -104,15 +104,14 @@ function TokenConnectForm({ kind, source, onConnected, onCancel }: ConnectFormPr
       onConnected(result)
     },
     onError: (error) => {
-      if (error instanceof ConnectionTestFailed) {
-        const message = sentence(error.message)
-        if (TOKEN_CODES.has(error.code) || !showUrl) {
-          setTokenError(message)
-          tokenRef.current?.focus()
-        } else {
-          setUrlError(message)
-          urlRef.current?.focus()
-        }
+      if (!(error instanceof ConnectionTestFailed)) return
+      const message = sentence(error.message)
+      if (TOKEN_CODES.has(error.code) || !showUrl) {
+        setTokenError(message)
+        tokenRef.current?.focus()
+      } else {
+        setUrlError(message)
+        urlRef.current?.focus()
       }
     },
   })
