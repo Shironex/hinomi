@@ -5,6 +5,7 @@ import {
   notifyChannelsResponseSchema,
   notifyChannelTestResultSchema,
   notifySettingsSchema,
+  repoDetailSchema,
   repoOverridesResponseSchema,
   reposResponseSchema,
   rotateGithubWebhookSecretResponseSchema,
@@ -24,6 +25,7 @@ import {
   type UpdateGithubWebhookRequest,
   type UpdateNotifyChannelRequest,
   type UpdateNotifySettingsRequest,
+  type UpdateRepoRequest,
   type UpdateSettingsRequest,
   type UpdateSourceRequest,
   type UpdateWebhookRunnerRequest,
@@ -49,6 +51,8 @@ export const settingsKeys = {
   notifySettings: ['notifications', 'settings'] as const,
   deployments: ['deployments'] as const,
   repos: ['repos'] as const,
+  /** Under `repos`, so invalidating the repo list also refreshes every repo detail. */
+  repo: (id: number) => ['repos', id] as const,
   githubWebhook: ['settings', 'github-webhook'] as const,
   webhookRunner: ['settings', 'webhook-runner'] as const,
 }
@@ -100,6 +104,18 @@ export const reposQuery = queryOptions({
   queryKey: settingsKeys.repos,
   queryFn: ({ signal }) => api.get('/repos', reposResponseSchema, { signal }),
 })
+
+/** One repo with the GitHub source that reads and fixes it. */
+export function repoQuery(id: number) {
+  return queryOptions({
+    queryKey: settingsKeys.repo(id),
+    queryFn: ({ signal }) => api.get(`/repos/${id}`, repoDetailSchema, { signal }),
+  })
+}
+
+/** Picks the repo's GitHub source by hand, or clears the pick with null. Answers the repo. */
+export const updateRepo = (id: number, body: UpdateRepoRequest) =>
+  request(`/repos/${id}`, repoDetailSchema, { method: 'PATCH', json: body })
 
 export const githubWebhookQuery = queryOptions({
   queryKey: settingsKeys.githubWebhook,
