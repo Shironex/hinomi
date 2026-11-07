@@ -26,7 +26,7 @@ Nothing is required to boot, but one value is needed before you can connect a so
 | `HINOMI_SECRET_KEY` | Encrypts source tokens at rest. Without it sources cannot be connected. |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | Keep it below your stop grace period (default `25`). |
 | `HINOMI_TRUSTED_PROXIES`, `HINOMI_CF_ACCESS_TEAM_DOMAIN`, `HINOMI_CF_ACCESS_AUD` | Only for the access setups below. |
-| `HINOMI_WEBHOOK_PORT` | Only for the optional [GitHub webhook](github-webhook.md): a second port that serves the webhook path alone, the one thing safe to expose. |
+| `HINOMI_WEBHOOK_PORT` | Only for the optional [GitHub webhook](github-webhook.md) and the [webhook runner](runners.md#the-webhook-runner) callback: a second port that serves those two paths alone, the one thing safe to expose. |
 
 The full table is in the [README](../README.md#configuration) and [.env.example](../.env.example).
 
