@@ -12,6 +12,9 @@ export interface RecordedRequest {
   body: unknown
   /** The authorization header sent, or null. */
   authorization: string | null
+  /** The If-None-Match header sent, or null. */
+  ifNoneMatch: string | null
+  redirect: RequestInit['redirect'] | null
 }
 
 export function scriptedFetch(responses: (CannedResponse | Error)[]) {
@@ -25,6 +28,8 @@ export function scriptedFetch(responses: (CannedResponse | Error)[]) {
       method: init?.method ?? 'GET',
       body: typeof rawBody === 'string' ? (JSON.parse(rawBody) as unknown) : null,
       authorization: new Headers(init?.headers).get('authorization'),
+      ifNoneMatch: new Headers(init?.headers).get('if-none-match'),
+      redirect: init?.redirect ?? null,
     })
     const next = queue.shift()
     if (next === undefined) return Promise.reject(new Error('no canned response left'))
@@ -33,7 +38,10 @@ export function scriptedFetch(responses: (CannedResponse | Error)[]) {
     const text = next.body === undefined ? '' : JSON.stringify(next.body)
     // 204 and 304 must not carry a body.
     return Promise.resolve(
-      new Response(status === 204 ? null : text, { status, headers: next.headers }),
+      new Response(status === 204 || status === 304 ? null : text, {
+        status,
+        headers: next.headers,
+      }),
     )
   }
   return { fetch: impl, requests }
