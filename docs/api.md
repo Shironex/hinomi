@@ -66,7 +66,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 | Phase | Does | Units |
 |---|---|---|
-| `deployments` | Reads every Coolify instance, and the account repo list when that setting is on. Skipped with neither | Coolify instances plus the repo list |
+| `deployments` | Reads every Coolify instance, and the account repo list when that setting is on. Skipped with neither. For each Coolify resource it also stores deployment facts (user, mounts, networks, privileged, image, build pack, inline Dockerfile reading, destination, project, auto deploy) for the guards; settings and storages are read again only when the resource's `updated_at` moved or the stored facts are a day old. Only parsed values are kept, never environment variables, raw compose files, run options or storage contents | Coolify instances plus the repo list |
 | `alerts` | Fetches GitHub repo health and Dependabot alerts per repo. Skipped without GitHub | Repos |
 | `lockfiles` | Reads lockfiles and checks them against OSV.dev per repo. Skipped while OSV is off | Repos |
 | `matching` | Joins advisories to deployments and saves the findings | Repos |
