@@ -3,6 +3,7 @@ export { parseCargoLock } from './cargo.js'
 export { dedupeDependencies } from './graph.js'
 export { parsePackageLock } from './npm.js'
 export {
+  hasLockfileParser,
   isLockfileName,
   LOCKFILE_NAMES,
   parseLockfile,

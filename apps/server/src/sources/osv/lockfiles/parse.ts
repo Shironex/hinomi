@@ -13,6 +13,13 @@ export const LOCKFILE_NAMES = [
   'yarn.lock',
   'bun.lock',
   'Cargo.lock',
+  'go.mod',
+  'go.sum',
+  'uv.lock',
+  'poetry.lock',
+  'requirements.txt',
+  'composer.lock',
+  'Gemfile.lock',
 ] as const
 
 export type LockfileName = (typeof LOCKFILE_NAMES)[number]
@@ -35,6 +42,28 @@ export function isLockfileName(name: string): name is LockfileName {
   return (LOCKFILE_NAMES as readonly string[]).includes(name)
 }
 
+type LockfileParser = (text: string, options: ParseLockfileOptions) => LockfileDependency[]
+
+/**
+ * One entry per lockfile name that has a parser. A name in `LOCKFILE_NAMES` without an entry
+ * (go.sum, and formats whose parser has not landed yet) is fetched but skipped without an error.
+ * A parser slice adds its names here.
+ */
+const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
+  'pnpm-lock.yaml': (text) => parsePnpmLock(text),
+  'package-lock.json': (text) => parsePackageLock(text),
+  'npm-shrinkwrap.json': (text) => parsePackageLock(text),
+  'yarn.lock': (text, options) => parseYarnLock(text, options.packageJson),
+  'bun.lock': (text) => parseBunLock(text),
+  'Cargo.lock': (text) => parseCargoLock(text),
+}
+
+/** Whether `parseLockfile` can read a file of this name (a path is fine). */
+export function hasLockfileParser(filename: string): boolean {
+  const name = basename(filename)
+  return isLockfileName(name) && PARSERS[name] !== undefined
+}
+
 /** Parses a lockfile by its file name (a path is fine) into deduped dependencies. */
 export function parseLockfile(
   text: string,
@@ -42,19 +71,7 @@ export function parseLockfile(
   options: ParseLockfileOptions = {},
 ): LockfileDependency[] {
   const name = basename(filename)
-  switch (name) {
-    case 'pnpm-lock.yaml':
-      return parsePnpmLock(text)
-    case 'package-lock.json':
-    case 'npm-shrinkwrap.json':
-      return parsePackageLock(text)
-    case 'yarn.lock':
-      return parseYarnLock(text, options.packageJson)
-    case 'bun.lock':
-      return parseBunLock(text)
-    case 'Cargo.lock':
-      return parseCargoLock(text)
-    default:
-      throw new UnsupportedLockfileError(name)
-  }
+  const parser = isLockfileName(name) ? PARSERS[name] : undefined
+  if (!parser) throw new UnsupportedLockfileError(name)
+  return parser(text, options)
 }

@@ -5,7 +5,12 @@ import type {
   RepoHealth,
 } from '@hinomi/shared'
 import type { DeploymentRow, RepoRow } from '../db/schema.js'
-import { dedupeDependencies, parseLockfile, scanDependencies } from '../sources/osv/index.js'
+import {
+  dedupeDependencies,
+  hasLockfileParser,
+  parseLockfile,
+  scanDependencies,
+} from '../sources/osv/index.js'
 import { lockfileRef } from './deployments.js'
 import { resolveOwnership, type SourceProbe } from './ownership.js'
 import type { GithubScanSource, ScanSources } from './sources.js'
@@ -72,6 +77,8 @@ function parseAll(files: Awaited<ReturnType<ScanSources['fetchLockfiles']>>) {
   const lockfiles: string[] = []
   const unparseable: OsvRepoResult['unparseable'] = []
   for (const file of files) {
+    // A format without a parser yet is not an error: it is left out of the scan.
+    if (!hasLockfileParser(file.path)) continue
     try {
       const parsed = parseLockfile(file.text, file.path, {
         ...(file.packageJson !== undefined && { packageJson: file.packageJson }),
