@@ -17,6 +17,8 @@ const settings = (updateCheckEnabled: boolean) => ({
   updateCheckEnabled,
   supportWindowDays: 90,
   imageScan: 'off',
+  rustBehindReleases: 4,
+  bunBehindReleases: 4,
 })
 
 async function aboutRegion() {

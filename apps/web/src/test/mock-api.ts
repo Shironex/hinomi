@@ -188,6 +188,8 @@ export function configuredRoutes(): Record<string, unknown> {
       updateCheckEnabled: true,
       supportWindowDays: 90,
       imageScan: 'off',
+      rustBehindReleases: 4,
+      bunBehindReleases: 4,
     },
     'GET /notifications/channels': { items: [] },
     'GET /notifications/settings': { publicBaseUrl: null, digestHour: 8 },

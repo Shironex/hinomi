@@ -33,6 +33,8 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
     updateCheckEnabled: true,
     supportWindowDays: 90,
     imageScan: 'off',
+    rustBehindReleases: 4,
+    bunBehindReleases: 4,
   },
   ...over,
 })

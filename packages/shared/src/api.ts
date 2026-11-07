@@ -26,7 +26,12 @@ import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
 import { nowMs } from './clock.js'
-import { SUPPORT_WINDOW_MAX_DAYS, SUPPORT_WINDOW_MIN_DAYS } from './support.js'
+import {
+  RUNTIME_BEHIND_MAX_RELEASES,
+  RUNTIME_BEHIND_MIN_RELEASES,
+  SUPPORT_WINDOW_MAX_DAYS,
+  SUPPORT_WINDOW_MIN_DAYS,
+} from './support.js'
 
 // Contract of the JSON API under /api (see docs/api.md). The server validates
 // every request with these schemas and every response before it is sent;
@@ -1334,6 +1339,12 @@ export const SCAN_INTERVAL_MIN_MINUTES = 15
 export const SCAN_INTERVAL_MAX_MINUTES = 7 * 24 * 60
 export const SCAN_INTERVAL_DEFAULT_MINUTES = 6 * 60
 
+const behindReleases = z
+  .number()
+  .int()
+  .min(RUNTIME_BEHIND_MIN_RELEASES)
+  .max(RUNTIME_BEHIND_MAX_RELEASES)
+
 export const settingsSchema = z.object({
   scanIntervalMinutes: z
     .number()
@@ -1348,6 +1359,10 @@ export const settingsSchema = z.object({
   supportWindowDays: z.number().int().min(SUPPORT_WINDOW_MIN_DAYS).max(SUPPORT_WINDOW_MAX_DAYS),
   /** Image scan of image only deployments: `off` (default) or `coolify` (Coolify's own results). */
   imageScan: imageScanModeSchema,
+  /** Rust: a pinned toolchain warns once it is more than this many stable releases behind. */
+  rustBehindReleases: behindReleases,
+  /** Bun: a pinned version warns once it is more than this many minor releases behind. */
+  bunBehindReleases: behindReleases,
 })
 export type SettingsDto = z.infer<typeof settingsSchema>
 
