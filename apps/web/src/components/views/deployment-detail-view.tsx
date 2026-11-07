@@ -20,7 +20,7 @@ import { Callout } from '@/components/ui/callout'
 import { JoinStrip, ReachBadge, RunStatus } from '@/components/views/deployment-bits'
 import { DeploysPanel } from '@/components/views/deploys-panel'
 import { KeyValues, Panel, PanelBody, PanelHeader, Section } from '@/components/views/panel'
-import { RepoMappingPanel } from '@/components/views/repo-mapping'
+import { RepoMappingPanel } from '@/components/views/repo-mapping-panel'
 import { bumpsThatClear } from '@/lib/deployment-map'
 import {
   BLIND_SPOT_INFO,

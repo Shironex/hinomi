@@ -46,7 +46,9 @@ const COPY = {
  * by onboarding (create) and settings (replace the credentials). GitHub can
  * connect with a token or as a GitHub App.
  */
-export function SourceConnectForm(props: ConnectFormProps) {
+export type SourceConnectFormProps = ConnectFormProps
+
+export function SourceConnectForm(props: SourceConnectFormProps) {
   const [auth, setAuth] = useState<SourceAuth>(props.source?.auth ?? 'token')
   if (props.kind !== 'github') return <TokenConnectForm {...props} />
   return (
@@ -62,7 +64,9 @@ export function SourceConnectForm(props: ConnectFormProps) {
 }
 
 /** The token never comes back from the server, so the field always starts empty. */
-function TokenConnectForm({ kind, source, onConnected, onCancel }: ConnectFormProps) {
+type TokenConnectFormProps = ConnectFormProps
+
+function TokenConnectForm({ kind, source, onConnected, onCancel }: TokenConnectFormProps) {
   const copy = COPY[kind]
   const queryClient = useQueryClient()
   const replacing = source !== undefined
