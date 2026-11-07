@@ -140,7 +140,7 @@ function scanSources(...github: FakeSource[]): ScanSources {
 }
 
 const scan = (...github: FakeSource[]) =>
-  runScan({ repositories: repos }, scanSources(...github), { now: () => AT })
+  runScan({ repositories: repos }, scanSources(...github), { now: () => AT, guards: [] })
 
 const repo = (name: string) => repos.repos.getByName('kestrel-co', name)!
 const readerOf = (name: string) => repo(name).sourceId
