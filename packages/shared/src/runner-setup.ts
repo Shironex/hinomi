@@ -28,6 +28,17 @@ export const LATEST_FIX_WORKFLOW: { sha: string; version: string } | null = null
 export const FIX_DISPATCH_INPUTS = ['run_id', 'plan', 'encoding'] as const
 export type FixDispatchInputName = (typeof FIX_DISPATCH_INPUTS)[number]
 
+/**
+ * The run name the caller workflow gives each run (`run-name: hinomi fix <run_id>`), which the
+ * tracker matches when GitHub answered the dispatch without the run id.
+ */
+export const FIX_RUN_NAME_PREFIX = 'hinomi fix '
+
+/** The run name of the fix run with this correlation id. */
+export function fixRunName(correlationId: string): string {
+  return `${FIX_RUN_NAME_PREFIX}${correlationId}`
+}
+
 /** A workflow file name: no folders, `.yml` or `.yaml`. */
 export const callerWorkflowSchema = z
   .string()
@@ -50,7 +61,7 @@ export function renderCallerWorkflow(
   return [
     `# ${CALLER_WORKFLOW_DIR}/${file}`,
     'name: Hinomi fix',
-    'run-name: hinomi fix ${{ inputs.run_id }}',
+    `run-name: ${fixRunName('${{ inputs.run_id }}')}`,
     '',
     'on:',
     '  workflow_dispatch:',

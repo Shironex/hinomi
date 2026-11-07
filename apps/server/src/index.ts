@@ -3,12 +3,15 @@ import { createCfAccessVerifier, createIpMatcher } from './access/index.js'
 import { createApp } from './app.js'
 import { loadConfig } from './config.js'
 import { createConsoleLogger } from './log.js'
-import { createNotifier } from './notify/index.js'
+import { createNotifier, readNotifySettings } from './notify/index.js'
+import { createFixRunTracker } from './runner/index.js'
 import {
   connectNotifier,
   createScheduler,
   startDigestTimer,
+  startFixRunTracking,
   type DigestTimer,
+  type FixRunTrackingTimer,
 } from './scheduler/index.js'
 import { openStorage } from './storage.js'
 
@@ -42,6 +45,12 @@ const notifier = createNotifier({
 })
 connectNotifier(scheduler, notifier)
 let digest: DigestTimer | null = null
+const tracker = createFixRunTracker({
+  repositories: storage.repositories,
+  log,
+  publicBaseUrl: () => readNotifySettings(storage.repositories.settings).publicBaseUrl,
+})
+let tracking: FixRunTrackingTimer | null = null
 
 const app = createApp({
   webDistDir: config.webDistDir,
@@ -65,6 +74,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   scheduler.start()
   digest = startDigestTimer({ notifier, settings: storage.repositories.settings, log })
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
+  tracking = startFixRunTracking({ ticker: tracker, log })
 })
 
 let shuttingDown = false
@@ -81,7 +91,13 @@ async function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true
   log.info('shutting down', { signal })
   digest?.stop()
+  tracking?.stop()
   const { drained } = await scheduler.shutdown()
+  // A tick in flight is a handful of GitHub requests, each with its own timeout.
+  await Promise.race([
+    tracking?.idle(),
+    new Promise((resolve) => setTimeout(resolve, config.shutdownTimeoutMs).unref()),
+  ])
   if (drained) log.info('scheduler: no scan running, closing')
   server.close((error) => {
     storage.close()

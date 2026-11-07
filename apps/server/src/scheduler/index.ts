@@ -19,3 +19,9 @@ export {
   type DigestTimer,
   type DigestTimerOptions,
 } from './notifications.js'
+export {
+  startFixRunTracking,
+  type FixRunTicker,
+  type FixRunTrackingTimer,
+  type FixRunTrackingTimerOptions,
+} from './fix-runs.js'

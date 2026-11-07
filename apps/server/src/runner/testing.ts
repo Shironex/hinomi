@@ -22,12 +22,18 @@ export interface FakeRequest {
   path: string
   body: unknown
   authorization: string | null
+  /** The If-None-Match header sent, or null. */
+  ifNoneMatch: string | null
+  /** The host the request went to (api.github.com, or blob storage for downloads). */
+  host: string
 }
 
 export interface FakeReply {
   status?: number
   headers?: Record<string, string>
   body?: unknown
+  /** Raw bytes instead of a JSON body (artifact zips). */
+  raw?: Uint8Array
 }
 
 export interface FakeRoute {
@@ -50,6 +56,8 @@ export function fakeGithub(routes: FakeRoute[]) {
       path: `${url.pathname}${url.search}`,
       body: typeof raw === 'string' ? (JSON.parse(raw) as unknown) : null,
       authorization: new Headers(init?.headers).get('authorization'),
+      ifNoneMatch: new Headers(init?.headers).get('if-none-match'),
+      host: url.host,
     }
     requests.push(request)
     const route = routes.find(
@@ -64,8 +72,9 @@ export function fakeGithub(routes: FakeRoute[]) {
       : { status: 404, body: { message: 'Not Found' } }
     const status = reply.status ?? 200
     const text = reply.body === undefined ? '' : JSON.stringify(reply.body)
+    const empty = status === 204 || status === 304
     return Promise.resolve(
-      new Response(status === 204 ? null : text, { status, headers: reply.headers }),
+      new Response(empty ? null : (reply.raw ?? text), { status, headers: reply.headers }),
     )
   }
   return { fetch: impl, requests }

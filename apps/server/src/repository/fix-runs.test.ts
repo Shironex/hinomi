@@ -1,4 +1,10 @@
-import { FIX_PLAN_VERSION, fixRunSchema, type FixPlan } from '@hinomi/shared'
+import {
+  FIX_PLAN_VERSION,
+  FIX_RESULT_SCHEMA,
+  fixRunSchema,
+  parseFixResult,
+  type FixPlan,
+} from '@hinomi/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { toFixRun } from '../api/serialize.js'
 import type { DatabaseHandle } from '../db/client.js'
@@ -225,6 +231,26 @@ describe('fix runs repository', () => {
     expect(repos.fixRuns.get(other.id)?.state).toBe('pending')
   })
 
+  it('lists the runs that ended since a time in the given states', () => {
+    const failed = repos.fixRuns.create(input(storefront), T0).run
+    repos.fixRuns.applyEvent(failed.id, { type: 'failed', reason: 'dispatch refused' }, T0)
+    const lost = repos.fixRuns.create(input(ledger), T1).run
+    repos.fixRuns.applyEvent(lost.id, { type: 'lost', reason: 'gave up' }, T1)
+    const late = repos.fixRuns.create(input(storefront, { kind: 'majors' }), T1).run
+    repos.fixRuns.applyEvent(late.id, { type: 'failed', reason: 'refused' }, T2)
+    repos.fixRuns.create(input(ledger, { kind: 'majors' }), T2)
+
+    expect(repos.fixRuns.listEndedSince(T0, ['failed']).map((r) => r.id)).toEqual([
+      failed.id,
+      late.id,
+    ])
+    expect(repos.fixRuns.listEndedSince(T1, ['failed', 'lost']).map((r) => r.id)).toEqual([
+      lost.id,
+      late.id,
+    ])
+    expect(repos.fixRuns.listEndedSince(T0, [])).toEqual([])
+  })
+
   it('lists runs by repo, the active ones, and the latest per repo and kind', () => {
     const a = repos.fixRuns.create(input(storefront), T0).run
     repos.fixRuns.applyEvent(a.id, { type: 'failed', reason: 'dispatch refused' }, T0)
@@ -271,6 +297,28 @@ describe('fix runs repository', () => {
 
     repos.fixRuns.applyEvent(second.id, pr(41), T2)
     expect(repos.fixRuns.closedUnmergedPrevious(storefront.id, 'fix')).toBeUndefined()
+  })
+
+  it('stores the runner result without touching the state', () => {
+    const { run } = repos.fixRuns.create(input(storefront), T0)
+    const result = parseFixResult({
+      schema: FIX_RESULT_SCHEMA,
+      runId: run.correlationId,
+      planScanRunId: run.planScanRunId,
+      repo: 'kestrel-co/storefront',
+      baseSha: 'a'.repeat(40),
+      packageManager: 'pnpm',
+      packageManagerVersion: null,
+      checksMode: 'install',
+      steps: [],
+      releaseAge: [],
+      install: { status: 'ok', durationMs: 1000, output: null, truncated: false },
+      checks: [],
+      patch: null,
+      finishedAt: T1.toISOString(),
+    })
+    expect(repos.fixRuns.setResult(run.id, result)).toMatchObject({ state: 'pending', result })
+    expect(repos.fixRuns.get(run.id)?.result).toEqual(result)
   })
 
   it('stores and clears poll ETags', () => {
