@@ -5,11 +5,13 @@ export const SERVICE_WORKER_URL = '/sw.js'
 
 /**
  * Whether to register the service worker: production builds only, in a secure context (HTTPS or
- * localhost), and only where the browser has the API. Never in dev, where it would cache modules.
+ * localhost), and only where the browser has the API. Never in dev, where it would cache modules,
+ * and never in fixture mode, whose screenshot builds must not cache a shell between captures.
  */
 export function canRegisterServiceWorker(): boolean {
   return (
     import.meta.env.PROD &&
+    import.meta.env.MODE !== 'fixtures' &&
     typeof window !== 'undefined' &&
     window.isSecureContext &&
     'serviceWorker' in navigator

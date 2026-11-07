@@ -1,0 +1,212 @@
+import type { FindingGroup, FindingListItem, FindingsResponse, FindingTier } from '@hinomi/shared'
+import { FINDING_TIERS } from '@hinomi/shared'
+import {
+  ACCESS,
+  CHANNELS,
+  DEPLOYMENTS,
+  FINDINGS,
+  FIXES,
+  LAST_SCAN,
+  OVERVIEW,
+  REPOS,
+  SOURCES,
+  deploymentDetailFor,
+  deploysFor,
+  detailFor,
+} from './dataset'
+
+/**
+ * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
+ * and GitHub not yet, so setup opens on its second step.
+ */
+export type FixtureScenario = 'default' | 'setup'
+
+export interface FixtureReply {
+  status: number
+  body?: unknown
+}
+
+const ok = (body: unknown): FixtureReply => ({ status: 200, body })
+const notFound = (path: string): FixtureReply => ({
+  status: 404,
+  body: { error: { code: 'not_found', message: `Fixture mode has nothing at ${path}` } },
+})
+
+const TIER_LABELS: Record<FindingTier, string> = {
+  blind_spot: 'Blind spots',
+  exposed: 'Exposed on a public app',
+  internal: 'Deployed, internal only',
+  public_low: 'Public, moderate or low',
+  dev: 'Development only',
+  not_deployed: 'Not deployed',
+  patched: 'Patched in the lockfile',
+  coverage: 'Coverage notes',
+}
+
+const list = (params: URLSearchParams, key: string) =>
+  params.get(key)?.split(',').filter(Boolean) ?? null
+
+/** GET /findings over the fixed dataset, with the filters the views send. */
+export function filterFindings(params: URLSearchParams): FindingsResponse {
+  let rows: FindingListItem[] = FINDINGS
+  const tier = list(params, 'tier')
+  const state = list(params, 'state')
+  const severity = list(params, 'severity')
+  const source = list(params, 'source')
+  const scope = list(params, 'scope')
+  const kind = list(params, 'kind')
+  const repo = list(params, 'repo')?.map(Number)
+  const deployment = list(params, 'deployment')?.map(Number)
+  const q = params.get('q')?.trim().toLowerCase()
+
+  if (tier) rows = rows.filter((f) => tier.includes(f.tier))
+  rows = state
+    ? rows.filter((f) => state.includes(f.state))
+    : rows.filter((f) => f.state !== 'fixed')
+  if (severity) rows = rows.filter((f) => severity.includes(f.factors.severity))
+  if (source) rows = rows.filter((f) => f.sources.some((s) => source.includes(s)))
+  if (scope) rows = rows.filter((f) => scope.includes(f.scope))
+  if (kind) rows = rows.filter((f) => kind.includes(f.kind))
+  if (repo) rows = rows.filter((f) => f.repo !== null && repo.includes(f.repo.id))
+  if (deployment) {
+    rows = rows.filter((f) => f.deployments.some((d) => deployment.includes(d.id)))
+  }
+  if (q) {
+    rows = rows.filter((f) =>
+      [f.advisory?.packageName, f.advisory?.advisoryKey, f.repo?.fullName]
+        .filter(Boolean)
+        .some((text) => text!.toLowerCase().includes(q)),
+    )
+  }
+
+  const group = (params.get('group') ?? 'none') as FindingGroup
+  let groups: FindingsResponse['groups'] = []
+  if (group === 'tier') {
+    rows = [...rows].sort((a, b) => FINDING_TIERS.indexOf(a.tier) - FINDING_TIERS.indexOf(b.tier))
+    groups = FINDING_TIERS.flatMap((t) => {
+      const n = rows.filter((r) => r.tier === t).length
+      return n ? [{ key: t, label: TIER_LABELS[t], count: n }] : []
+    })
+  }
+
+  const limit = Number(params.get('limit') ?? 50)
+  const offset = Number(params.get('offset') ?? 0)
+  const page = rows.slice(offset, offset + limit)
+  return {
+    items: page,
+    total: rows.length,
+    offset,
+    limit,
+    nextOffset: offset + limit < rows.length ? offset + limit : null,
+    group,
+    groups,
+  }
+}
+
+function idFrom(path: string, pattern: RegExp): number | null {
+  const match = pattern.exec(path)
+  return match ? Number(match[1]) : null
+}
+
+/**
+ * Answers one API request from the fixed dataset. Only reads are served: fixture mode exists
+ * for screenshots and demos, so every write is refused with a clear message.
+ */
+export function fixtureRoute(
+  method: string,
+  url: URL,
+  scenario: FixtureScenario = 'default',
+): FixtureReply {
+  const path = url.pathname.replace(/^\/api/, '')
+  const setup = scenario === 'setup'
+
+  if (method !== 'GET') {
+    return {
+      status: 403,
+      body: { error: { code: 'forbidden', message: 'Fixture mode is read only' } },
+    }
+  }
+
+  switch (path) {
+    case '/health':
+      return ok({ status: 'ok' })
+    case '/access':
+      return ok(ACCESS)
+    case '/onboarding':
+      return ok({ finished: !setup, alertsSkipped: false })
+    case '/shell/nav-counts':
+      return ok(
+        setup
+          ? { needsAction: null, deployments: null, alerts: null, activeFixRuns: null }
+          : {
+              needsAction: OVERVIEW.funnel.needsAction,
+              deployments: DEPLOYMENTS.length,
+              alerts: OVERVIEW.funnel.total,
+              activeFixRuns: null,
+            },
+      )
+    case '/shell/scan-status':
+      return ok(
+        setup
+          ? { state: 'queued', nextScanAt: null }
+          : { state: 'idle', lastScanAt: LAST_SCAN.finishedAt, nextScanAt: OVERVIEW.nextScanAt },
+      )
+    case '/overview':
+      return ok(OVERVIEW)
+    case '/findings':
+      return ok(filterFindings(url.searchParams))
+    case '/fixes': {
+      const limit = Number(url.searchParams.get('limit') ?? 25)
+      return ok({
+        items: FIXES.slice(0, limit),
+        total: FIXES.length,
+        offset: 0,
+        limit,
+        nextOffset: null,
+      })
+    }
+    case '/deployments':
+      return ok({ items: DEPLOYMENTS })
+    case '/repos':
+      return ok({ items: Object.values(REPOS) })
+    case '/sources':
+      return ok({ sources: setup ? SOURCES.slice(0, 1) : SOURCES, canStoreTokens: true })
+    case '/settings':
+      return ok({ scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false })
+    case '/scans':
+      return ok({ items: setup ? [] : [LAST_SCAN] })
+    case '/notifications/channels':
+      return ok({ items: setup ? [] : CHANNELS })
+    case '/notifications/settings':
+      return ok({ publicBaseUrl: 'https://hinomi.example.dev', digestHour: 8 })
+  }
+
+  const findingId = idFrom(path, /^\/findings\/(\d+)$/)
+  if (findingId !== null) {
+    const item = FINDINGS.find((f) => f.id === findingId)
+    return item ? ok(detailFor(item)) : notFound(path)
+  }
+
+  const scanId = idFrom(path, /^\/scans\/(\d+)$/)
+  if (scanId !== null) return scanId === LAST_SCAN.id ? ok(LAST_SCAN) : notFound(path)
+
+  const deploysId = idFrom(path, /^\/deployments\/(\d+)\/deploys$/)
+  if (deploysId !== null) {
+    const item = DEPLOYMENTS.find((d) => d.id === deploysId)
+    if (!item) return notFound(path)
+    const items = deploysFor(item)
+    return ok({
+      available: items.length > 0,
+      reason: items.length ? null : 'Coolify lists deploys for applications only',
+      items,
+    })
+  }
+
+  const deploymentId = idFrom(path, /^\/deployments\/(\d+)$/)
+  if (deploymentId !== null) {
+    const item = DEPLOYMENTS.find((d) => d.id === deploymentId)
+    return item ? ok(deploymentDetailFor(item)) : notFound(path)
+  }
+
+  return notFound(path)
+}

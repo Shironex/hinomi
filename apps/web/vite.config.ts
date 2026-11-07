@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vitest/config'
+import { fixturesMode } from './vite.fixtures.ts'
 
 const apiTarget = process.env.HINOMI_API_URL ?? 'http://localhost:3000'
 
@@ -46,7 +47,7 @@ function serviceWorkerBuild(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), serviceWorkerBuild()],
+  plugins: [react(), tailwindcss(), serviceWorkerBuild(), fixturesMode()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
