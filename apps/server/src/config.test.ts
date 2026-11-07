@@ -39,6 +39,15 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ PORT: 'abc' })).toThrow(/PORT must be an integer/)
   })
 
+  it('reads HINOMI_WEBHOOK_PORT, which must differ from PORT', () => {
+    expect(loadConfig({}).webhookPort).toBeNull()
+    expect(loadConfig({ HINOMI_WEBHOOK_PORT: '3001' }).webhookPort).toBe(3001)
+    expect(() => loadConfig({ HINOMI_WEBHOOK_PORT: '0' })).toThrow(
+      /HINOMI_WEBHOOK_PORT must be an integer/,
+    )
+    expect(() => loadConfig({ HINOMI_WEBHOOK_PORT: '3000' })).toThrow(/must differ from PORT/)
+  })
+
   it('rejects a short secret key without echoing it', () => {
     let message = ''
     try {

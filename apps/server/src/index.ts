@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server'
 import { createCfAccessVerifier, createIpMatcher } from './access/index.js'
-import { createApp } from './app.js'
+import { createApp, createWebhookApp } from './app.js'
 import { loadConfig } from './config.js'
 import { createConsoleLogger } from './log.js'
 import { createNotifier, readNotifySettings } from './notify/index.js'
@@ -14,6 +14,7 @@ import {
   type FixRunTrackingTimer,
 } from './scheduler/index.js'
 import { openStorage } from './storage.js'
+import { createGithubWebhookReceiver } from './webhook/index.js'
 
 const log = createConsoleLogger()
 const config = loadConfig()
@@ -74,6 +75,18 @@ scheduler.onScanFinished((summary) => {
   })
 })
 let tracking: FixRunTrackingTimer | null = null
+// The optional GitHub webhook only brings polls forward; the tracker's own poll moves the runs.
+const githubWebhook = createGithubWebhookReceiver({
+  repositories: storage.repositories,
+  secretBox: storage.secretBox,
+  log,
+  dedicatedPort: config.webhookPort,
+  pollNow: (select) => {
+    const ids = tracker.pollNow(select)
+    if (ids.length > 0) tracking?.wake()
+    return ids
+  },
+})
 
 const app = createApp({
   webDistDir: config.webDistDir,
@@ -83,6 +96,7 @@ const app = createApp({
     log,
     notifications: { notifier, onDigestHourChanged: () => digest?.rearm() },
     fixRunTracking: tracker,
+    githubWebhook,
   },
   access: {
     ...(config.trustedProxies.length > 0 && {
@@ -100,6 +114,23 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
   tracking = startFixRunTracking({ ticker: tracker, log })
 })
+
+// HINOMI_WEBHOOK_PORT: a listener with the webhook path alone, the one port safe to expose.
+const webhookServer =
+  config.webhookPort === null
+    ? null
+    : serve(
+        {
+          fetch: createWebhookApp(githubWebhook, log).fetch,
+          hostname: config.host,
+          port: config.webhookPort,
+        },
+        (info) => {
+          log.info('github webhook listening (webhook path only)', {
+            url: `http://${info.address}:${info.port}`,
+          })
+        },
+      )
 
 let shuttingDown = false
 
@@ -123,6 +154,7 @@ async function shutdown(signal: NodeJS.Signals) {
     new Promise((resolve) => setTimeout(resolve, config.shutdownTimeoutMs).unref()),
   ])
   if (drained) log.info('scheduler: no scan running, closing')
+  webhookServer?.close()
   server.close((error) => {
     storage.close()
     if (error) {

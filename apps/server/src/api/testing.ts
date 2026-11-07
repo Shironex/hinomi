@@ -8,6 +8,7 @@ import { createNotifier, SmtpError, type MailMessage, type ResolvedEmail } from 
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, RunScanOptions, ScanSources, ScanSummary } from '../scan/index.js'
 import { createScheduler } from '../scheduler/index.js'
+import { createGithubWebhookReceiver } from '../webhook/index.js'
 import type { ApiOptions } from './index.js'
 import { currentTime } from '@hinomi/shared'
 
@@ -156,6 +157,13 @@ export function createTestApi({
     }) as typeof fetch,
   })
   const onDigestHourChanged = vi.fn()
+  // No tracker runs in route tests; the receiver's mapping is tested in webhook/.
+  const githubWebhook = createGithubWebhookReceiver({
+    repositories: repos,
+    secretBox: withSecret ? createSecretBox(TEST_SECRET) : null,
+    log: logger.log,
+    pollNow: () => [],
+  })
   const app = createApp({
     api: {
       repositories: repos,
@@ -165,6 +173,7 @@ export function createTestApi({
       notifications: { notifier, onDigestHourChanged },
       ...(sourceFetch && { sourceFetch }),
       ...(fixRunTracking && { fixRunTracking }),
+      githubWebhook,
     },
   })
 
@@ -198,6 +207,7 @@ export function createTestApi({
     mailFailure,
     deliveryStatus,
     onDigestHourChanged,
+    githubWebhook,
   }
 }
 

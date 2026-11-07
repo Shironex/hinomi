@@ -5,12 +5,14 @@ import { readNotifySettings } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
 import { createFixRunService, type FixRunService, type FixRunTracker } from '../runner/index.js'
 import type { Scheduler } from '../scheduler/index.js'
+import type { GithubWebhookReceiver } from '../webhook/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
 import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
 import { fixRunsRoutes, repoFixRunsRoutes } from './routes/fix-runs.js'
 import { fixesRoutes } from './routes/fixes.js'
+import { githubWebhookSettingsRoutes } from './routes/github-webhook.js'
 import { onboardingRoutes } from './routes/onboarding.js'
 import { notificationsRoutes, type NotificationsApiOptions } from './routes/notifications.js'
 import { sourcesRoutes } from './routes/sources.js'
@@ -35,6 +37,11 @@ export interface ApiOptions {
   fixRuns?: FixRunService
   /** The fix run tracker, for the tracking state on GET /api/fix-runs/:id. */
   fixRunTracking?: Pick<FixRunTracker, 'status'>
+  /**
+   * The optional GitHub webhook. Registers its settings routes here; createApp mounts the
+   * receiver itself outside the API's body limit.
+   */
+  githubWebhook?: GithubWebhookReceiver
 }
 
 /**
@@ -82,6 +89,9 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   api.route('/fix-runs', fixRunsRoutes(deps))
   api.route('/plans', plansRoutes(deps))
   api.route('/sources', sourcesRoutes(deps))
+  if (options.githubWebhook) {
+    api.route('/settings/github-webhook', githubWebhookSettingsRoutes(deps, options.githubWebhook))
+  }
   api.route('/settings', settingsRoutes(deps))
   api.route('/scans', scansRoutes(deps))
   api.route('/shell', shellRoutes(deps))
