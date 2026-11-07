@@ -6190,6 +6190,16 @@ const fixPlanTargetFields = {
 	advisories: array(string()),
 	byTier: tierCounts
 };
+const fixPlanTargetCheckSchema = object({
+	status: _enum([
+		"clean",
+		"affected",
+		"unchecked"
+	]),
+	minimum: string(),
+	avoids: array(string()),
+	stillAffected: array(string())
+});
 const fixPlanStepSchema = object({
 	id: string(),
 	order: number$1().int().positive(),
@@ -6202,7 +6212,8 @@ const fixPlanStepSchema = object({
 	note: string().nullable(),
 	apply: fixPlanApplySchema,
 	releasedAt: isoDate$5.nullable(),
-	releaseAge: releaseAgeSchema
+	releaseAge: releaseAgeSchema,
+	targetCheck: fixPlanTargetCheckSchema.optional()
 });
 const fixPlanUnfixedSchema = object({
 	...fixPlanTargetFields,
@@ -6261,7 +6272,8 @@ const fixRepoSchema = object({
 	repo: repoRefSchema,
 	target: string().nullable(),
 	findings: number$1().int(),
-	plan: fixPlanRefSchema.nullable()
+	plan: fixPlanRefSchema.nullable(),
+	planTarget: fixPlanTargetCheckSchema.extend({ to: string() }).nullable().optional()
 });
 const fixItemSchema = object({
 	key: string(),
