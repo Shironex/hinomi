@@ -16,6 +16,7 @@ import {
 } from './dataset'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
+import { repoDetailFor } from './repo-sources'
 import {
   RUNNER_SECRET,
   isRunnerScenario,
@@ -252,6 +253,12 @@ export function fixtureRoute(
   if (findingId !== null) {
     const item = FINDINGS.find((f) => f.id === findingId)
     return item ? ok(withPlans(detailFor(item))) : notFound(path)
+  }
+
+  const repoId = idFrom(path, /^\/repos\/(\d+)$/)
+  if (repoId !== null) {
+    const repo = repoDetailFor(repoId)
+    return repo ? ok(repo) : notFound(path)
   }
 
   const planRepo = idFrom(path, /^\/repos\/(\d+)\/plan$/)

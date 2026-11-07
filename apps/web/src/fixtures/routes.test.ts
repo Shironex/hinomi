@@ -18,6 +18,7 @@ import {
   onboardingStateSchema,
   overviewResponseSchema,
   reposResponseSchema,
+  repoDetailSchema,
   runnerStatusSchema,
   type RunnerStatus,
   scanRunSchema,
@@ -36,7 +37,8 @@ import {
 } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
-import { DEPLOYMENTS, FINDINGS, LAST_SCAN } from './dataset'
+import { DEPLOYMENTS, FINDINGS, LAST_SCAN, SOURCES } from './dataset'
+import { ALL_REPOS } from './repo-sources'
 import { PLANS, RUNS } from './fix-runs'
 import { WEBHOOK_SCENARIOS } from './webhook'
 import { RUNNER_SCENARIOS } from './webhook-runner'
@@ -78,6 +80,22 @@ describe('fixture API', () => {
   it.each(routes)('answers %s in the contract shape', (path, schema) => {
     expectShape(path, schema)
     expectShape(path, schema, 'setup')
+  })
+
+  it('answers every repo with the GitHub source that reads it', () => {
+    const github = SOURCES.filter((s) => s.kind === 'github')
+    expect(github.length).toBeGreaterThan(1)
+    const reads = new Map<number, number>()
+    for (const repo of ALL_REPOS) {
+      expectShape(`/repos/${repo.id}`, repoDetailSchema)
+      const { source } = repoDetailSchema.parse(get(`/repos/${repo.id}`).body)
+      const current = source.current?.id ?? 0
+      reads.set(current, (reads.get(current) ?? 0) + 1)
+      expect(source.seenBy.map((s) => s.id)).toContain(current)
+    }
+    // The counts on Settings, Sources match the repos each source reads.
+    for (const s of github) expect(reads.get(s.id) ?? 0, s.name).toBe(s.repoCount)
+    expect(get('/repos/9999').status).toBe(404)
   })
 
   it.each(WEBHOOK_SCENARIOS)('answers the webhook settings in the %s scenario', (scenario) => {
