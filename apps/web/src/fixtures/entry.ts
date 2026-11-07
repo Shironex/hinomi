@@ -51,7 +51,13 @@ function installFixtureApi(scenario: FixtureScenario) {
       return realFetch(input, init)
     }
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
-    const reply = fixtureRoute(method, url, scenario)
+    const raw = typeof init?.body === 'string' ? init.body : undefined
+    const reply = fixtureRoute(
+      method,
+      url,
+      scenario,
+      raw ? (JSON.parse(raw) as unknown) : undefined,
+    )
     return Promise.resolve(
       reply.body === undefined
         ? new Response(null, { status: reply.status })

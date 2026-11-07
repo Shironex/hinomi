@@ -12,12 +12,19 @@ export class ApiError extends Error {
   readonly path: string
   /** The server's error code (for example `validation_failed`), when it sent one. */
   readonly code: string | undefined
+  /** The parsed error body, for answers that carry more than the message (a 409 with `previous`). */
+  readonly body: unknown
 
   constructor(
     kind: ApiErrorKind,
     path: string,
     message: string,
-    { status, cause, code }: { status?: number; cause?: unknown; code?: string } = {},
+    {
+      status,
+      cause,
+      code,
+      body,
+    }: { status?: number; cause?: unknown; code?: string; body?: unknown } = {},
   ) {
     super(message, { cause })
     this.name = 'ApiError'
@@ -25,6 +32,7 @@ export class ApiError extends Error {
     this.path = path
     this.status = status
     this.code = code
+    this.body = body
   }
 }
 
@@ -90,6 +98,7 @@ export async function request<S extends z.ZodType>(
     throw new ApiError('http', path, message ?? `The server answered ${res.status}`, {
       status: res.status,
       ...(code !== undefined && { code }),
+      body,
     })
   }
 

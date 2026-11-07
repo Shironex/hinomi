@@ -14,6 +14,7 @@ import {
   deploysFor,
   detailFor,
 } from './dataset'
+import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 
 /**
  * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
@@ -108,6 +109,40 @@ function idFrom(path: string, pattern: RegExp): number | null {
   return match ? Number(match[1]) : null
 }
 
+const readOnly: FixtureReply = {
+  status: 403,
+  body: { error: { code: 'forbidden', message: 'Fixture mode is read only' } },
+}
+
+/**
+ * POST /repos/:id/fix-runs. Nothing is dispatched; a repo whose last fix PR was closed unmerged
+ * answers the 409 that asks before a fresh PR, so the confirmation can be seen.
+ */
+function dispatchReply(repoId: number, body: unknown): FixtureReply {
+  const previous = runnerFor(repoId)?.closedUnmerged
+  const confirmed =
+    typeof body === 'object' && body !== null && 'confirmReopen' in body && body.confirmReopen
+  if (previous && !confirmed) {
+    return {
+      status: 409,
+      body: {
+        error: {
+          code: 'conflict',
+          message: `The last fix PR #${previous.pr.number} was closed without merging. Send confirmReopen: true to open a fresh one.`,
+        },
+        previous,
+      },
+    }
+  }
+  return readOnly
+}
+
+/** The fixed fixes and finding details with the plan links of the fix runs fixtures. */
+const withPlans = <T extends { repo: { id: number } | null; plan: unknown }>(item: T): T => ({
+  ...item,
+  plan: item.repo ? planRefFor(item.repo.id) : null,
+})
+
 /**
  * Answers one API request from the fixed dataset. Only reads are served: fixture mode exists
  * for screenshots and demos, so every write is refused with a clear message.
@@ -116,15 +151,14 @@ export function fixtureRoute(
   method: string,
   url: URL,
   scenario: FixtureScenario = 'default',
+  body?: unknown,
 ): FixtureReply {
   const path = url.pathname.replace(/^\/api/, '')
   const setup = scenario === 'setup'
 
   if (method !== 'GET') {
-    return {
-      status: 403,
-      body: { error: { code: 'forbidden', message: 'Fixture mode is read only' } },
-    }
+    const dispatchId = method === 'POST' ? idFrom(path, /^\/repos\/(\d+)\/fix-runs$/) : null
+    return dispatchId === null ? readOnly : dispatchReply(dispatchId, body)
   }
 
   switch (path) {
@@ -158,7 +192,7 @@ export function fixtureRoute(
     case '/fixes': {
       const limit = Number(url.searchParams.get('limit') ?? 25)
       return ok({
-        items: FIXES.slice(0, limit),
+        items: FIXES.slice(0, limit).map((fix) => ({ ...fix, repos: fix.repos.map(withPlans) })),
         total: FIXES.length,
         offset: 0,
         limit,
@@ -177,6 +211,8 @@ export function fixtureRoute(
       return ok({ items: setup ? [] : [LAST_SCAN] })
     case '/notifications/channels':
       return ok({ items: setup ? [] : CHANNELS })
+    case '/plans':
+      return ok({ items: setup ? [] : PLAN_REFS })
     case '/notifications/settings':
       return ok({ publicBaseUrl: 'https://hinomi.example.dev', digestHour: 8 })
   }
@@ -184,7 +220,31 @@ export function fixtureRoute(
   const findingId = idFrom(path, /^\/findings\/(\d+)$/)
   if (findingId !== null) {
     const item = FINDINGS.find((f) => f.id === findingId)
-    return item ? ok(detailFor(item)) : notFound(path)
+    return item ? ok(withPlans(detailFor(item))) : notFound(path)
+  }
+
+  const planRepo = idFrom(path, /^\/repos\/(\d+)\/plan$/)
+  if (planRepo !== null) {
+    const plan = planFor(planRepo)
+    return plan ? ok(plan) : notFound(path)
+  }
+
+  const runnerRepo = idFrom(path, /^\/repos\/(\d+)\/runner$/)
+  if (runnerRepo !== null) {
+    const status = runnerFor(runnerRepo)
+    return status ? ok(status) : notFound(path)
+  }
+
+  const runsRepo = idFrom(path, /^\/repos\/(\d+)\/fix-runs$/)
+  if (runsRepo !== null) {
+    const limit = Number(url.searchParams.get('limit') ?? 50)
+    return ok({ items: runsFor(runsRepo).slice(0, limit) })
+  }
+
+  const runId = idFrom(path, /^\/fix-runs\/(\d+)$/)
+  if (runId !== null) {
+    const run = runFor(runId)
+    return run ? ok(run) : notFound(path)
   }
 
   const scanId = idFrom(path, /^\/scans\/(\d+)$/)
