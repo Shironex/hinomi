@@ -18,6 +18,7 @@ import { useScanStatus } from '@/hooks/use-shell-data'
 import { describeError } from '@/lib/errors'
 import { queryKeys } from '@/lib/queries'
 import { latestScanQuery, scanRunQuery, settingsKeys, startFirstScan } from '@/lib/settings-api'
+import { nowMs } from '@hinomi/shared'
 
 const SOURCE_LABEL: Record<SourceKind, string> = {
   coolify: 'Coolify',
@@ -146,7 +147,7 @@ const STARTS_SOON_MS = 60_000
 
 function startsSoon(status: ReturnType<typeof useScanStatus>): boolean {
   if (status.state !== 'queued' || status.nextScanAt === null) return false
-  return new Date(status.nextScanAt).getTime() - Date.now() < STARTS_SOON_MS
+  return new Date(status.nextScanAt).getTime() - nowMs() < STARTS_SOON_MS
 }
 
 function SourceLines({ run }: { run: ScanRun }) {

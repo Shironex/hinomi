@@ -10,6 +10,7 @@ import {
   mockViews,
 } from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
+import { nowMs } from '@hinomi/shared'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -93,7 +94,7 @@ describe('finding detail', () => {
       until: string
     }
     expect(body.reason).toBe('Edge rate limit covers it')
-    const days = (Date.parse(body.until) - Date.now()) / 86_400_000
+    const days = (Date.parse(body.until) - nowMs()) / 86_400_000
     expect(days).toBeGreaterThan(6.9)
     expect(days).toBeLessThan(7.1)
   })

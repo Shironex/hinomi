@@ -1,3 +1,4 @@
+import { nowMs } from '@hinomi/shared'
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
 const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
 
@@ -11,7 +12,7 @@ const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
 ]
 
 /** "14 minutes ago", "yesterday". `now` is injectable for tests. */
-export function formatRelative(iso: string, now: number = Date.now()): string {
+export function formatRelative(iso: string, now: number = nowMs()): string {
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return iso
   let value = (then - now) / 1000
