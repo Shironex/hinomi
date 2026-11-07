@@ -363,3 +363,42 @@ describe('fix runs repository', () => {
     expect(repos.fixRuns.get(run.id)).toBeUndefined()
   })
 })
+
+describe('deployment links and verification', () => {
+  it('stores them with the event in one step, and nothing when the event is refused', () => {
+    const { run } = repos.fixRuns.create(input(storefront), T0)
+    for (const event of [
+      { type: 'dispatch_accepted' as const, githubRunId: 41 },
+      { type: 'pr_opened' as const, number: 3, url: 'https://github.com/x/y/pull/3', draft: false },
+      { type: 'pr_merged' as const, mergeSha: 'e'.repeat(40) },
+    ]) {
+      repos.fixRuns.applyEvent(run.id, event, T0)
+    }
+    expect(repos.fixRuns.get(run.id)).toMatchObject({ deployLinks: null, warnings: [] })
+
+    const seen = repos.fixRuns.saveVerify(
+      run.id,
+      { deployLinks: [] },
+      { type: 'deployment_seen' },
+      T1,
+    )
+    expect(seen).toMatchObject({
+      ok: true,
+      run: { state: 'deployed', deployLinks: [], deployedAt: T1 },
+    })
+
+    // `pr_closed` cannot move a deployed run; the links stay as they were.
+    const refused = repos.fixRuns.saveVerify(
+      run.id,
+      { deployLinks: null },
+      { type: 'pr_closed' },
+      T2,
+    )
+    expect(refused.ok).toBe(false)
+    expect(repos.fixRuns.get(run.id)?.deployLinks).toEqual([])
+
+    const plain = repos.fixRuns.saveVerify(run.id, { warnings: [] })
+    expect(plain).toMatchObject({ ok: true, changed: true })
+    expect(repos.fixRuns.saveVerify(999, {})).toMatchObject({ ok: false })
+  })
+})

@@ -12,6 +12,7 @@ import {
   type FixPlan,
   type FixPlanRef,
   type FixRun,
+  type FixRunDetail,
   type FixRunTracking,
   type ScanRun,
   type SeverityCounts,
@@ -282,6 +283,17 @@ export function toFixRun(row: FixRunRow): FixRun {
       ended: isoOrNull(row.endedAt),
       stateChanged: iso(row.stateChangedAt),
     },
+  }
+}
+
+/** Deployment links, warnings and verification of a run, as GET /api/fix-runs/:id serves them. */
+export function toFixRunVerify(
+  row: FixRunRow,
+): Pick<FixRunDetail, 'deployments' | 'warnings' | 'verification'> {
+  return {
+    deployments: row.deployLinks ?? [],
+    warnings: row.warnings,
+    verification: row.verification ?? null,
   }
 }
 

@@ -7043,7 +7043,70 @@ const fixRunTrackingSchema = object({
 	lastError: string().nullable(),
 	pausedUntil: isoDate$1.nullable()
 });
-const fixRunDetailSchema = fixRunSchema.extend({ tracking: fixRunTrackingSchema.nullable() });
+const FIX_RUN_DEPLOY_STATUSES = [
+	"waiting",
+	"deployed",
+	"other_branch"
+];
+const fixRunDeployStatusSchema = _enum(FIX_RUN_DEPLOY_STATUSES);
+const fixRunDeployRelationSchema = _enum(["identical", "ahead"]);
+const fixRunDeploymentSchema = object({
+	deploymentId: id$1,
+	name: string(),
+	branch: string().nullable(),
+	status: fixRunDeployStatusSchema,
+	deploy: object({
+		id: string(),
+		commit: string(),
+		relation: fixRunDeployRelationSchema,
+		finishedAt: isoDate$1.nullable()
+	}).nullable(),
+	checkedAt: isoDate$1.nullable(),
+	error: string().nullable()
+});
+const FIX_RUN_WARNING_CODES = ["watch_paths_skip", "deploy_not_seen"];
+const fixRunWarningCodeSchema = _enum(FIX_RUN_WARNING_CODES);
+const fixRunWarningSchema = object({
+	code: fixRunWarningCodeSchema,
+	deploymentId: id$1.nullable(),
+	message: string(),
+	at: isoDate$1
+});
+const FIX_RUN_VERIFY_AFTER = [
+	"deploy",
+	"merge",
+	"empty_diff"
+];
+const fixRunVerifyAfterSchema = _enum(FIX_RUN_VERIFY_AFTER);
+const FIX_RUN_VERIFY_STATUSES = [
+	"pending",
+	"retrying",
+	"scheduled_scan",
+	"done"
+];
+const fixRunVerifyStatusSchema = _enum(FIX_RUN_VERIFY_STATUSES);
+const fixRunVerificationSchema = object({
+	after: fixRunVerifyAfterSchema,
+	status: fixRunVerifyStatusSchema,
+	scan: object({
+		kind: _enum(["repo", "full"]),
+		scanRunId: id$1.nullable(),
+		at: isoDate$1
+	}).nullable(),
+	targeted: array(id$1),
+	cleared: array(id$1),
+	stillOpen: array(id$1),
+	new: array(id$1),
+	attempts: number$1().int().nonnegative(),
+	lastError: string().nullable(),
+	nextAttemptAt: isoDate$1.nullable()
+});
+const fixRunDetailSchema = fixRunSchema.extend({
+	tracking: fixRunTrackingSchema.nullable(),
+	deployments: array(fixRunDeploymentSchema),
+	warnings: array(fixRunWarningSchema),
+	verification: fixRunVerificationSchema.nullable()
+});
 
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({ status: literal("ok") });
