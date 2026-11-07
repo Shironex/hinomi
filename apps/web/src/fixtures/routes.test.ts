@@ -19,6 +19,7 @@ import {
   overviewResponseSchema,
   reposResponseSchema,
   runnerStatusSchema,
+  type RunnerStatus,
   scanRunSchema,
   scanStatusSchema,
   scansResponseSchema,
@@ -129,6 +130,24 @@ describe('fixture API', () => {
     for (const id of verifications.flatMap((v) => [...v.stillOpen, ...v.new])) {
       expect(FINDINGS.some((f) => f.id === id)).toBe(true)
     }
+  })
+
+  it('covers the majors agent: off, on without the secret, on with it, and each majors run', () => {
+    const runner = (id: number) => get(`/repos/${id}/runner`).body as RunnerStatus
+    expect(runner(1).settings.majorsAgent).toBe('off')
+    expect(runner(17).settings.majorsAgent).toBe('claude-code')
+    expect(runner(17).caller.passesAgentSecret).toBe(false)
+    expect(runner(18).settings.majorsAgent).toBe('claude-code')
+    expect(runner(18).caller.passesAgentSecret).toBe(true)
+    const majors = RUNS.filter((r) => r.kind === 'majors')
+    expect(majors.map((r) => [r.state, r.pr?.draft ?? null, r.result?.agent?.outcome])).toEqual([
+      ['running', null, undefined],
+      ['pr_open', true, 'changed'],
+      ['failed', null, 'timeout'],
+    ])
+    // The plan of the majors-only repo has no safe step; the others have one beside the majors.
+    expect(PLANS.find((p) => p.repo.id === 16)?.summary.steps.safe).toBe(0)
+    expect(PLANS.find((p) => p.repo.id === 18)?.summary.steps.safe).toBe(1)
   })
 
   it('has a fix run in every state', () => {
