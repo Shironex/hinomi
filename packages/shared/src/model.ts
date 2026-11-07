@@ -81,11 +81,14 @@ export type BlindSpotType = z.infer<typeof blindSpotTypeSchema>
  *   tag has no lockfile Hinomi reads, so the version in users' hands is not checked.
  * - `requirements_unpinned`: a `requirements.txt` with lines that pin no exact
  *   version (ranges, URLs, editable installs); those lines are not checked.
+ * - `image_scan_partial`: the image scan result of a deployment is partial (the
+ *   scanner capped its list), so some advisories in the image may be missing.
  */
 export const COVERAGE_NOTE_TYPES = [
   'image_only',
   'release_lockfile_missing',
   'requirements_unpinned',
+  'image_scan_partial',
 ] as const
 export const coverageNoteTypeSchema = z.enum(COVERAGE_NOTE_TYPES)
 export type CoverageNoteType = z.infer<typeof coverageNoteTypeSchema>
