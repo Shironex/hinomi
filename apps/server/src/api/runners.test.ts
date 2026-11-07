@@ -1,4 +1,5 @@
 import {
+  LOCAL_RUNNER_WARNING,
   RUNNER_CALLBACK_PATH,
   RUNNER_CALLBACK_SCHEMA,
   currentTime,
@@ -10,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createWebhookApp } from '../app.js'
 import { connectGithubToken, fakeGithub, repoReply, saveRunnerPlan } from '../runner/testing.js'
 import { signRunnerPayload } from '../webhook/index.js'
+import type { ApiOptions } from './register.js'
 import { createTestApi } from './testing.js'
 
 // Runner kinds per repo, the webhook runner settings, a webhook dispatch and its callback
@@ -17,12 +19,12 @@ import { createTestApi } from './testing.js'
 
 const T0 = new Date('2026-11-07T10:00:00.000Z')
 
-function setup() {
+function setup(options: { localRunner?: ApiOptions['localRunner'] } = {}) {
   const gh = fakeGithub([
     { path: '/repos/kestrel-co/harbor', reply: repoReply('Kestrel-Co', 'Harbor', 'private') },
     { path: '/user', reply: { body: { login: 'kestrel-bot' } } },
   ])
-  const api = createTestApi({ sourceFetch: gh.fetch })
+  const api = createTestApi({ sourceFetch: gh.fetch, ...options })
   const harbor = api.repos.repos.upsert({ owner: 'kestrel-co', name: 'harbor' })
   connectGithubToken(api.repos)
   return { ...api, harbor }
@@ -119,8 +121,44 @@ describe('runner kind per repo', () => {
   it('refuses the local kind while this host does not offer it', async () => {
     api = setup()
     const res = await api.call('PATCH', `/repos/${api.harbor.id}/runner`, { kind: 'local' })
-    expect(res).toMatchObject({ status: 409, json: { error: { code: 'conflict' } } })
+    expect(res).toMatchObject({
+      status: 409,
+      json: {
+        error: {
+          code: 'conflict',
+          message: expect.stringContaining('HINOMI_LOCAL_RUNNER=1') as string,
+        },
+      },
+    })
     expect(api.repos.repos.get(api.harbor.id)?.runnerKind).toBe('github_actions')
+    const status = runnerStatusSchema.parse(
+      (await api.call('GET', `/repos/${api.harbor.id}/runner`)).json,
+    )
+    expect(status.runners?.local).toMatchObject({ available: false, warning: LOCAL_RUNNER_WARNING })
+  })
+
+  it('saves the local kind when this host offers it and reports it ready', async () => {
+    api = setup({
+      localRunner: {
+        kind: 'local',
+        availability: () => ({ available: true, message: 'The local runner is on.' }),
+        dispatch: () => Promise.resolve({ created: false, code: 'busy', message: 'busy' }),
+      },
+    })
+    const res = await api.call('PATCH', `/repos/${api.harbor.id}/runner`, {
+      kind: 'local',
+      enabled: true,
+    })
+    expect(res.status).toBe(200)
+    const status = runnerStatusSchema.parse(
+      (await api.call('GET', `/repos/${api.harbor.id}/runner`)).json,
+    )
+    expect(status).toMatchObject({
+      ready: true,
+      message: 'Ready to dispatch to the local runner.',
+      settings: { kind: 'local' },
+      runners: { local: { available: true, warning: LOCAL_RUNNER_WARNING } },
+    })
   })
 })
 

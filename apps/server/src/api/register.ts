@@ -3,7 +3,12 @@ import { bodyLimit } from 'hono/body-limit'
 import { silentLogger, type Logger } from '../log.js'
 import { readNotifySettings } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
-import { createFixRunService, type FixRunService, type FixRunTracker } from '../runner/index.js'
+import {
+  createFixRunService,
+  type FixRunService,
+  type FixRunServiceOptions,
+  type FixRunTracker,
+} from '../runner/index.js'
 import type { Scheduler } from '../scheduler/index.js'
 import type {
   GithubWebhookReceiver,
@@ -52,6 +57,8 @@ export interface ApiOptions {
    * their plans through. createApp mounts the callback receiver itself.
    */
   webhookRunner?: { receiver: RunnerCallbackReceiver; transport: WebhookRunnerTransport }
+  /** The local runner (HINOMI_LOCAL_RUNNER), for repos of the local kind. */
+  localRunner?: FixRunServiceOptions['localRunner']
 }
 
 /**
@@ -76,6 +83,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
         publicBaseUrl: () => readNotifySettings(options.repositories.settings).publicBaseUrl,
         ...(options.sourceFetch && { fetch: options.sourceFetch }),
         ...(options.webhookRunner && { webhookDelivery: options.webhookRunner.transport }),
+        ...(options.localRunner && { localRunner: options.localRunner }),
       }),
   }
 

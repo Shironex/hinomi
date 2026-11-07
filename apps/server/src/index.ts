@@ -8,6 +8,7 @@ import {
   cachedRunnerGithub,
   createFixRunTracker,
   createRunnerCallbackHandler,
+  LocalRunner,
 } from './runner/index.js'
 import {
   connectNotifier,
@@ -118,6 +119,32 @@ const webhookRunner = {
   transport: createWebhookRunnerTransport({ settings: runnerCallback.settings }),
 }
 
+// The local runner: off unless HINOMI_LOCAL_RUNNER=1. Leftovers of a run a restart cut short are
+// removed and their runs failed before anything can dispatch.
+const localRunner = new LocalRunner({
+  repositories: storage.repositories,
+  github: cachedRunnerGithub(storage.repositories),
+  enabled: config.localRunner.enabled,
+  checks: config.localRunner.checks,
+  dataDir: config.dataDir,
+  actionEntry: config.localRunner.entry,
+  hostPath: config.localRunner.path,
+  log,
+  onBranchPushed: (runId) => {
+    if (tracker.pollNow((run) => run.id === runId).length > 0) tracking?.wake()
+  },
+})
+const interrupted = await localRunner.recover()
+if (interrupted > 0) log.warn('local runner: failed runs a restart cut short', { interrupted })
+if (config.localRunner.enabled) {
+  const local = localRunner.availability()
+  log.warn('local runner: enabled, fix plans run on this host', {
+    available: local.available,
+    message: local.message,
+    checks: config.localRunner.checks,
+  })
+}
+
 const app = createApp({
   webDistDir: config.webDistDir,
   api: {
@@ -128,6 +155,7 @@ const app = createApp({
     fixRunTracking: tracker,
     githubWebhook,
     webhookRunner,
+    localRunner,
   },
   access: {
     ...(config.trustedProxies.length > 0 && {
@@ -185,6 +213,8 @@ async function shutdown(signal: NodeJS.Signals) {
     new Promise((resolve) => setTimeout(resolve, config.shutdownTimeoutMs).unref()),
   ])
   if (drained) log.info('scheduler: no scan running, closing')
+  // A local run in progress is stopped; it fails with the reason and its folder is removed.
+  await localRunner.close()
   webhookServer?.close()
   server.close((error) => {
     storage.close()
