@@ -497,19 +497,117 @@ describe('Cargo.lock', () => {
   })
 })
 
+const GEMFILE_LOCK = `GIT
+  remote: https://git.example.dev/kestrel-co/plover.git
+  revision: abc123
+  specs:
+    plover (0.3.0)
+      rack (>= 2)
+
+PATH
+  remote: vendor/local
+  specs:
+    local-gem (0.1.0)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    actionpack (7.1.3)
+      rack (>= 2.2.4)
+      rack-test (>= 0.6.3)
+    nokogiri (1.15.4)
+      mini_portile2 (~> 2.8.2)
+      racc (~> 1.4)
+    nokogiri (1.15.4-arm64-darwin)
+      racc (~> 1.4)
+    nokogiri (1.15.4-x86_64-linux)
+      racc (~> 1.4)
+    mini_portile2 (2.8.5)
+    racc (1.7.3)
+    rack (2.2.8)
+    rack-test (2.1.0)
+      rack (>= 1.3)
+
+PLATFORMS
+  arm64-darwin-23
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  actionpack (~> 7.1)
+  local-gem!
+  nokogiri
+  plover!
+
+RUBY VERSION
+   ruby 3.2.2p53
+
+BUNDLED WITH
+   2.5.6
+`
+
+describe('Gemfile.lock', () => {
+  it('reads GEM specs, collapses platform variants and marks DEPENDENCIES as direct', () => {
+    const deps = parseLockfile(GEMFILE_LOCK, 'Gemfile.lock')
+    expect(summary(deps)).toEqual({
+      'actionpack@7.1.3': 'unknown direct',
+      'mini_portile2@2.8.5': 'unknown transitive',
+      'nokogiri@1.15.4': 'unknown direct',
+      'racc@1.7.3': 'unknown transitive',
+      'rack@2.2.8': 'unknown transitive',
+      'rack-test@2.1.0': 'unknown transitive',
+    })
+    expect(new Set(deps.map((d) => d.ecosystem))).toEqual(new Set(['RubyGems']))
+    expect(deps.find((d) => d.name === 'rack')?.path).toEqual(['actionpack', 'rack'])
+  })
+
+  it('reads CRLF files and skips unknown sections and empty input', () => {
+    const crlf = GEMFILE_LOCK.replace(/\n/g, '\r\n') + '\nMYSTERY\n  thing (1.0)\n'
+    expect(parseLockfile(crlf, 'Gemfile.lock')).toHaveLength(6)
+    expect(parseLockfile('', 'Gemfile.lock')).toEqual([])
+  })
+})
+
+describe('Gemfile.lock with hostile names', () => {
+  it('parses gems named like Object.prototype members without touching it', () => {
+    const lock = `GEM
+  remote: https://rubygems.org/
+  specs:
+    __proto__ (1.0.0)
+      constructor (>= 0)
+    constructor (2.0.0)
+      prototype (>= 0)
+    prototype (3.0.0)
+      __proto__ (>= 0)
+
+DEPENDENCIES
+  __proto__
+  toString
+`
+    const deps = parseLockfile(lock, 'Gemfile.lock')
+    expect(deps.map((d) => d.name).sort()).toEqual(['__proto__', 'constructor', 'prototype'])
+    expect(deps.find((d) => d.name === '__proto__')?.direct).toBe(true)
+    expect(deps.find((d) => d.name === 'constructor')?.direct).toBe(false)
+    expect(Object.keys(Object.prototype)).toEqual([])
+    expect(({} as Record<string, unknown>).version).toBeUndefined()
+    expect(({} as Record<string, unknown>).deps).toBeUndefined()
+  })
+})
+
 describe('parseLockfile', () => {
   it('rejects unknown file names', () => {
     expect(() => parseLockfile('', 'Pipfile.lock')).toThrow(UnsupportedLockfileError)
   })
 
   it('knows the names of formats without a parser and refuses them without misparsing', () => {
-    for (const name of ['go.sum', 'Gemfile.lock']) {
+    for (const name of ['go.sum']) {
       expect(isLockfileName(name)).toBe(true)
       expect(hasLockfileParser(`apps/api/${name}`)).toBe(false)
       expect(() => parseLockfile('anything', name)).toThrow(UnsupportedLockfileError)
     }
     expect(hasLockfileParser('apps/api/Cargo.lock')).toBe(true)
     expect(hasLockfileParser('apps/api/go.mod')).toBe(true)
+    expect(hasLockfileParser('apps/api/Gemfile.lock')).toBe(true)
   })
 })
 

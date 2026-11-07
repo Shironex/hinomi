@@ -3,6 +3,7 @@ import { parseBunLock } from './bun.js'
 import { parseCargoLock } from './cargo.js'
 import { parseGoMod } from './gomod.js'
 import { parseComposerLock } from './composer.js'
+import { parseGemfileLock } from './gemfile.js'
 import { parsePackageLock } from './npm.js'
 import { parsePnpmLock } from './pnpm.js'
 import { parseRequirementsTxt } from './requirements.js'
@@ -67,6 +68,7 @@ const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
   'composer.lock': (text) => parseComposerLock(text),
   'uv.lock': (text) => parseUvLock(text),
   'poetry.lock': (text) => parsePoetryLock(text),
+  'Gemfile.lock': (text) => parseGemfileLock(text),
 }
 
 /** Whether `parseLockfile` can read a file of this name (a path is fine). */
