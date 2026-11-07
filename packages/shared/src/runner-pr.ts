@@ -13,6 +13,7 @@ import {
   type FixResultV1,
   type FixStepReason,
 } from './runner.js'
+import { cell, code, duration, fenced, plural, table } from './runner-markdown.js'
 
 // The fix PR's title and body, rendered from the plan and the runner's result. Pure, so
 // Hinomi (which opens the PR) and the runner render the same text.
@@ -75,35 +76,6 @@ const CHANGE_LABELS: Record<FixPlanStep['apply']['type'], string> = {
   override: 'override',
   lockfile_update: 'cargo update',
   manual: 'manual',
-}
-
-function cell(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\s*[\r\n]+\s*/g, ' ')
-}
-
-function code(text: string): string {
-  return `\`${cell(text).replace(/`/g, "'")}\``
-}
-
-function table(head: string[], rows: string[][]): string {
-  const line = (cells: string[]) => `| ${cells.join(' | ')} |`
-  return [line(head), line(head.map(() => '---')), ...rows.map(line)].join('\n')
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
-}
-
-function duration(ms: number): string {
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds} s`
-  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`
-}
-
-function fenced(text: string): string {
-  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
-  const fence = '`'.repeat(Math.max(3, longest + 1))
-  return `${fence}text\n${text}\n${fence}`
 }
 
 function sumTiers(steps: FixPlanStep[]): Map<FindingTier, number> {

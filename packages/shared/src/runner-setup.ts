@@ -49,11 +49,43 @@ export const callerWorkflowSchema = z
 const SHA_PLACEHOLDER = '<40 char sha>'
 
 /**
+ * The optional majors agent per repo: `off` (the default) or the coding agent preset whose
+ * draft PR adapts the code to major upgrades (decision 7 of the runner design).
+ */
+export const RUNNER_MAJORS_AGENTS = ['off', 'claude-code'] as const
+export const runnerMajorsAgentSchema = z.enum(RUNNER_MAJORS_AGENTS)
+export type RunnerMajorsAgent = z.infer<typeof runnerMajorsAgentSchema>
+
+/** The repo secret the caller hands to the reusable workflow for the Claude Code preset. */
+export const MAJORS_AGENT_SECRET = 'ANTHROPIC_API_KEY'
+
+/** The caller's secrets block: commented out while the majors agent is off. */
+function secretsBlock(majorsAgent: RunnerMajorsAgent): string[] {
+  const lines = ['secrets:', `  ${MAJORS_AGENT_SECRET}: \${{ secrets.${MAJORS_AGENT_SECRET} }}`]
+  if (majorsAgent !== 'off') {
+    return [
+      '    # The majors agent is on in Hinomi; it reads this secret (docs/github.md).',
+    ].concat(lines.map((line) => `    ${line}`))
+  }
+  return [
+    '    # To let the optional majors agent run (off unless turned on in Hinomi), add the repo',
+    '    # secret and uncomment these lines (docs/github.md):',
+    ...lines.map((line) => `    # ${line}`),
+  ]
+}
+
+/**
  * The caller workflow to paste into `.github/workflows/<file>` on the default branch, pinned to
- * `sha` (a placeholder when no release SHA is known yet).
+ * `sha` (a placeholder when no release SHA is known yet). With the majors agent on, it hands the
+ * agent's secret to the reusable workflow; off, that block is there but commented out.
  */
 export function renderCallerWorkflow(
-  options: { file?: string; sha?: string | null; version?: string | null } = {},
+  options: {
+    file?: string
+    sha?: string | null
+    version?: string | null
+    majorsAgent?: RunnerMajorsAgent
+  } = {},
 ): string {
   const file = options.file ?? DEFAULT_CALLER_WORKFLOW
   const sha = options.sha ?? SHA_PLACEHOLDER
@@ -90,6 +122,7 @@ export function renderCallerWorkflow(
     '      run_id: ${{ inputs.run_id }}',
     '      plan: ${{ inputs.plan }}',
     '      encoding: ${{ inputs.encoding }}',
+    ...secretsBlock(options.majorsAgent ?? 'off'),
     '',
   ].join('\n')
 }
@@ -105,6 +138,10 @@ export const runnerSettingsSchema = z.object({
   enabled: z.boolean(),
   /** The caller workflow file under .github/workflows. */
   workflow: callerWorkflowSchema,
+  /**
+   * The optional majors agent. The server always sends it; absent (an older server) means off.
+   */
+  majorsAgent: runnerMajorsAgentSchema.optional(),
 })
 export type RunnerSettings = z.infer<typeof runnerSettingsSchema>
 
@@ -112,6 +149,7 @@ export type RunnerSettings = z.infer<typeof runnerSettingsSchema>
 export const updateRunnerSettingsRequestSchema = z.strictObject({
   enabled: z.boolean().optional(),
   workflow: callerWorkflowSchema.nullable().optional(),
+  majorsAgent: runnerMajorsAgentSchema.optional(),
 })
 export type UpdateRunnerSettingsRequest = z.infer<typeof updateRunnerSettingsRequestSchema>
 
@@ -192,6 +230,11 @@ export const runnerCallerSchema = z.object({
   /** workflow_dispatch inputs Hinomi sends that the file does not declare. */
   missingInputs: z.array(z.string()),
   message: z.string(),
+  /**
+   * The file hands MAJORS_AGENT_SECRET to the reusable workflow (`secrets:` naming it, or
+   * `secrets: inherit`). Absent when the file could not be read.
+   */
+  passesAgentSecret: z.boolean().optional(),
   /** The caller workflow to copy, pinned to the latest release SHA (or a placeholder). */
   template: z.string(),
 })
@@ -292,6 +335,11 @@ export const dispatchFixRunResponseSchema = z.object({
   encoding: z.enum(FIX_DISPATCH_ENCODINGS),
   /** Plan step ids the payload budget left out; they wait for the next run. */
   omittedStepIds: z.array(z.string()),
+  /**
+   * The majors run dispatched beside `run` (majors agent on and the plan has major upgrades).
+   * Null when none was. When the plan has no safe step, `run` itself is the majors run.
+   */
+  majorsRun: fixRunSchema.nullable().optional(),
 })
 export type DispatchFixRunResponse = z.infer<typeof dispatchFixRunResponseSchema>
 

@@ -33,6 +33,16 @@ export const FIX_DISPATCH_MAX_STEPS = 200
 export const CHECK_OUTPUT_MAX_LINES = 60
 /** Characters of a check's output the result keeps, counted from the end. */
 export const CHECK_OUTPUT_MAX_CHARS = 4_000
+/** Most major upgrades one majors dispatch hands to the agent, so the prompt stays readable. */
+export const FIX_MAJORS_MAX_STEPS = 50
+
+/**
+ * Coding agent presets the majors job knows. `claude-code` runs Claude Code headless; `stub`
+ * makes a fixed edit without any model and is accepted only in a dry run (the self test).
+ */
+export const FIX_AGENT_PRESETS = ['claude-code', 'stub'] as const
+export const fixAgentPresetSchema = z.enum(FIX_AGENT_PRESETS)
+export type FixAgentPreset = z.infer<typeof fixAgentPresetSchema>
 
 const isoDate = z.iso.datetime({ offset: true })
 const id = z.number().int().positive()
@@ -241,6 +251,8 @@ export const fixDispatchV1Schema = z.object({
     checks: fixChecksModeSchema,
     /** Run the optional majors job for `risky` (only when the repo has the agent secret). */
     agent: z.boolean(),
+    /** The coding agent the majors job runs. Absent means `claude-code`. */
+    agentPreset: fixAgentPresetSchema.optional(),
     /** The PR may link back to Hinomi: true for private repos only. */
     linksAllowed: z.boolean(),
     /**
@@ -320,6 +332,33 @@ export const fixCheckResultSchema = z.object({
 })
 export type FixCheckResult = z.infer<typeof fixCheckResultSchema>
 
+/**
+ * How the coding agent of a majors run ended. changed: it left a patch. no_changes: it changed
+ * nothing the patch may carry. failed: it exited with an error (or could not start). timeout:
+ * the runner stopped it. refused: its changes broke a limit of the majors patch (too many files
+ * or bytes), so nothing is published.
+ */
+export const FIX_AGENT_OUTCOMES = ['changed', 'no_changes', 'failed', 'timeout', 'refused'] as const
+export const fixAgentOutcomeSchema = z.enum(FIX_AGENT_OUTCOMES)
+export type FixAgentOutcome = z.infer<typeof fixAgentOutcomeSchema>
+
+/** What the majors job reports about its coding agent, in the result's `agent` field. */
+export const fixAgentReportSchema = z.object({
+  preset: fixAgentPresetSchema,
+  outcome: fixAgentOutcomeSchema,
+  /** One line on why it failed, timed out or was refused; null when it changed something. */
+  detail: z.string().max(500).nullable(),
+  /** The end of the agent's final message, scrubbed and cut like check output. */
+  summary: z.string().max(CHECK_OUTPUT_MAX_CHARS).nullable(),
+  durationMs: count,
+  /** Turns and estimated cost when the agent reports them. */
+  turns: count.nullable(),
+  costUsd: z.number().nonnegative().nullable(),
+  /** Changed paths the majors allowlist kept out of the patch (workflows, hooks, config). */
+  refusedPaths: z.array(z.string().max(512)).max(200),
+})
+export type FixAgentReport = z.infer<typeof fixAgentReportSchema>
+
 /** What the `apply` job writes to `.hinomi/hinomi-result.json`. */
 export const fixResultV1Schema = z.object({
   schema: z.literal(FIX_RESULT_SCHEMA),
@@ -350,6 +389,11 @@ export const fixResultV1Schema = z.object({
       deletions: count,
     })
     .nullable(),
+  /**
+   * Set by the majors job only: the coding agent's report. Its `steps` are the risky steps it
+   * was handed, `applied` when the patch changes the step's lockfile.
+   */
+  agent: fixAgentReportSchema.optional(),
   finishedAt: isoDate,
 })
 export type FixResultV1 = z.infer<typeof fixResultV1Schema>
@@ -438,8 +482,15 @@ export interface FixDispatchOptions {
   baseBranch: string
   /** Public repos get full checks and no links back to Hinomi; private repos the opposite. */
   visibility: 'public' | 'private'
-  /** Send risky steps for the majors job. Default false. */
+  /** Send risky steps for the majors job. Default false. Ignored for `kind: 'majors'`. */
   agent?: boolean
+  /**
+   * `fix` (the default) sends the safe steps. `majors` sends no safe step and only the major
+   * upgrades (isMajorStep, at most FIX_MAJORS_MAX_STEPS) for the agent job, with the agent on.
+   */
+  kind?: 'fix' | 'majors'
+  /** The agent preset a majors dispatch asks for. Default `claude-code`. */
+  agentPreset?: FixAgentPreset
   /** Overrides the checks mode the visibility picks. */
   checks?: FixChecksMode
   now?: Date
@@ -496,22 +547,49 @@ function toDispatchRisky(step: FixPlanStep): FixDispatchRisky | null {
 }
 
 /**
+ * True for a plan step the majors job takes: risky because it crosses a semver major, with a
+ * lockfile and a package manager the runner knows, so the agent has a project to work in.
+ */
+export function isMajorStep(step: FixPlanStep): boolean {
+  return (
+    step.risk === 'risky' &&
+    (step.level === 'major' || step.riskReasons.includes('semver_major')) &&
+    step.lockfile !== null &&
+    step.packageManager !== 'unknown'
+  )
+}
+
+function majorsRisky(sorted: FixPlanStep[]): FixDispatchRisky[] {
+  return sorted
+    .filter(isMajorStep)
+    .map(toDispatchRisky)
+    .filter((s): s is FixDispatchRisky => s !== null)
+}
+
+/**
  * Projects a plan into what the runner needs. Safe steps that the runner can apply go in
  * `steps`; a safe step it cannot (manual, no lockfile, or a value that fails the strict
  * checks) is left out and shows in the PR body as not sent. Risky steps go in `risky` only
- * when the agent is on; the PR body lists them either way, from the plan.
+ * when the agent is on; the PR body lists them either way, from the plan. With `kind: 'majors'`
+ * it builds the agent's own dispatch instead: no safe step, the major upgrades in `risky`.
  */
 export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDispatchV1 {
   const checked = parseFixPlan(plan)
-  const agent = options.agent ?? false
+  const majors = options.kind === 'majors'
+  const agent = majors || (options.agent ?? false)
   const sorted = [...checked.steps].sort((a, b) => a.order - b.order)
-  const steps = sorted.map(toDispatchStep).filter((s): s is FixDispatchStep => s !== null)
-  const risky = agent
-    ? sorted
-        .filter((s) => s.risk === 'risky')
-        .map(toDispatchRisky)
-        .filter((s): s is FixDispatchRisky => s !== null)
-    : []
+  const steps = majors
+    ? []
+    : sorted.map(toDispatchStep).filter((s): s is FixDispatchStep => s !== null)
+  const maxRisky = majors ? FIX_MAJORS_MAX_STEPS : FIX_DISPATCH_MAX_STEPS
+  const risky = majors
+    ? majorsRisky(sorted)
+    : agent
+      ? sorted
+          .filter((s) => s.risk === 'risky')
+          .map(toDispatchRisky)
+          .filter((s): s is FixDispatchRisky => s !== null)
+      : []
   const dispatch: FixDispatchV1 = {
     schema: FIX_DISPATCH_SCHEMA,
     runId: options.runId,
@@ -523,15 +601,16 @@ export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDi
     },
     repo: { id: checked.repo.id, fullName: checked.repo.fullName, baseBranch: options.baseBranch },
     steps: steps.slice(0, FIX_DISPATCH_MAX_STEPS),
-    risky: risky.slice(0, FIX_DISPATCH_MAX_STEPS),
+    risky: risky.slice(0, maxRisky),
     omitted: {
       steps: Math.max(0, steps.length - FIX_DISPATCH_MAX_STEPS),
-      risky: Math.max(0, risky.length - FIX_DISPATCH_MAX_STEPS),
+      risky: Math.max(0, risky.length - maxRisky),
       advisories: false,
     },
     options: {
       checks: options.checks ?? (options.visibility === 'public' ? 'full' : 'install'),
       agent,
+      ...(majors && { agentPreset: options.agentPreset ?? 'claude-code' }),
       linksAllowed: options.visibility === 'private',
       releaseAgeDays: RELEASE_AGE_GATE_DAYS,
     },

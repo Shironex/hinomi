@@ -12,7 +12,9 @@ import {
   FIX_DISPATCH_SCHEMA,
   FIX_RESULT_SCHEMA,
   FixPayloadError,
+  FIX_MAJORS_MAX_STEPS,
   fixDispatchStepSchema,
+  isMajorStep,
   isSafeRepoPath,
   parseFixDispatch,
   parseFixPlan,
@@ -29,7 +31,10 @@ import {
   encodeFixDispatch,
   type FixPayloadCompressor,
 } from './runner-payload.js'
+import { MAJORS_BRANCH, renderMajorsPrBody } from './runner-majors.js'
 import { renderFixPrBody } from './runner-pr.js'
+import { renderCallerWorkflow } from './runner-setup.js'
+import { FIX_RUN_BRANCHES } from './fix-runs.js'
 
 // Fictional repos of the kestrel-co org and made up packages only.
 
@@ -751,6 +756,143 @@ describe('renderFixPrBody', () => {
     expectPayloadError(
       () => renderFixPrBody(harbor, result({ planScanRunId: 41 }), { linksAllowed: false }),
       'mismatch',
+    )
+  })
+})
+
+describe('majors dispatch', () => {
+  const base = { runId: 'run-0002', baseBranch: 'main', visibility: 'public' as const, now: NOW }
+
+  it('takes risky semver majors with a lockfile and a known package manager', () => {
+    expect(isMajorStep(harborSteps[3]!)).toBe(true)
+    expect(isMajorStep(harborSteps[0]!)).toBe(false)
+    expect(isMajorStep({ ...harborSteps[3]!, lockfile: null })).toBe(false)
+    expect(isMajorStep({ ...harborSteps[3]!, packageManager: 'unknown' })).toBe(false)
+    const pinned = {
+      ...harborSteps[3]!,
+      level: 'minor' as const,
+      riskReasons: ['pins_other_versions' as const],
+    }
+    expect(isMajorStep(pinned)).toBe(false)
+  })
+
+  it('sends no safe step, only the majors, with the agent and its preset on', () => {
+    const dispatch = toFixDispatch(harbor, { ...base, kind: 'majors' })
+    expect(dispatch.steps).toEqual([])
+    expect(dispatch.risky.map((r) => r.packageName)).toEqual(['heron-ui'])
+    expect(dispatch.options).toMatchObject({ agent: true, agentPreset: 'claude-code' })
+    expect(parseFixDispatch(dispatch)).toEqual(dispatch)
+    const stub = toFixDispatch(harbor, { ...base, kind: 'majors', agentPreset: 'stub' })
+    expect(stub.options.agentPreset).toBe('stub')
+  })
+
+  it('caps the majors it hands over and records the rest as omitted', () => {
+    const majors = Array.from({ length: FIX_MAJORS_MAX_STEPS + 3 }, (_, i) =>
+      step({
+        id: `manifest_bump:npm:tern-${i}:2.0.0:pnpm-lock.yaml`,
+        order: i + 1,
+        packageName: `tern-${i}`,
+        from: ['1.0.0'],
+        to: '2.0.0',
+        level: 'major',
+        risk: 'risky',
+        riskReasons: ['semver_major'],
+        apply: {
+          type: 'manifest_bump',
+          manifests: ['package.json'],
+          packageName: `tern-${i}`,
+          version: '2.0.0',
+        },
+      }),
+    )
+    const dispatch = toFixDispatch(plan(majors), { ...base, kind: 'majors' })
+    expect(dispatch.risky).toHaveLength(FIX_MAJORS_MAX_STEPS)
+    expect(dispatch.omitted.risky).toBe(3)
+  })
+
+  it('keeps the fix dispatch free of a preset', () => {
+    expect(toFixDispatch(harbor, base).options.agentPreset).toBeUndefined()
+  })
+
+  it('names the majors branch apart from the fix branch', () => {
+    expect(FIX_RUN_BRANCHES.majors).toBe(MAJORS_BRANCH)
+    expect(MAJORS_BRANCH).not.toBe(FIX_RUN_BRANCHES.fix)
+  })
+})
+
+function majorsResult(overrides: Partial<FixResultV1> = {}): FixResultV1 {
+  return result({
+    runId: 'run-0002',
+    checksMode: 'full',
+    steps: [{ id: harborSteps[3]!.id, status: 'applied', reason: null, detail: null, files: [] }],
+    install: { status: 'skipped', durationMs: 0, output: null, truncated: false },
+    checks: [],
+    patch: {
+      sha256: 'c'.repeat(64),
+      files: ['package.json', 'pnpm-lock.yaml', 'src/menu.ts'],
+      insertions: 30,
+      deletions: 12,
+    },
+    agent: {
+      preset: 'claude-code',
+      outcome: 'changed',
+      detail: null,
+      summary: 'Moved the menu to the heron-ui 4 Popover API. Tests pass.',
+      durationMs: 410_000,
+      turns: 23,
+      costUsd: 1.42,
+      refusedPaths: ['.github/workflows/ci.yml'],
+    },
+    ...overrides,
+  })
+}
+
+describe('renderMajorsPrBody', () => {
+  it('opens a draft that says an agent made the changes, without attribution', () => {
+    const pr = renderMajorsPrBody(harbor, majorsResult(), { linksAllowed: false })
+    expect(pr.draft).toBe(true)
+    expect(pr.title).toBe('fix(deps): upgrade heron-ui to 4.0.1 with agent changes')
+    expect(pr.body).toContain('An automated coding agent (Claude Code) wrote the changes')
+    expect(pr.body).toContain('| `heron-ui` | 3.4.0 | 4.0.1 | pnpm-lock.yaml | Yes |')
+    expect(pr.body).toContain('Turns: 23. Estimated cost: 1.42 USD.')
+    expect(pr.body).toContain('Popover API')
+    expect(pr.body).toContain('`.github/workflows/ci.yml`')
+    expect(pr.body).toContain('3 files changed, 30 insertions, 12 deletions.')
+    expect(pr.body).toContain('<!-- hinomi:majors repo=7 plan=42 run=run-0002 schema=1 -->')
+    expect(pr.body).not.toMatch(/Generated with|Co-Authored-By/i)
+    expect(pr.body).not.toContain('Open this run in Hinomi')
+  })
+
+  it('links back to Hinomi only when links are allowed', () => {
+    const pr = renderMajorsPrBody(harbor, majorsResult(), {
+      linksAllowed: true,
+      hinomiUrl: 'https://hinomi.example.dev/fix-runs?sel=3',
+    })
+    expect(pr.body).toContain('(https://hinomi.example.dev/fix-runs?sel=3)')
+  })
+
+  it('refuses a result without an agent report or for another plan', () => {
+    const plain = { ...majorsResult(), agent: undefined }
+    expectPayloadError(() => renderMajorsPrBody(harbor, plain, { linksAllowed: false }), 'mismatch')
+    expectPayloadError(
+      () => renderMajorsPrBody(harbor, majorsResult({ planScanRunId: 9 }), { linksAllowed: false }),
+      'mismatch',
+    )
+  })
+})
+
+describe('renderCallerWorkflow and the majors agent', () => {
+  it('leaves the secret commented out while the agent is off', () => {
+    const text = renderCallerWorkflow()
+    expect(text).toContain(
+      '    # secrets:\n    #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+  })
+
+  it('hands the secret over when the agent is on', () => {
+    const text = renderCallerWorkflow({ majorsAgent: 'claude-code' })
+    expect(text).toContain(
+      '    secrets:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n',
     )
   })
 })
