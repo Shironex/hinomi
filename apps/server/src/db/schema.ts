@@ -27,6 +27,7 @@ import {
 } from '@hinomi/shared'
 import { sql } from 'drizzle-orm'
 import {
+  blob,
   index,
   integer,
   primaryKey,
@@ -465,6 +466,21 @@ export const settings = sqliteTable('settings', {
   updatedAt: updatedAt(),
 })
 
+/**
+ * Cached answers of public HTTP APIs (the endoflife.date data, action.yml reads). The body is
+ * gzip compressed; `etag` and `last_modified` are sent back as validators on the next request.
+ */
+export const httpCache = sqliteTable('http_cache', {
+  key: text('key').primaryKey(),
+  etag: text('etag'),
+  lastModified: text('last_modified'),
+  /** When the entry was last confirmed current: a 200 or a 304. */
+  fetchedAt: timestamp('fetched_at').notNull(),
+  /** The HTTP status of the answer the body came from. */
+  status: integer('status').notNull(),
+  body: blob('body', { mode: 'buffer' }).notNull(),
+})
+
 export type SourceRow = typeof sources.$inferSelect
 export type RepoRow = typeof repos.$inferSelect
 export type NewRepoRow = typeof repos.$inferInsert
@@ -480,6 +496,7 @@ export type FindingEventRow = typeof findingEvents.$inferSelect
 export type NewFindingEventRow = typeof findingEvents.$inferInsert
 export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
+export type HttpCacheRow = typeof httpCache.$inferSelect
 export type FixPlanRow = typeof fixPlans.$inferSelect
 export type FixRunRow = typeof fixRuns.$inferSelect
 export type NewFixRunRow = typeof fixRuns.$inferInsert
