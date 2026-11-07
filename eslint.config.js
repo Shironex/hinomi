@@ -56,11 +56,12 @@ const SERVER_LAYERS = {
   repository: ['crypto', 'db'],
   scan: ['db', 'repository', 'sources'],
   notify: ['crypto', 'db', 'repository', 'scan'],
+  runner: ['db', 'repository', 'sources'],
   scheduler: ['db', 'notify', 'repository', 'scan'],
-  api: ['access', 'crypto', 'db', 'notify', 'repository', 'scan', 'scheduler', 'sources'],
+  api: ['access', 'crypto', 'db', 'notify', 'repository', 'runner', 'scan', 'scheduler', 'sources'],
 }
 // Folders with an index.ts barrel are imported through it, never past it.
-const SERVER_BARRELS = ['access', 'api', 'notify', 'repository', 'scan', 'scheduler']
+const SERVER_BARRELS = ['access', 'api', 'notify', 'repository', 'runner', 'scan', 'scheduler']
 
 const NODE_BUILTINS = {
   regex: `^(node:|(${builtinModules.join('|')})(/|$))`,
