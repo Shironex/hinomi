@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Lints the workflows and the caller template with pinned actionlint and zizmor.
+# Lints the workflows, the fix toolchain action and the caller template with pinned
+# actionlint and zizmor.
 # Each tool is downloaded once into a cache folder and checked against its SHA-256 before it
 # runs. Works on Linux and macOS (x64 and arm64); on Windows run it from Git Bash or WSL.
 #
@@ -89,4 +90,5 @@ echo "actionlint $ACTIONLINT_VERSION"
 "$actionlint" -config-file .github/actionlint.yaml "$scratch/.github/workflows/hinomi-fix.yml"
 
 echo "zizmor $ZIZMOR_VERSION"
-"$zizmor" --offline --config .github/zizmor.yml .github/workflows "$scratch/.github/workflows/hinomi-fix.yml"
+"$zizmor" --offline --config .github/zizmor.yml .github/workflows actions/fix-toolchain/action.yml \
+  "$scratch/.github/workflows/hinomi-fix.yml"

@@ -11,6 +11,12 @@ name: Hinomi fix (reusable)
 # - publish: contents write, runs no repo or dependency code. Verifies the patch against the
 #   apply job's outputs and the dependency file allowlist, commits it on the base commit and
 #   force pushes hinomi/fix-plan. Hinomi opens the PR.
+# - majors (optional, a separate dispatch whose plan carries only major upgrades): read only
+#   token plus the caller's ANTHROPIC_API_KEY. Runs a coding agent on the checkout, captures
+#   its patch and reports the hash as a job output. Off unless the repo turns it on in Hinomi.
+# - majors-publish: contents write, runs no repo, dependency or agent code. Verifies the patch
+#   against the majors job's outputs and the wider majors allowlist (never .github), then
+#   force pushes hinomi/majors. Hinomi opens the PR, always as a draft.
 #
 # The action comes from this repo at the commit of this workflow (`$/`, the self repository
 # reference), so a caller's pin covers the workflow and the action together, and the action's
@@ -39,6 +45,10 @@ on:
         description: Verify, apply and commit the patch in the publish job, but push nothing
         type: boolean
         default: false
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: Key for the optional majors agent (Claude Code); only the majors job reads it
+        required: false
     outputs:
       has_changes:
         description: true when the plan produced a patch
@@ -52,6 +62,18 @@ on:
       pushed:
         description: true when publish pushed the branch
         value: ${{ jobs.publish.outputs.pushed }}
+      majors_has_changes:
+        description: true when the majors agent left a patch
+        value: ${{ jobs.majors.outputs.has_changes }}
+      majors_patch_sha256:
+        description: SHA-256 of the majors patch
+        value: ${{ jobs.majors.outputs.patch_sha256 }}
+      majors_branch:
+        description: The majors branch, when majors-publish ran
+        value: ${{ jobs.majors-publish.outputs.branch }}
+      majors_pushed:
+        description: true when majors-publish pushed the branch
+        value: ${{ jobs.majors-publish.outputs.pushed }}
 
 permissions: {}
 
@@ -69,7 +91,7 @@ jobs:
       contents: read
     outputs:
       has_changes: ${{ steps.apply.outputs.has_changes }}
-      agent_needed: ${{ steps.apply.outputs.agent_needed }}
+      agent_needed: ${{ steps.detect.outputs.agent_needed }}
       base_sha: ${{ steps.apply.outputs.base_sha }}
       patch_sha256: ${{ steps.apply.outputs.patch_sha256 }}
       patch_files: ${{ steps.apply.outputs.patch_files }}
@@ -89,80 +111,27 @@ jobs:
           encoding: ${{ inputs.encoding }}
           run_id: ${{ inputs.run_id }}
 
-      # Every package manager among the plan's projects is set up, so a repo with a pnpm app
-      # and a Rust crate gets both. Caches stay off: a save from this job would publish files
-      # dependency code could have touched.
-      - name: Set up Node
-        if: steps.detect.outputs.setup_node == 'true'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # Every package manager among the plan's projects (actions/fix-toolchain, no caches).
+      - name: Set up the toolchains
+        uses: $/actions/fix-toolchain
         with:
-          node-version-file: ${{ steps.detect.outputs.node_version_file != '' && steps.detect.outputs.node_version_file || '' }}
-          node-version: ${{ steps.detect.outputs.node_version_file == '' && 'lts/*' || '' }}
-          package-manager-cache: false
+          setup_node: ${{ steps.detect.outputs.setup_node }}
+          node_version_file: ${{ steps.detect.outputs.node_version_file }}
+          setup_pnpm: ${{ steps.detect.outputs.setup_pnpm }}
+          pnpm_version: ${{ steps.detect.outputs.pnpm_version }}
+          pnpm_package_json: ${{ steps.detect.outputs.pnpm_package_json }}
+          setup_yarn: ${{ steps.detect.outputs.setup_yarn }}
+          yarn_version: ${{ steps.detect.outputs.yarn_version }}
+          setup_bun: ${{ steps.detect.outputs.setup_bun }}
+          bun_version: ${{ steps.detect.outputs.bun_version }}
+          setup_rust: ${{ steps.detect.outputs.setup_rust }}
+          rust_root: ${{ steps.detect.outputs.rust_root }}
 
-      - name: Set up pnpm
-        if: steps.detect.outputs.setup_pnpm == 'true'
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: ${{ steps.detect.outputs.pnpm_version }}
-          package_json_file: ${{ steps.detect.outputs.pnpm_package_json }}
-
-      # yarn without corepack (no longer bundled with current Node majors): the version the
-      # packageManager field names, installed with npm at that exact version and without
-      # scripts, yarn 2 and later from @yarnpkg/cli-dist. Without a field, the yarn classic on
-      # the runner image, which follows a yarnPath in .yarnrc.yml.
-      - name: Set up yarn
-        if: steps.detect.outputs.setup_yarn == 'true'
-        env:
-          YARN_VERSION: ${{ steps.detect.outputs.yarn_version }}
-        run: |
-          if [ -n "$YARN_VERSION" ]; then
-            if ! [[ "$YARN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::packageManager names yarn $YARN_VERSION, not an exact version"
-              exit 1
-            fi
-            if [ "${YARN_VERSION%%.*}" = 1 ]; then
-              npm install --global --ignore-scripts "yarn@$YARN_VERSION"
-            else
-              npm install --global --ignore-scripts "@yarnpkg/cli-dist@$YARN_VERSION"
-            fi
-          fi
-          yarn --version
-
-      - name: Set up bun
-        if: steps.detect.outputs.setup_bun == 'true'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ steps.detect.outputs.bun_version }}
-          no-cache: true
-
-      - name: Set up Rust
-        if: steps.detect.outputs.setup_rust == 'true'
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
-        with:
-          toolchain: stable
-
-      # A rust-toolchain file in the crate's folder or above overrides stable; install it now
-      # so the apply step's cargo calls do not download it halfway.
-      - name: Install the repo's pinned Rust toolchain
-        if: steps.detect.outputs.setup_rust == 'true'
-        env:
-          RUST_ROOT: ${{ steps.detect.outputs.rust_root }}
-        run: |
-          dir="$GITHUB_WORKSPACE/$RUST_ROOT"
-          while :; do
-            if [ -f "$dir/rust-toolchain.toml" ] || [ -f "$dir/rust-toolchain" ]; then
-              (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && rustup toolchain install --no-self-update)
-              break
-            fi
-            if [ "$dir" = "$GITHUB_WORKSPACE" ]; then break; fi
-            dir=$(dirname "$dir")
-          done
-          (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && cargo --version)
-
-      # No install script runs here: lockfiles are updated in lockfile only mode.
+      # No install script runs here: lockfiles are updated in lockfile only mode. A majors
+      # dispatch has no safe step, so only the majors job below does anything for it.
       - name: Apply the plan
         id: apply
+        if: steps.detect.outputs.has_steps == 'true'
         uses: $/actions/fix-runner
         with:
           step: apply
@@ -228,5 +197,112 @@ jobs:
           base_sha: ${{ needs.apply.outputs.base_sha }}
           patch_sha256: ${{ needs.apply.outputs.patch_sha256 }}
           patch_files: ${{ needs.apply.outputs.patch_files }}
+          dry_run: ${{ inputs.dry_run }}
+          token: ${{ github.token }}
+
+  majors:
+    name: Run the majors agent
+    needs: apply
+    if: needs.apply.outputs.agent_needed == 'true'
+    runs-on: ubuntu-24.04
+    # The agent stops itself after 40 minutes; setup and capture fit in the rest.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      has_changes: ${{ steps.agent.outputs.has_changes }}
+      base_sha: ${{ steps.agent.outputs.base_sha }}
+      patch_sha256: ${{ steps.agent.outputs.patch_sha256 }}
+      patch_files: ${{ steps.agent.outputs.patch_files }}
+      artifact_name: ${{ steps.detect.outputs.artifact_name }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the plan and detect the toolchains
+        id: detect
+        uses: $/actions/fix-runner
+        with:
+          step: detect
+          scope: majors
+          plan: ${{ inputs.plan }}
+          encoding: ${{ inputs.encoding }}
+          run_id: ${{ inputs.run_id }}
+
+      - name: Set up the toolchains
+        uses: $/actions/fix-toolchain
+        with:
+          setup_node: ${{ steps.detect.outputs.setup_node }}
+          node_version_file: ${{ steps.detect.outputs.node_version_file }}
+          setup_pnpm: ${{ steps.detect.outputs.setup_pnpm }}
+          pnpm_version: ${{ steps.detect.outputs.pnpm_version }}
+          pnpm_package_json: ${{ steps.detect.outputs.pnpm_package_json }}
+          setup_yarn: ${{ steps.detect.outputs.setup_yarn }}
+          yarn_version: ${{ steps.detect.outputs.yarn_version }}
+          setup_bun: ${{ steps.detect.outputs.setup_bun }}
+          bun_version: ${{ steps.detect.outputs.bun_version }}
+          setup_rust: ${{ steps.detect.outputs.setup_rust }}
+          rust_root: ${{ steps.detect.outputs.rust_root }}
+
+      # The key reaches the agent process only (the action strips it from every other command).
+      # The result and patch are written to the runner's temp folder after the agent is gone.
+      - name: Run the agent and capture its patch
+        id: agent
+        uses: $/actions/fix-runner
+        with:
+          step: agent
+          plan: ${{ inputs.plan }}
+          encoding: ${{ inputs.encoding }}
+          run_id: ${{ inputs.run_id }}
+          dry_run: ${{ inputs.dry_run }}
+          agent_secret: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload the patch and the result
+        if: always() && steps.agent.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.detect.outputs.artifact_name }}
+          path: ${{ steps.agent.outputs.output_dir }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  majors-publish:
+    name: Push the majors branch
+    needs: majors
+    if: needs.majors.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      branch: ${{ steps.publish.outputs.branch }}
+      pushed: ${{ steps.publish.outputs.pushed }}
+    steps:
+      - name: Check out the base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.majors.outputs.base_sha }}
+          persist-credentials: false
+
+      - name: Download the patch and the result
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.majors.outputs.artifact_name }}
+          path: ${{ runner.temp }}/hinomi-majors
+
+      - name: Verify the patch and push the majors branch
+        id: publish
+        uses: $/actions/fix-runner
+        with:
+          step: publish
+          scope: majors
+          run_id: ${{ inputs.run_id }}
+          artifact_dir: ${{ runner.temp }}/hinomi-majors
+          base_sha: ${{ needs.majors.outputs.base_sha }}
+          patch_sha256: ${{ needs.majors.outputs.patch_sha256 }}
+          patch_files: ${{ needs.majors.outputs.patch_files }}
           dry_run: ${{ inputs.dry_run }}
           token: ${{ github.token }}

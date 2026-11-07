@@ -23,7 +23,10 @@ updates:
           - patch
 
   - package-ecosystem: github-actions
-    directory: /
+    # The composite action the fix workflow uses pins actions too.
+    directories:
+      - /
+      - /actions/fix-toolchain
     schedule:
       interval: weekly
     cooldown:
