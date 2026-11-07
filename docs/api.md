@@ -77,13 +77,16 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 | Query | Meaning |
 |---|---|
-| `tier` | `blind_spot`, `exposed`, `internal`, `public_low`, `dev`, `not_deployed`, `coverage` |
+| `tier` | `blind_spot`, `exposed`, `internal`, `released`, `public_low`, `dev`, `not_deployed`, `patched`, `coverage` |
 | `state` | `open`, `fixing`, `fixed`, `snoozed`, `accepted`, `dismissed_upstream`. Without it every state except `fixed` |
 | `severity` | Effective severity: `critical`, `high`, `moderate`, `low` (unscored advisories count as moderate) |
-| `source` | `github`, `osv` |
+| `source` | `github`, `osv`, `image` |
 | `sourceMatch` | `any` (default): reported by at least one listed source; `all`: by every listed source, so `source=github,osv&sourceMatch=all` means reported by both |
 | `scope` | `runtime`, `dev`, `unknown` |
-| `kind` | `advisory`, `blind_spot`, `coverage_note` |
+| `kind` | `advisory`, `blind_spot`, `coverage_note`, `guard` |
+| `check` | Guard checks (see Guards below); only guard findings match |
+| `level` | Guard levels: `warn`, `fail`, `unknown`; only guard findings match |
+| `release` | `true`: only desktop release findings; `false`: none of them |
 | `repo`, `deployment` | Ids |
 | `q` | Case-insensitive search over package, advisory ids, summary, repo, deployment and blind spot type |
 | `group` | `none` (default), `tier`, `repo`, `advisory`: rows are ordered group by group and `groups` holds every group's size |
@@ -91,7 +94,9 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 A coverage note (`kind: coverage_note`, `coverageNote: image_only`, tier `coverage`) is a deployment with no git source: a service from a template or an app deployed from a registry image. There is no repo to map, so it is not a blind spot; it ranks below every advisory, is never sent as a notification and stays until the phase 2 image scan covers it (a manual repo mapping clears it). A `no_repo_mapping` blind spot is only for a deployment built from git whose repo Hinomi cannot match; one that an earlier version opened on an image only deployment resolves on the next scan with `{ reason: "reclassified", as: "image_only" }` and a coverage note opens instead.
 
-Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry (`stateUntilNewAdvisory` when it waits for a new advisory instead of a date), reporting sources, an advisory summary, the repo and the deployments it reaches.
+Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry (`stateUntilNewAdvisory` when it waits for a new advisory instead of a date), reporting sources, an advisory summary, the repo and the deployments it reaches. Guard findings also carry `guard: { check, level, evidence, title, explanation, fixText, override }` (null on every other kind), and desktop release advisories carry `releaseTag` (null otherwise).
+
+The phase 2 additions are in the contract ahead of the server: the `guard` kind, the `released` tier, the `image` reporter, the `release_lockfile_missing` and `requirements_unpinned` coverage notes and the `check`, `level` and `release` filters validate today, but no finding uses them and the filters match nothing special until the guard framework lands (see [design/phase-2.md](design/phase-2.md)).
 
 | Method and path | Does |
 |---|---|
@@ -108,6 +113,22 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 **Dependency path.** `dependency.path` is the chain of package names from a direct dependency down to the vulnerable package, taken from the lockfiles Hinomi parses for OSV (pnpm, npm v2 and v3, yarn, bun, Cargo; not npm v1). Chains longer than 12 links keep the first ten, `...` and the package. `pathSource` says what is known: `lockfile` (the path), `manifest` (only `manifestPaths`) or `package` (neither).
 
 **Notifications.** `notifications` lists the immediate messages (or first scan and large batch summaries) that announced the finding, one per channel (the latest announcement), with the channel name and kind (null when the channel was removed) and when it went out. Daily digests are not recorded per finding.
+
+### Guards and check overrides
+
+Planned in [design/phase-2.md](design/phase-2.md); the schemas are in [`packages/shared/src/api.ts`](../packages/shared/src/api.ts), the checks, levels and copy in [`guards.ts`](../packages/shared/src/guards.ts) and the evidence per check in [`guard-evidence.ts`](../packages/shared/src/guard-evidence.ts). The server does not serve these routes yet.
+
+A guard is a configuration or support check that writes a finding of kind `guard`. Checks: `root_user`, `shared_network`, `docker_socket`, `watch_paths_skip`, `framework_support`, `runtime_support`, `runtime_pins_disagree`, `action_runtime`. Levels: `warn`, `fail`, and `unknown` when the source cannot give the signal (shown in the `coverage` tier, never sent). `evidence` is one shape per check, told apart by `check`, and always has `reason` (why the level is `unknown`, or a note on a partial signal). Runtime checks cover `node`, `bun` and `rust`; one finding per check per repo lists every runtime in `evidence.runtimes`.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/guards` | The check registry: `{ items: [{ check, title, reads, levels, capabilities, counts, overrides }] }`. `capabilities` maps each source kind to `full`, `partial` or `unknown`; `counts` has open findings per level |
+| `GET /api/overrides?check=&deployment=&repo=` | Checks turned off: `{ items: [{ id, check, deployment, repo, reason, createdAt, updatedAt }] }`, exactly one of `deployment` and `repo` set |
+| `POST /api/overrides` | `{ check, deploymentId \| repoId, reason }`: turns a check off for one deployment or one repo. `check` is a guard check or a blind spot type (so `archived_deployed` can be turned off too); `reason` 1 to 500 characters |
+| `PATCH /api/overrides/:id` | `{ reason }` |
+| `DELETE /api/overrides/:id` | Turns the check back on |
+
+A turned off check still runs: its finding is stored as `accepted` with the override's reason and a `turned_off` event, and `guard.override` holds `{ id, scope, reason, createdAt }`. Guards add the event types `escalated` (the level got worse) and `level_changed` (it got better).
 
 ### Fixes
 
