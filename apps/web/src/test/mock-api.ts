@@ -179,6 +179,7 @@ export function configuredRoutes(): Record<string, unknown> {
       osvEnabled: true,
       includeAccountRepos: false,
       updateCheckEnabled: true,
+      supportWindowDays: 90,
     },
     'GET /notifications/channels': { items: [] },
     'GET /notifications/settings': { publicBaseUrl: null, digestHour: 8 },

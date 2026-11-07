@@ -6243,6 +6243,47 @@ function nowMs() {
 	return Date.now();
 }
 
+// ../../packages/shared/src/support.ts
+const SUPPORT_WINDOW_STATES = [
+	"supported",
+	"maintenance",
+	"ending",
+	"eol"
+];
+const supportWindowStateSchema = _enum(SUPPORT_WINDOW_STATES);
+const SUPPORT_DATA_SOURCES = [
+	"live",
+	"cache",
+	"none"
+];
+const supportDataSourceSchema = _enum(SUPPORT_DATA_SOURCES);
+const iso = string();
+const supportRuntimeInfoSchema = object({
+	runtime: runtimeSchema,
+	product: string(),
+	found: boolean(),
+	basis: supportBasisSchema.nullable(),
+	lines: number$1().int().min(0)
+});
+const supportStatusSchema = object({
+	source: supportDataSourceSchema,
+	fetchedAt: iso.nullable(),
+	ageSeconds: number$1().int().min(0).nullable(),
+	stale: boolean(),
+	staleAfterDays: number$1().int(),
+	generatedAt: iso.nullable(),
+	schemaVersion: string().nullable(),
+	counts: object({
+		products: number$1().int().min(0),
+		releases: number$1().int().min(0),
+		purls: number$1().int().min(0)
+	}),
+	runtimes: array(supportRuntimeInfoSchema),
+	lastAttemptAt: iso.nullable(),
+	lastError: string().nullable(),
+	nextRefreshAt: iso.nullable()
+});
+
 // ../../packages/shared/src/api.ts
 const isoDate$5 = datetime({ offset: true });
 const id$3 = number$1().int().positive();
@@ -6994,7 +7035,8 @@ const settingsSchema = object({
 	scanIntervalMinutes: number$1().int().min(15).max(SCAN_INTERVAL_MAX_MINUTES),
 	osvEnabled: boolean(),
 	includeAccountRepos: boolean(),
-	updateCheckEnabled: boolean()
+	updateCheckEnabled: boolean(),
+	supportWindowDays: number$1().int().min(1).max(365)
 });
 const updateSettingsRequestSchema = strictObject(settingsSchema.partial().shape).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 const availableUpdateSchema = object({

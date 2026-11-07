@@ -15,6 +15,7 @@ const settings = (updateCheckEnabled: boolean) => ({
   osvEnabled: true,
   includeAccountRepos: false,
   updateCheckEnabled,
+  supportWindowDays: 90,
 })
 
 async function aboutRegion() {
