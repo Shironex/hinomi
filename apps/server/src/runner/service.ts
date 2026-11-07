@@ -1,5 +1,6 @@
 import {
   DEFAULT_CALLER_WORKFLOW,
+  LOCAL_RUNNER_WARNING,
   MAJORS_AGENT_SECRET,
   currentTime,
   isMajorStep,
@@ -23,6 +24,7 @@ import { releaseLatestSource, type LatestFixWorkflowSource } from './latest.js'
 import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import { openSetupPr, setupPrCapability, type SetupPrResult } from './setup-pr.js'
+import type { LocalRunnerAvailability } from './local-runner.js'
 import type { FixRunDispatchOutcome, FixRunner } from './runner.js'
 import { WebhookRunner, type WebhookDelivery } from './webhook-runner.js'
 
@@ -80,6 +82,8 @@ export interface FixRunServiceOptions {
    * webhook folder). Without it those repos cannot dispatch.
    */
   webhookDelivery?: WebhookDelivery
+  /** The local runner, built in index.ts from the HINOMI_LOCAL_RUNNER settings. */
+  localRunner?: FixRunner & { availability(): LocalRunnerAvailability }
   /** Replaces the runners of the other kinds in tests. */
   runners?: Partial<Record<Exclude<FixRunnerKind, 'github_actions'>, FixRunner>>
   /**
@@ -105,6 +109,8 @@ export type RunnerSettingsUpdate =
   | { ok: false; status: 404 | 409; code: 'not_found' | 'conflict'; message: string }
 
 const LOCAL_UNAVAILABLE = 'The local runner is not available on this Hinomi.'
+const LOCAL_NOT_WIRED =
+  "Set HINOMI_LOCAL_RUNNER=1 in Hinomi's environment to allow the local runner."
 
 function refusedDispatch(outcome: Exclude<FixRunDispatchOutcome, { created: true }>) {
   if (outcome.code === 'unavailable') return refused(503, 'unavailable', outcome.message)
@@ -143,7 +149,17 @@ function readiness(
   }
   // Without the repo the permissions carry the reason it could not be read.
   if (!meta) return { ready: false, message: permissions.message }
-  if (repo.runnerKind === 'local') return { ready: false, message: LOCAL_UNAVAILABLE }
+  if (repo.runnerKind === 'local') {
+    const local = kinds.local
+    if (!local?.available) return { ready: false, message: local?.message ?? LOCAL_UNAVAILABLE }
+    if (!repo.runnerEnabled) {
+      return {
+        ready: false,
+        message: 'The local runner is on. Turn the runner on to dispatch fix plans.',
+      }
+    }
+    return { ready: true, message: 'Ready to dispatch to the local runner.' }
+  }
   if (!kinds.webhook.configured) return { ready: false, message: kinds.webhook.message }
   if (!repo.runnerEnabled) {
     return {
@@ -191,7 +207,16 @@ export function createFixRunService(options: FixRunServiceOptions) {
       (webhookDelivery
         ? new WebhookRunner({ repositories, github, now, delivery: webhookDelivery })
         : null),
-    local: options.runners?.local ?? null,
+    local: options.runners?.local ?? options.localRunner ?? null,
+  }
+
+  function localStatus(): { available: boolean; message: string; warning: string } {
+    const status = options.localRunner
+      ? options.localRunner.availability()
+      : options.runners?.local
+        ? { available: true, message: 'The local runner is on.' }
+        : { available: false, message: LOCAL_NOT_WIRED }
+    return { ...status, warning: LOCAL_RUNNER_WARNING }
   }
 
   function kindsStatus(): RunnerKindsStatus {
@@ -203,6 +228,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
         configured: runners.webhook !== null && problem === null,
         message: problem ?? 'The webhook runner is set up.',
       },
+      local: localStatus(),
     }
   }
 
@@ -308,8 +334,10 @@ export function createFixRunService(options: FixRunServiceOptions) {
       if (!repositories.repos.get(repoId)) {
         return { ok: false, status: 404, code: 'not_found', message: 'Repo not found' }
       }
-      if (patch.kind === 'local' && runners.local === null) {
-        return { ok: false, status: 409, code: 'conflict', message: LOCAL_UNAVAILABLE }
+      if (patch.kind === 'local') {
+        const local = localStatus()
+        if (!local.available)
+          return { ok: false, status: 409, code: 'conflict', message: local.message }
       }
       const repo = repositories.repos.setRunner(repoId, patch)
       if (!repo) return { ok: false, status: 404, code: 'not_found', message: 'Repo not found' }
@@ -351,7 +379,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
       const runner = runners[repo.runnerKind]
       if (!runner) {
         const message =
-          repo.runnerKind === 'webhook' ? kindsStatus().webhook.message : LOCAL_UNAVAILABLE
+          repo.runnerKind === 'webhook' ? kindsStatus().webhook.message : localStatus().message
         return refused(409, 'conflict', message)
       }
       const outcome = await runner.dispatch({ repo, plan, kind: 'fix' })
