@@ -172,6 +172,39 @@ How a plan is built:
 - `unfixed` holds advisories with no patched version (`blocker: "no_patch"`). `too_new` (and `availableAt`) is reserved for the 7 day release age gate: OSV and GitHub do not say when a version was published, so every step has `releasedAt: null` and `releaseAge: "unknown"` until Hinomi reads release dates from the registries.
 - A repo with nothing to fix still gets a plan with no steps, so the next scan can compare.
 
+### Fix runner and fix runs
+
+The GitHub Actions fix runner applies a repo's latest plan in the repo's own Actions: Hinomi dispatches the caller workflow `.github/workflows/hinomi-fix.yml`, which calls the reusable workflow `Shironex/hinomi/.github/workflows/fix.yml` pinned by commit SHA. It is off for every repo until turned on. Setup and permissions are in [docs/github.md](github.md#fix-runner). Schemas: `packages/shared/src/runner-setup.ts` and `fix-runs.ts`.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/repos/:id/runner` | Settings plus a live status (see below). Reads GitHub, never writes |
+| `PATCH /api/repos/:id/runner` | `{ enabled?, workflow? }`. `workflow` is a file name under `.github/workflows` ending in `.yml` or `.yaml`; `null` goes back to `hinomi-fix.yml`. Answers with the same status |
+| `POST /api/repos/:id/fix-runs` | Dispatches the repo's latest plan. Body `{ confirmReopen? }`. 201 `{ run, encoding, omittedStepIds }` |
+| `GET /api/repos/:id/fix-runs` | `{ items }`, newest first. `?kind=fix\|majors`, `?limit=` 1 to 100 (default 50) |
+| `GET /api/fix-runs/:id` | One run |
+
+The runner status:
+
+| Field | Meaning |
+|---|---|
+| `settings` | `{ enabled, workflow }` |
+| `ready` | On, the credential may dispatch, and the caller workflow calls Hinomi with every input |
+| `github` | `{ fullName, defaultBranch, visibility, checksMode }` as GitHub reports the repo now, null when it could not be read. `checksMode` is `full` on public repos and `install` on private ones |
+| `permissions` | `{ auth, ok, canOpenSetupPr, items, message }`. `auth` is `github_app`, `fine_grained_token` or `classic_token`. Each item is `{ name, label, purpose, required, status }` with `status` `granted`, `missing` or `unverified` (a fine grained token's write access cannot be read without writing, so a working read leaves it unverified) |
+| `caller` | `{ state, path, ref, latestSha, missingInputs, message, template }`. `state`: `missing`, `invalid` (not YAML), `not_hinomi`, `unpinned` (a tag or branch), `pinned` (a SHA, no release SHA known yet), `current`, `outdated`, `unknown` (could not be read). `template` is the caller workflow to paste |
+| `latestRun` | The newest fix run, or null |
+| `closedUnmerged` | `{ runId, pr: { number, url }, closedAt }` when the last fix PR was closed without merging, else null |
+| `message` | What to do next, or `Ready to dispatch.` |
+
+How a dispatch goes:
+
+1. Refused without a run: 404 for an unknown repo or no plan, 409 when the runner is off, no GitHub source is connected or the plan has no safe step the runner can apply, 503 when GitHub could not be asked about the repo.
+2. When the last fix PR was closed unmerged and the body has no `confirmReopen: true`, the answer is 409 `{ error, previous: { runId, pr: { number, url }, closedAt } }`, so the UI can ask before a fresh PR is opened.
+3. Hinomi reads the repo's spelling, default branch and visibility from GitHub, projects the plan into the dispatch (public: `checks: full`, no links back to Hinomi; private: `checks: install`, links allowed), and encodes it (`json` when it fits in 60,000 characters, else `gzip-base64`, else trimmed by priority; trimmed step ids come back in `omittedStepIds`).
+4. The run is stored as `pending`, then Hinomi calls `POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches` with `{ ref: <default branch>, inputs: { run_id, plan, encoding }, return_run_details: true }`. `run_id` is the run's `correlationId`, also in the workflow's run name.
+5. Accepted: the run moves to `dispatched` with `github.runId` from the response (null on a GitHub that answers 204 without details). Refused: the run moves to `failed` and `stateReason` says what to fix (404 no caller workflow on the default branch, 403 no Actions write, 422 inputs the caller does not declare). Either way the answer is 201 with the run. A dispatch is never retried after a 5xx or a network error, since GitHub may have acted on it.
+
 ### Deployments and repo mapping
 
 | Method and path | Does |
