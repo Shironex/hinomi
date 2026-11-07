@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { npmApplier } from './appliers/npm.js'
 import { pnpmApplier } from './appliers/pnpm.js'
 import { nodeExec } from './exec.js'
-import { runApply } from './pipeline.js'
+import { installCommands, runApply } from './pipeline.js'
 import { nodeRepoFs } from './repo-fs.js'
 import {
   daysAgo,
@@ -144,9 +144,10 @@ describe.each([
           exec,
           now: NOW,
         }
-        const command = applier.lockfileInstall(ctx, { repoGate: null })
-        const result = await exec.run(command, { cwd: dir, timeoutMs: 60_000 })
-        if (result.code !== 0) throw new Error(result.output)
+        for (const command of await installCommands(applier, ctx, { repoGate: null, steps: [] })) {
+          const result = await exec.run(command, { cwd: dir, timeoutMs: 60_000 })
+          if (result.code !== 0) throw new Error(result.output)
+        }
       })
       expect(readText(root, lockfile)).toContain('2.1.0')
 
