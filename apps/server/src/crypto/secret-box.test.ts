@@ -55,10 +55,13 @@ describe('secret box', () => {
   })
 
   it('never puts the plaintext in the error message', () => {
+    let caught: unknown
     try {
       createSecretBox('another-long-enough-secret').decrypt(box.encrypt(TOKEN))
     } catch (error) {
-      expect(String(error)).not.toContain(TOKEN)
+      caught = error
     }
+    expect(caught).toBeInstanceOf(SecretDecryptError)
+    expect(String(caught)).not.toContain(TOKEN)
   })
 })

@@ -78,11 +78,14 @@ describe('github app auth', () => {
   it('refuses a key it cannot read without echoing it', () => {
     const broken = '-----BEGIN RSA PRIVATE KEY-----\nbm90LWEta2V5\n-----END RSA PRIVATE KEY-----'
     expect(() => readAppPrivateKey(broken)).toThrow(/could not be read/)
+    let caught: unknown
     try {
       readAppPrivateKey(broken)
     } catch (error) {
-      expect(String(error)).not.toContain('bm90LWEta2V5')
+      caught = error
     }
+    expect(caught).toBeInstanceOf(Error)
+    expect(String(caught)).not.toContain('bm90LWEta2V5')
   })
 
   it('exchanges the JWT for an installation token and caches it', async () => {
