@@ -1,0 +1,11 @@
+{
+  "name": "kestrel-real-bun",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "node -e \"require('fs').writeFileSync('SCRIPT_RAN', '')\""
+  },
+  "dependencies": {
+    "plover-parse": "^1.2.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "kestrel-real-yarn-classic",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "scripts": {
+    "postinstall": "node -e \"require('fs').writeFileSync('SCRIPT_RAN', '')\""
+  },
+  "dependencies": {
+    "plover-parse": "^1.2.0"
+  }
+}

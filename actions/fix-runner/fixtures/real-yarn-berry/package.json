@@ -1,0 +1,12 @@
+{
+  "name": "kestrel-real-yarn-berry",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "yarn@4.18.1",
+  "scripts": {
+    "postinstall": "node -e \"require('fs').writeFileSync('SCRIPT_RAN', '')\""
+  },
+  "dependencies": {
+    "plover-parse": "^1.2.0"
+  }
+}
