@@ -17,6 +17,7 @@ import {
   type GithubArtifact,
   type GithubChecksStatus,
   type GithubClient,
+  type GithubCompareStatus,
   type GithubPull,
   type GithubWorkflowRun,
 } from '../sources/github/index.js'
@@ -24,6 +25,7 @@ import { MAX_RESULT_ARTIFACT_BYTES, fixResultArtifactNames, readFixResultZip } f
 import { callerWorkflowOf } from './github-actions.js'
 import type { RunnerGithub } from './github.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
+import { pollDeployments, verifyRun, type RepoRescanner } from './tracker-verify.js'
 import {
   TRACKED_PR_STATES,
   dispatchTime,
@@ -60,6 +62,10 @@ export interface PollContext {
   config: FixRunTrackingConfig
   publicBaseUrl: (() => string | null) | undefined
   state: RunTrackingState
+  /** Rescans a repo for verification; without it the verify phase is not followed. */
+  rescan: RepoRescanner | undefined
+  /** Compare answers of the deploy link, kept by the tracker. */
+  compareCache: Map<string, GithubCompareStatus | null>
 }
 
 /** Workflow run statuses that mean waiting for a runner. */
@@ -537,5 +543,18 @@ export async function pollFixRun(
       return pollPull(context, run, repo, false)
     case 'ended_pr':
       return pollPull(context, run, repo, true)
+    case 'deploy':
+      return pollDeployments(verifyContextOf(context), run, repo)
+    case 'verify':
+      return verifyRun(verifyContextOf(context), run, repo)
+  }
+}
+
+function verifyContextOf(context: PollContext) {
+  return {
+    ...context,
+    retryAt: (at: Date) => {
+      context.state.retryAt = at
+    },
   }
 }

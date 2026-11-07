@@ -276,7 +276,7 @@ describe('cadence', () => {
     expect(pollIntervalMs(ended, 'ended_run', T0)).toBe(30 * MINUTE)
     expect(trackingPhase(ended, new Date(T0.getTime() + 8 * 24 * 60 * MINUTE))).toBeNull()
     expect(trackingPhase({ ...run, githubRunId: null }, T0)).toBe('link')
-    expect(trackingPhase({ ...run, state: 'merged' as const }, T0)).toBeNull()
+    expect(trackingPhase({ ...run, state: 'merged' as const }, T0)).toBe('deploy')
     expect(trackingPhase({ ...run, state: 'superseded' as const, endedAt: T0 }, T0)).toBeNull()
   })
 })
@@ -336,7 +336,10 @@ describe('workflow runs', () => {
     advance(10 * MINUTE)
     await t.tick()
     expect(get(run)).toMatchObject({ state: 'merged', mergeSha: MERGE })
-    // Merged runs wait for a deployment, which the tracker does not follow.
+    // No app deploys the repo, and without a rescanner the verification is left to full scans.
+    advance(2 * MINUTE)
+    await t.tick()
+    expect(get(run)).toMatchObject({ state: 'merged', deployLinks: [] })
     expect(t.status(get(run))).toBeNull()
   })
 
