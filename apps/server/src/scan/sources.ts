@@ -19,6 +19,7 @@ export interface CoolifyScanSource {
 
 export interface GithubScanSource {
   sourceId: number
+  name: string
   fetchRepoHealth(owner: string, name: string): Promise<RepoHealth>
   fetchDependabotAlerts(owner: string, name: string): Promise<DependabotAlertsResult>
   listAccountRepos(): Promise<AccountRepo[]>
@@ -36,11 +37,20 @@ export interface OsvScanSource {
  */
 export interface ScanSources {
   coolify: CoolifyScanSource[]
-  /** Null when no GitHub source is connected: no health or alerts, lockfiles only for public repos. */
-  github: GithubScanSource | null
+  /**
+   * Every enabled GitHub source with a credential, lowest id first. Each repo is read through
+   * one of them (see ownership.ts). Empty: no health or alerts, lockfiles only for public repos.
+   */
+  github: GithubScanSource[]
   /** Null when OSV is switched off. */
   osv: OsvScanSource | null
-  fetchLockfiles(owner: string, name: string, ref: string): Promise<FetchedLockfile[]>
+  /** Reads lockfiles through the given GitHub source, or anonymously when it is null. */
+  fetchLockfiles(
+    owner: string,
+    name: string,
+    ref: string,
+    sourceId: number | null,
+  ): Promise<FetchedLockfile[]>
   settings: ScanSettings
 }
 
@@ -93,7 +103,7 @@ function githubSource(
   repositories: Repositories,
   source: Source,
   options: BuildScanSourcesOptions,
-): { github: GithubScanSource; token: () => Promise<string> } {
+): { github: GithubScanSource; token: () => Promise<string>; apiUrl: string | null } {
   const secret = readToken(repositories, source)
   let bound: GithubSource | null = null
   const client = (): GithubSource => {
@@ -105,8 +115,10 @@ function githubSource(
   }
   return {
     token: async () => client().getToken(),
+    apiUrl: source.baseUrl,
     github: {
       sourceId: source.id,
+      name: source.name,
       fetchRepoHealth: async (owner, name) => client().fetchRepoHealth(owner, name),
       fetchDependabotAlerts: async (owner, name) => client().fetchDependabotAlerts(owner, name),
       listAccountRepos: async () => client().listAccountRepos(),
@@ -127,8 +139,11 @@ export function buildScanSources(
     .filter((s) => s.hasToken)
     .map((s) => coolifySource(repositories, s, options))
 
-  const githubRow = enabled('github').find((s) => s.hasToken)
-  const gh = githubRow ? githubSource(repositories, githubRow, options) : null
+  const github = new Map(
+    enabled('github')
+      .filter((s) => s.hasToken)
+      .map((s) => [s.id, githubSource(repositories, s, options)] as const),
+  )
 
   const osvRows = repositories.sources.listByKind('osv')
   const osvOn = settings.osvEnabled && osvRows.every((s) => s.enabled)
@@ -145,13 +160,15 @@ export function buildScanSources(
 
   return {
     coolify,
-    github: gh?.github ?? null,
+    github: [...github.values()].map((g) => g.github),
     osv,
     settings,
-    fetchLockfiles: async (owner, name, ref) =>
-      fetchLockfiles(owner, name, ref, gh ? await gh.token() : null, {
+    fetchLockfiles: async (owner, name, ref, sourceId) => {
+      const gh = sourceId === null ? undefined : github.get(sourceId)
+      return fetchLockfiles(owner, name, ref, gh ? await gh.token() : null, {
         ...(options.fetch && { fetch: options.fetch }),
-        ...(githubRow?.baseUrl && { apiUrl: githubRow.baseUrl }),
-      }),
+        ...(gh?.apiUrl && { apiUrl: gh.apiUrl }),
+      })
+    },
   }
 }

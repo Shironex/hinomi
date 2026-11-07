@@ -22,7 +22,7 @@ import { currentTime } from '@hinomi/shared'
 
 export const EMPTY_SOURCES: ScanSources = {
   coolify: [],
-  github: null,
+  github: [],
   osv: null,
   fetchLockfiles: () => Promise.resolve([]),
   settings: { osvEnabled: true, includeAccountRepos: false },
