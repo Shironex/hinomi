@@ -27,6 +27,11 @@ export interface FixPrBodyOptions {
   linksAllowed: boolean
   /** The fix run's page in Hinomi, used only when links are allowed. */
   hinomiUrl?: string
+  /**
+   * The earlier fix PR this one replaces, after it was closed without merging and a person
+   * asked for a fresh one (decision 10 of the runner design).
+   */
+  replaces?: number
 }
 
 export interface FixPr {
@@ -161,6 +166,9 @@ function summarySection({ plan, result, options }: RenderContext, applied: numbe
   const lines = [
     `Hinomi applied ${applied} of ${plural(safe, 'safe upgrade step')} from the fix plan of scan ${plan.scanRunId} for ${code(plan.repo.fullName)}.`,
   ]
+  if (options.replaces !== undefined) {
+    lines.push('', `Replaces #${options.replaces}, which was closed without merging.`)
+  }
   if (options.linksAllowed && options.hinomiUrl) {
     lines.push('', `[Open this fix run in Hinomi](${options.hinomiUrl})`)
   }
