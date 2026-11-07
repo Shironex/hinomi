@@ -1,4 +1,22 @@
 export {
+  EOL_API_BASE,
+  MAX_BODY_BYTES,
+  fetchProductsFull,
+  parseRetryAfter,
+  type FetchProductsOptions,
+  type FetchResult,
+  type Validators,
+} from './client.js'
+export {
+  IDLE_RECHECK_MS,
+  PRODUCTS_FULL_KEY,
+  REFRESH_INTERVAL_MS,
+  createSupportData,
+  type RefreshOutcome,
+  type SupportData,
+  type SupportDataOptions,
+} from './data.js'
+export {
   createSupportIndex,
   daysUntilEol,
   isPastEol,
