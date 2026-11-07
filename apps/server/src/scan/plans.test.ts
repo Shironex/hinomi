@@ -545,6 +545,7 @@ function fakeOsv(byVersion: Record<string, OsvVulnerability[]>, fail = false) {
     },
     getVulnerability: (id) => Promise.resolve(vulns.get(id)!),
     getVulnerabilities: (ids) => Promise.resolve(ids.map((id) => vulns.get(id)!)),
+    queryPackage: () => Promise.resolve([]),
   }
   return { client, batches }
 }

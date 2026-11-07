@@ -239,3 +239,44 @@ describe('ecosystems', () => {
     },
   )
 })
+
+describe('queryPackage', () => {
+  it('returns full records and follows next_page_token', async () => {
+    const bodies: (OsvQuery & { page_token?: string })[] = []
+    const urls: string[] = []
+    const client = createOsvClient({
+      fetch: (url, init) => {
+        urls.push(url instanceof Request ? url.url : url.toString())
+        const body = JSON.parse(init?.body as string) as OsvQuery & { page_token?: string }
+        bodies.push(body)
+        return Promise.resolve(
+          Response.json(
+            body.page_token
+              ? { vulns: [{ id: 'DEBIAN-CVE-2026-0002', upstream: ['CVE-2026-0002'] }] }
+              : { vulns: [{ id: 'DEBIAN-CVE-2026-0001' }], next_page_token: 'tok-1' },
+          ),
+        )
+      },
+    })
+    const vulns = await client.queryPackage({
+      package: { name: 'zlib', ecosystem: 'Debian:12' },
+      version: '1:1.2.13.dfsg-1',
+    })
+    expect(vulns.map((v) => v.id)).toEqual(['DEBIAN-CVE-2026-0001', 'DEBIAN-CVE-2026-0002'])
+    expect(vulns[1]?.upstream).toEqual(['CVE-2026-0002'])
+    expect(urls[0]).toBe('https://api.osv.dev/v1/query')
+    expect(bodies[1]?.page_token).toBe('tok-1')
+  })
+
+  it('stops after a bounded number of pages', async () => {
+    let calls = 0
+    const client = createOsvClient({
+      fetch: () => {
+        calls++
+        return Promise.resolve(Response.json({ vulns: [], next_page_token: 'again' }))
+      },
+    })
+    await client.queryPackage(query('loop'))
+    expect(calls).toBe(10)
+  })
+})

@@ -72,6 +72,19 @@ function toMatch(
   }
 }
 
+/**
+ * The match of one vulnerability record on one dependency, after the local affected check; null
+ * when the record does not cover the installed version (or is withdrawn).
+ */
+export function matchDependency(
+  vuln: OsvVulnerability,
+  dep: LockfileDependency,
+): OsvAdvisoryMatch | null {
+  if (vuln.withdrawn) return null
+  const hit = affectedHit(vuln, dep)
+  return hit ? toMatch(vuln, dep, hit) : null
+}
+
 /** One finding per advisory and installed package; prefers the GHSA record among aliases. */
 function dedupeKey(m: OsvAdvisoryMatch): string {
   return `${m.ghsaId ?? m.cveIds[0] ?? m.osvId}\u0000${m.ecosystem}\u0000${m.package}\u0000${m.installedVersion}`
@@ -95,10 +108,8 @@ export async function scanDependencies(
   deps.forEach((dep, i) => {
     for (const id of idLists[i] ?? []) {
       const vuln = vulns.get(id)
-      if (!vuln || vuln.withdrawn) continue
-      const hit = affectedHit(vuln, dep)
-      if (!hit) continue
-      const match = toMatch(vuln, dep, hit)
+      const match = vuln && matchDependency(vuln, dep)
+      if (!match) continue
       const key = dedupeKey(match)
       const prev = out.get(key)
       if (!prev || (!prev.osvId.startsWith('GHSA-') && match.osvId.startsWith('GHSA-'))) {

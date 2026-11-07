@@ -1,5 +1,6 @@
 import {
   osvQueryBatchResponseSchema,
+  osvQueryResponseSchema,
   osvVulnerabilitySchema,
   type OsvQuery,
   type OsvVulnerability,
@@ -9,6 +10,8 @@ import {
 export const OSV_API_URL = 'https://api.osv.dev'
 /** OSV accepts at most 1000 queries per querybatch request. */
 export const OSV_BATCH_LIMIT = 1000
+/** Pages of one `POST /v1/query` read at most. */
+const MAX_QUERY_PAGES = 10
 
 export interface OsvClientOptions {
   baseUrl?: string
@@ -35,6 +38,11 @@ export interface OsvClient {
   /** Vulnerability ids per query, in input order, following OSV pagination. */
   queryBatch(queries: OsvQuery[]): Promise<string[][]>
   getVulnerability(id: string): Promise<OsvVulnerability>
+  /**
+   * Full records of every vulnerability of one package version (`POST /v1/query`), following
+   * pagination up to a few pages. One request per package instead of one per vulnerability.
+   */
+  queryPackage(query: OsvQuery): Promise<OsvVulnerability[]>
   /** Details for many ids with the concurrency limit; order follows `ids`. */
   getVulnerabilities(ids: string[]): Promise<OsvVulnerability[]>
 }
@@ -184,8 +192,26 @@ export function createOsvClient(options: OsvClientOptions = {}): OsvClient {
     return value
   }
 
+  async function queryPackage(query: OsvQuery): Promise<OsvVulnerability[]> {
+    const vulns: OsvVulnerability[] = []
+    let pageToken: string | undefined
+    for (let page = 0; page < MAX_QUERY_PAGES; page++) {
+      const body = await request('/v1/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...query, ...(pageToken && { page_token: pageToken }) }),
+      })
+      const parsed = osvQueryResponseSchema.parse(body)
+      vulns.push(...(parsed.vulns ?? []))
+      pageToken = parsed.next_page_token
+      if (!pageToken) break
+    }
+    return vulns
+  }
+
   return {
     queryBatch,
+    queryPackage,
     getVulnerability,
     getVulnerabilities: (ids) => mapLimit(ids, concurrency, getVulnerability),
   }

@@ -186,6 +186,7 @@ function osvClient(): OsvClient {
     queryBatch: (queries) => Promise.resolve(queries.map((q) => (affected(q) ? [GHSA] : []))),
     getVulnerability: () => Promise.resolve(VULN),
     getVulnerabilities: (ids) => Promise.resolve(ids.map(() => VULN)),
+    queryPackage: () => Promise.resolve([]),
   }
 }
 
