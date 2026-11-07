@@ -4,6 +4,9 @@ packages:
 
 # Refuse packages published less than 7 days ago (in minutes).
 minimumReleaseAge: 10080
+# First party releases (the showcase kit) may be installed the day they ship.
+minimumReleaseAgeExclude:
+  - '@noctcore/*'
 
 onlyBuiltDependencies:
   - esbuild
