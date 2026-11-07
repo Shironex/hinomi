@@ -83,12 +83,15 @@ export type BlindSpotType = z.infer<typeof blindSpotTypeSchema>
  *   version (ranges, URLs, editable installs); those lines are not checked.
  * - `image_scan_partial`: the image scan result of a deployment is partial (the
  *   scanner capped its list), so some advisories in the image may be missing.
+ * - `image_sbom_unavailable`: the registry SBOM scan found no SBOM for an image of the
+ *   deployment (none published, private image, an error); the note says why per image.
  */
 export const COVERAGE_NOTE_TYPES = [
   'image_only',
   'release_lockfile_missing',
   'requirements_unpinned',
   'image_scan_partial',
+  'image_sbom_unavailable',
 ] as const
 export const coverageNoteTypeSchema = z.enum(COVERAGE_NOTE_TYPES)
 export type CoverageNoteType = z.infer<typeof coverageNoteTypeSchema>

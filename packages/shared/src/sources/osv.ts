@@ -90,6 +90,8 @@ export const osvVulnerabilitySchema = z.object({
   summary: z.string().optional(),
   details: z.string().optional(),
   aliases: z.array(z.string()).optional(),
+  /** Upstream ids a distribution record derives from (`CVE-...` for `DEBIAN-CVE-...`). */
+  upstream: z.array(z.string()).optional(),
   modified: z.string().optional(),
   published: z.string().optional(),
   withdrawn: z.string().optional(),
@@ -98,6 +100,12 @@ export const osvVulnerabilitySchema = z.object({
   database_specific: z.record(z.string(), z.unknown()).optional(),
 })
 export type OsvVulnerability = z.infer<typeof osvVulnerabilitySchema>
+
+export const osvQueryResponseSchema = z.object({
+  vulns: z.array(osvVulnerabilitySchema).optional(),
+  next_page_token: z.string().optional(),
+})
+export type OsvQueryResponse = z.infer<typeof osvQueryResponseSchema>
 
 // Source-neutral advisory match
 
