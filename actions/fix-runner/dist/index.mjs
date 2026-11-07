@@ -5696,7 +5696,7 @@ const ecosystemSchema = _enum([
 	"other"
 ]);
 const dependencyScopeSchema = _enum(["runtime", "dev"]);
-const isoDate$4 = datetime({ offset: true });
+const isoDate$5 = datetime({ offset: true });
 const advisoryRecordSchema = object({
 	ghsaId: string(),
 	cveIds: array(string()),
@@ -5708,7 +5708,7 @@ const advisoryRecordSchema = object({
 	description: string().nullable().optional(),
 	vulnerableRange: string(),
 	firstPatched: string().nullable(),
-	publishedAt: isoDate$4.nullable()
+	publishedAt: isoDate$5.nullable()
 });
 const repoAlertRecordSchema = object({
 	owner: string(),
@@ -5719,11 +5719,11 @@ const repoAlertRecordSchema = object({
 	ecosystem: ecosystemSchema,
 	scope: dependencyScopeSchema.nullable(),
 	manifestPath: string().nullable(),
-	createdAt: isoDate$4,
-	dismissedAt: isoDate$4.nullable()
+	createdAt: isoDate$5,
+	dismissedAt: isoDate$5.nullable()
 });
 const dismissedAlertRecordSchema = repoAlertRecordSchema.extend({
-	dismissedAt: isoDate$4,
+	dismissedAt: isoDate$5,
 	dismissReason: string().nullable(),
 	dismissComment: string().nullable()
 });
@@ -5744,7 +5744,7 @@ const repoHealthSchema = object({
 	defaultBranch: string(),
 	visibility: repoVisibilitySchema,
 	alertsEnabled: boolean().nullable(),
-	pushedAt: isoDate$4.nullable()
+	pushedAt: isoDate$5.nullable()
 });
 const accountRepoSchema = object({
 	owner: string(),
@@ -5753,7 +5753,7 @@ const accountRepoSchema = object({
 	fork: boolean(),
 	defaultBranch: string().nullable(),
 	visibility: repoVisibilitySchema,
-	pushedAt: isoDate$4.nullable()
+	pushedAt: isoDate$5.nullable()
 });
 const githubConnectionSchema = object({
 	login: string(),
@@ -5872,7 +5872,7 @@ function nowMs() {
 }
 
 // ../../packages/shared/src/api.ts
-const isoDate$3 = datetime({ offset: true });
+const isoDate$4 = datetime({ offset: true });
 const id$3 = number$1().int().positive();
 const API_ERROR_CODES = [
 	"bad_request",
@@ -5904,7 +5904,7 @@ const repoRefSchema = object({
 	fullName: string(),
 	archived: boolean(),
 	alertsEnabled: boolean().nullable(),
-	lastScannedAt: isoDate$3.nullable()
+	lastScannedAt: isoDate$4.nullable()
 });
 const deploymentRefSchema = object({
 	id: id$3,
@@ -5955,7 +5955,7 @@ const findingListItemSchema = object({
 	patchedInLockfile: boolean(),
 	state: findingStateSchema,
 	stateReason: string().nullable(),
-	stateUntil: isoDate$3.nullable(),
+	stateUntil: isoDate$4.nullable(),
 	stateUntilNewAdvisory: boolean(),
 	scope: findingScopeSchema,
 	sources: array(reporterSchema),
@@ -5965,9 +5965,9 @@ const findingListItemSchema = object({
 	installedVersion: string().nullable(),
 	repo: repoRefSchema.nullable(),
 	deployments: array(deploymentRefSchema),
-	firstSeenAt: isoDate$3,
-	lastSeenAt: isoDate$3,
-	fixedAt: isoDate$3.nullable()
+	firstSeenAt: isoDate$4,
+	lastSeenAt: isoDate$4,
+	fixedAt: isoDate$4.nullable()
 });
 const findingEventSchema = object({
 	id: id$3,
@@ -5976,10 +5976,10 @@ const findingEventSchema = object({
 	fromState: findingStateSchema.nullable(),
 	toState: findingStateSchema.nullable(),
 	reason: string().nullable(),
-	until: isoDate$3.nullable(),
+	until: isoDate$4.nullable(),
 	untilNewAdvisory: boolean(),
 	actor: _enum(["system", "user"]),
-	at: isoDate$3
+	at: isoDate$4
 });
 const severityCountsSchema = object({
 	critical: number$1().int(),
@@ -6001,8 +6001,8 @@ const scanRunSchema = object({
 	id: id$3,
 	trigger: scanTriggerSchema,
 	status: scanRunStatusSchema,
-	startedAt: isoDate$3,
-	finishedAt: isoDate$3.nullable(),
+	startedAt: isoDate$4,
+	finishedAt: isoDate$4.nullable(),
 	durationMs: number$1().int().nullable(),
 	sourceResults: partialRecord(sourceKindSchema, scanSourceResultSchema),
 	findingsOpened: number$1().int(),
@@ -6019,11 +6019,11 @@ const sourceSchema = object({
 	appId: string().nullable(),
 	installationId: string().nullable(),
 	hasToken: boolean(),
-	lastOkAt: isoDate$3.nullable(),
-	lastErrorAt: isoDate$3.nullable(),
+	lastOkAt: isoDate$4.nullable(),
+	lastErrorAt: isoDate$4.nullable(),
 	lastError: string().nullable(),
-	createdAt: isoDate$3,
-	updatedAt: isoDate$3
+	createdAt: isoDate$4,
+	updatedAt: isoDate$4
 });
 const sourcesResponseSchema = object({
 	sources: array(sourceSchema),
@@ -6097,8 +6097,8 @@ const sourceHealthSchema = object({
 		"disabled",
 		"missing_token"
 	]),
-	lastOkAt: isoDate$3.nullable(),
-	lastErrorAt: isoDate$3.nullable(),
+	lastOkAt: isoDate$4.nullable(),
+	lastErrorAt: isoDate$4.nullable(),
 	lastError: string().nullable()
 });
 const activityItemSchema = findingEventSchema.extend({ finding: object({
@@ -6198,14 +6198,14 @@ const fixPlanStepSchema = object({
 	riskReasons: array(fixPlanRiskReasonSchema),
 	note: string().nullable(),
 	apply: fixPlanApplySchema,
-	releasedAt: isoDate$3.nullable(),
+	releasedAt: isoDate$4.nullable(),
 	releaseAge: releaseAgeSchema
 });
 const fixPlanUnfixedSchema = object({
 	...fixPlanTargetFields,
 	installed: array(string()),
 	blocker: _enum(["no_patch", "too_new"]),
-	availableAt: isoDate$3.nullable()
+	availableAt: isoDate$4.nullable()
 });
 const fixPlanSummarySchema = object({
 	findings: object({
@@ -6232,7 +6232,7 @@ const fixPlanSchema = object({
 	version: literal(1),
 	repo: repoRefSchema,
 	scanRunId: id$3,
-	createdAt: isoDate$3,
+	createdAt: isoDate$4,
 	projects: array(fixPlanProjectSchema),
 	steps: array(fixPlanStepSchema),
 	unfixed: array(fixPlanUnfixedSchema),
@@ -6242,7 +6242,7 @@ const fixPlanSchema = object({
 const fixPlanRefSchema = object({
 	repoId: id$3,
 	scanRunId: id$3,
-	createdAt: isoDate$3,
+	createdAt: isoDate$4,
 	summary: fixPlanSummarySchema
 });
 const fixPlanQuerySchema = strictObject({ scan: number().int().positive().optional() });
@@ -6318,7 +6318,7 @@ const overviewResponseSchema = object({
 	tiers: record(findingTierSchema, number$1().int()),
 	tierSeverity: record(findingTierSchema, severityCountsSchema),
 	lastScan: scanRunSchema.nullable(),
-	nextScanAt: isoDate$3.nullable(),
+	nextScanAt: isoDate$4.nullable(),
 	sources: array(sourceHealthSchema),
 	recentActivity: array(activityItemSchema),
 	topFixes: array(fixItemSchema)
@@ -6366,15 +6366,15 @@ const findingNotificationSchema = object({
 	channelKind: string().nullable(),
 	event: string(),
 	eventId: id$3,
-	sentAt: isoDate$3
+	sentAt: isoDate$4
 });
 const findingDetailSchema = findingListItemSchema.extend({
 	advisory: advisorySummarySchema.extend({
 		aliases: array(string()),
 		cvssVector: string().nullable(),
 		vulnerableRanges: array(string()),
-		publishedAt: isoDate$3.nullable(),
-		withdrawnAt: isoDate$3.nullable(),
+		publishedAt: isoDate$4.nullable(),
+		withdrawnAt: isoDate$4.nullable(),
 		description: string().nullable()
 	}).nullable(),
 	versions: object({
@@ -6399,7 +6399,7 @@ const findingDetailSchema = findingListItemSchema.extend({
 });
 const deferFields = {
 	reason: string().trim().min(1, "A reason is required").max(500),
-	until: isoDate$3.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
+	until: isoDate$4.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
 	untilNewAdvisory: literal(true).optional()
 };
 const oneExpiry = (value) => value.until === void 0 !== (value.untilNewAdvisory === void 0);
@@ -6439,7 +6439,7 @@ const bulkFindingsResponseSchema = object({
 const repoOverrideSchema = object({
 	repo: repoRefSchema,
 	note: string().nullable(),
-	createdAt: isoDate$3
+	createdAt: isoDate$4
 });
 const deploymentItemSchema = deploymentRefSchema.extend({
 	source: object({
@@ -6452,9 +6452,9 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 	image: string().nullable(),
 	gitRepository: string().nullable(),
 	gitBranch: string().nullable(),
-	lastDeployedAt: isoDate$3.nullable(),
-	firstSeenAt: isoDate$3,
-	lastSeenAt: isoDate$3,
+	lastDeployedAt: isoDate$4.nullable(),
+	firstSeenAt: isoDate$4,
+	lastSeenAt: isoDate$4,
 	mapping: _enum([
 		"auto",
 		"override",
@@ -6487,8 +6487,8 @@ const deployRecordSchema = object({
 	status: string(),
 	commit: string().nullable(),
 	commitMessage: string().nullable(),
-	startedAt: isoDate$3.nullable(),
-	finishedAt: isoDate$3.nullable(),
+	startedAt: isoDate$4.nullable(),
+	finishedAt: isoDate$4.nullable(),
 	webhook: boolean(),
 	rollback: boolean()
 });
@@ -6541,17 +6541,17 @@ const scanStatusSchema = discriminatedUnion("state", [
 	object({ state: literal("unconfigured") }),
 	object({
 		state: literal("queued"),
-		nextScanAt: isoDate$3.nullable()
+		nextScanAt: isoDate$4.nullable()
 	}),
 	object({
 		state: literal("idle"),
-		lastScanAt: isoDate$3,
-		nextScanAt: isoDate$3.nullable()
+		lastScanAt: isoDate$4,
+		nextScanAt: isoDate$4.nullable()
 	}),
 	object({
 		state: literal("scanning"),
 		scanRunId: id$3,
-		startedAt: isoDate$3,
+		startedAt: isoDate$4,
 		phase: scanPhaseSchema,
 		done: number$1().int().nonnegative(),
 		total: number$1().int().nonnegative(),
@@ -6559,7 +6559,7 @@ const scanStatusSchema = discriminatedUnion("state", [
 	}),
 	object({
 		state: literal("failed"),
-		lastScanAt: isoDate$3.nullable(),
+		lastScanAt: isoDate$4.nullable(),
 		message: string()
 	})
 ]);
@@ -6704,7 +6704,7 @@ const FIX_DISPATCH_SCHEMA = "hinomi.fix-dispatch/1";
 const FIX_RESULT_SCHEMA = "hinomi.fix-result/1";
 const FIX_DISPATCH_MAX_STEPS = 200;
 const CHECK_OUTPUT_MAX_CHARS = 4e3;
-const isoDate$2 = datetime({ offset: true });
+const isoDate$3 = datetime({ offset: true });
 const id$2 = number$1().int().positive();
 const count = number$1().int().nonnegative();
 const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
@@ -6783,7 +6783,7 @@ const dispatchStepFields = object({
 	level: bumpLevelSchema,
 	apply: fixDispatchApplySchema,
 	advisories: array(advisoryKey).max(100),
-	releasedAt: isoDate$2.nullable(),
+	releasedAt: isoDate$3.nullable(),
 	releaseAge: releaseAgeSchema
 });
 function stepProblems(step) {
@@ -6832,11 +6832,11 @@ const fixChecksModeSchema = _enum(["full", "install"]);
 const fixDispatchV1Schema = object({
 	schema: literal(FIX_DISPATCH_SCHEMA),
 	runId: string().min(1).max(64).regex(RUN_ID),
-	dispatchedAt: isoDate$2,
+	dispatchedAt: isoDate$3,
 	plan: object({
 		version: literal(1),
 		scanRunId: id$2,
-		createdAt: isoDate$2
+		createdAt: isoDate$3
 	}),
 	repo: object({
 		id: id$2,
@@ -6881,11 +6881,11 @@ const fixReleaseAgeCheckSchema = object({
 	stepId: string().min(1).max(512),
 	packageName: loosePackageName,
 	version: looseVersion,
-	publishedAt: isoDate$2.nullable(),
+	publishedAt: isoDate$3.nullable(),
 	gateDays: count,
 	gateSource: string().max(100),
 	status: releaseAgeSchema,
-	eligibleAt: isoDate$2.nullable()
+	eligibleAt: isoDate$3.nullable()
 });
 const output = {
 	output: string().max(CHECK_OUTPUT_MAX_CHARS).nullable(),
@@ -6930,7 +6930,7 @@ const fixResultV1Schema = object({
 		insertions: count,
 		deletions: count
 	}).nullable(),
-	finishedAt: isoDate$2
+	finishedAt: isoDate$3
 });
 var FixPayloadError = class extends Error {
 	name = "FixPayloadError";
@@ -7009,7 +7009,7 @@ const FIX_RUNNER_KINDS = [
 const fixRunnerKindSchema = _enum(FIX_RUNNER_KINDS);
 const FIX_RUN_KINDS = ["fix", "majors"];
 const fixRunKindSchema = _enum(FIX_RUN_KINDS);
-const isoDate$1 = datetime({ offset: true });
+const isoDate$2 = datetime({ offset: true });
 const id$1 = number$1().int().positive();
 const fixRunSchema = object({
 	id: id$1,
@@ -7040,26 +7040,26 @@ const fixRunSchema = object({
 	}).nullable(),
 	result: fixResultV1Schema.nullable(),
 	at: object({
-		created: isoDate$1,
-		dispatched: isoDate$1.nullable(),
-		started: isoDate$1.nullable(),
-		completed: isoDate$1.nullable(),
-		pushed: isoDate$1.nullable(),
-		prOpened: isoDate$1.nullable(),
-		checksUpdated: isoDate$1.nullable(),
-		merged: isoDate$1.nullable(),
-		closed: isoDate$1.nullable(),
-		deployed: isoDate$1.nullable(),
-		rescanned: isoDate$1.nullable(),
-		ended: isoDate$1.nullable(),
-		stateChanged: isoDate$1
+		created: isoDate$2,
+		dispatched: isoDate$2.nullable(),
+		started: isoDate$2.nullable(),
+		completed: isoDate$2.nullable(),
+		pushed: isoDate$2.nullable(),
+		prOpened: isoDate$2.nullable(),
+		checksUpdated: isoDate$2.nullable(),
+		merged: isoDate$2.nullable(),
+		closed: isoDate$2.nullable(),
+		deployed: isoDate$2.nullable(),
+		rescanned: isoDate$2.nullable(),
+		ended: isoDate$2.nullable(),
+		stateChanged: isoDate$2
 	})
 });
 const fixRunTrackingSchema = object({
-	lastPolledAt: isoDate$1.nullable(),
-	nextPollAt: isoDate$1.nullable(),
+	lastPolledAt: isoDate$2.nullable(),
+	nextPollAt: isoDate$2.nullable(),
 	lastError: string().nullable(),
-	pausedUntil: isoDate$1.nullable()
+	pausedUntil: isoDate$2.nullable()
 });
 const FIX_RUN_DEPLOY_STATUSES = [
 	"waiting",
@@ -7077,9 +7077,9 @@ const fixRunDeploymentSchema = object({
 		id: string(),
 		commit: string(),
 		relation: fixRunDeployRelationSchema,
-		finishedAt: isoDate$1.nullable()
+		finishedAt: isoDate$2.nullable()
 	}).nullable(),
-	checkedAt: isoDate$1.nullable(),
+	checkedAt: isoDate$2.nullable(),
 	error: string().nullable()
 });
 const FIX_RUN_WARNING_CODES = ["watch_paths_skip", "deploy_not_seen"];
@@ -7088,7 +7088,7 @@ const fixRunWarningSchema = object({
 	code: fixRunWarningCodeSchema,
 	deploymentId: id$1.nullable(),
 	message: string(),
-	at: isoDate$1
+	at: isoDate$2
 });
 const FIX_RUN_VERIFY_AFTER = [
 	"deploy",
@@ -7109,7 +7109,7 @@ const fixRunVerificationSchema = object({
 	scan: object({
 		kind: _enum(["repo", "full"]),
 		scanRunId: id$1.nullable(),
-		at: isoDate$1
+		at: isoDate$2
 	}).nullable(),
 	targeted: array(id$1),
 	cleared: array(id$1),
@@ -7117,7 +7117,7 @@ const fixRunVerificationSchema = object({
 	new: array(id$1),
 	attempts: number$1().int().nonnegative(),
 	lastError: string().nullable(),
-	nextAttemptAt: isoDate$1.nullable()
+	nextAttemptAt: isoDate$2.nullable()
 });
 const fixRunDetailSchema = fixRunSchema.extend({
 	tracking: fixRunTrackingSchema.nullable(),
@@ -7125,6 +7125,46 @@ const fixRunDetailSchema = fixRunSchema.extend({
 	warnings: array(fixRunWarningSchema),
 	verification: fixRunVerificationSchema.nullable()
 });
+
+// ../../packages/shared/src/github-webhook.ts
+const GITHUB_WEBHOOK_EVENTS = [
+	"workflow_run",
+	"pull_request",
+	"check_suite",
+	"check_run",
+	"status",
+	"push",
+	"ping"
+];
+const githubWebhookEventSchema = _enum(GITHUB_WEBHOOK_EVENTS);
+const isoDate$1 = datetime({ offset: true });
+const githubWebhookSettingsSchema = object({
+	enabled: boolean(),
+	secretSet: boolean(),
+	secretCreatedAt: isoDate$1.nullable(),
+	canStoreSecret: boolean(),
+	includePush: boolean(),
+	path: string(),
+	dedicatedPort: number$1().int().nullable(),
+	events: array(githubWebhookEventSchema),
+	lastDeliveryAt: isoDate$1.nullable(),
+	lastDeliveryEvent: string().nullable(),
+	lastErrorAt: isoDate$1.nullable(),
+	lastError: string().nullable()
+});
+const updateGithubWebhookRequestSchema = strictObject({
+	enabled: boolean().optional(),
+	includePush: boolean().optional()
+}).refine((value) => Object.keys(value).length > 0, "Nothing to update");
+const rotateGithubWebhookSecretResponseSchema = object({
+	secret: string(),
+	settings: githubWebhookSettingsSchema
+});
+const githubWebhookAckSchema = object({ status: _enum([
+	"accepted",
+	"ignored",
+	"duplicate"
+]) });
 
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({ status: literal("ok") });
