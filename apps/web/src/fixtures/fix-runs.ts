@@ -1,9 +1,12 @@
 import {
   FINDING_TIERS,
   FIX_BRANCH,
+  isMajorStep,
+  MAJORS_BRANCH,
   isFixRunTerminal,
   renderCallerWorkflow,
   type FindingTier,
+  type FixAgentReport,
   type FixCheckResult,
   type FixPlan,
   type FixPlanRef,
@@ -35,6 +38,10 @@ const R = {
   paymentsSdk: extra(13, 'payments-sdk'),
   reports: extra(14, 'reports'),
   notifier: extra(15, 'notifier'),
+  exporter: extra(16, 'exporter'),
+  scheduler: extra(17, 'scheduler'),
+  gateway: extra(18, 'gateway'),
+  ledger: extra(19, 'ledger'),
 }
 
 /** The release commit callers pin in fixture mode, and an older one an outdated caller pins. */
@@ -179,6 +186,16 @@ function plan(
 
 const SCAN = 212
 
+/** A semver major the optional agent can take: risky, with a lockfile and a known manager. */
+const major = (
+  pkg: string,
+  from: string,
+  to: string,
+  order: number,
+  findings: number[],
+  advisory: string,
+) => step({ pkg, from, to, order, findings, advisories: [advisory], level: 'major', risky: true })
+
 const simple = (repo: RepoRef, pkg: string, from: string, to: string, findings: number[]) =>
   plan(repo, SCAN, [
     step({
@@ -305,6 +322,42 @@ export const PLANS: FixPlan[] = [
   simple(R.paymentsSdk, 'streamtap', '0.9.1', '0.9.4', [119]),
   simple(R.reports, 'yamlette', '2.0.4', '2.0.9', [120]),
   simple(R.notifier, 'argkit', '6.1.0', '6.1.3', [121]),
+  // The repos of the majors agent: only a major upgrade, a major beside a safe step, two majors.
+  plan(R.exporter, SCAN, [major('marked-lite', '4.2.0', '5.0.1', 1, [130], 'GHSA-m4wq-7v2c-k9px')]),
+  plan(R.scheduler, SCAN, [
+    step({
+      pkg: 'cookie-jar-lite',
+      from: '1.3.0',
+      to: '1.3.2',
+      order: 1,
+      findings: [131],
+      advisories: ['GHSA-c2kq-8m4f-9xwr'],
+    }),
+    major('yamlette', '2.1.0', '3.0.2', 2, [132], 'GHSA-y7v3-q2mc-4hkp'),
+  ]),
+  plan(R.gateway, SCAN, [
+    step({
+      pkg: 'streamtap',
+      from: '0.9.1',
+      to: '0.9.4',
+      order: 1,
+      findings: [133],
+      advisories: ['GHSA-x5pv-2hcq-7m3w'],
+    }),
+    major('marked-lite', '4.2.0', '5.0.1', 2, [134], 'GHSA-m4wq-7v2c-k9px'),
+    major('argkit', '5.4.0', '6.1.3', 3, [135, 136], 'GHSA-a8k2-p3vx-m7qc'),
+  ]),
+  plan(R.ledger, SCAN, [
+    step({
+      pkg: 'tarstream',
+      from: '1.4.2',
+      to: '1.4.6',
+      order: 1,
+      findings: [137],
+      advisories: ['GHSA-t4r5-2q8m-x9vp'],
+    }),
+    major('quillparse', '1.9.2', '2.0.7', 2, [138], 'GHSA-q9r4-v2xm-6hcw'),
+  ]),
 ]
 
 export const PLAN_REFS: (FixPlanRef & { repo: RepoRef })[] = [...PLANS]
@@ -374,7 +427,26 @@ interface RunInput {
   /** Overrides the step a failed run reached (default: refused at the dispatch). */
   reached?: number
   pr?: number
+  /** `majors` is the agent's own run: its steps are the plan's major upgrades. */
+  kind?: 'fix' | 'majors'
+  /** What the agent reported, for a majors run that got as far as a result. */
+  agent?: FixAgentReport
 }
+
+const AGENT_SUMMARY =
+  'Bumped marked-lite to 5.0.1 and moved the three call sites to the new parser API. The unit tests and the type check pass; the one snapshot that changed is updated.'
+
+const agentReport = (over: Partial<FixAgentReport> = {}): FixAgentReport => ({
+  preset: 'claude-code',
+  outcome: 'changed',
+  detail: null,
+  summary: AGENT_SUMMARY,
+  durationMs: 14 * 60_000 + 20_000,
+  turns: 37,
+  costUsd: 3.42,
+  refusedPaths: [],
+  ...over,
+})
 
 const PASSING: FixCheckResult[] = [
   {
@@ -440,7 +512,52 @@ const FAILING: FixCheckResult[] = [
   },
 ]
 
+/** The result of a majors run: the plan's major upgrades, no install and no checks. */
+function majorsResult(input: RunInput, at: (i: number) => string): FixResultV1 | null {
+  const p = planFor(input.repo.id)
+  const agent = input.agent
+  if (!p || !agent) return null
+  const changed = agent.outcome === 'changed'
+  const majors = p.steps.filter(isMajorStep)
+  return {
+    schema: 'hinomi.fix-result/1',
+    runId: `fr-${input.id}`,
+    planScanRunId: p.scanRunId,
+    repo: input.repo.fullName,
+    baseSha: hex(input.id, 40),
+    packageManager: 'pnpm',
+    packageManagerVersion: '10.18.0',
+    checksMode: 'install',
+    steps: majors.map((s) => ({
+      id: s.id,
+      status: changed ? 'applied' : 'skipped',
+      reason: null,
+      detail: changed ? null : 'The agent did not change the lockfile for this step',
+      files: changed ? ['package.json'] : [],
+    })),
+    releaseAge: [],
+    install: { status: 'skipped', durationMs: 0, output: null, truncated: false },
+    checks: [],
+    patch: changed
+      ? {
+          sha256: hex(input.id + 3, 64),
+          files: [
+            'package.json',
+            'pnpm-lock.yaml',
+            'src/markdown/render.ts',
+            'src/markdown/render.test.ts',
+          ],
+          insertions: 63,
+          deletions: 41,
+        }
+      : null,
+    agent,
+    finishedAt: at(3),
+  }
+}
+
 function result(input: RunInput, at: (i: number) => string): FixResultV1 | null {
+  if (input.kind === 'majors') return majorsResult(input, at)
   const p = planFor(input.repo.id)
   if (!p) return null
   const safe = p.steps.filter((s) => s.risk === 'safe' && s.apply.type !== 'manual')
@@ -508,9 +625,9 @@ function run(input: RunInput): FixRun {
     repoId: input.repo.id,
     plan: { fixPlanId: input.id + 400, scanRunId: SCAN - Math.floor(input.hours / 24), version: 1 },
     runner: 'github_actions',
-    kind: 'fix',
+    kind: input.kind ?? 'fix',
     correlationId: `fr-${input.id}`,
-    branch: FIX_BRANCH,
+    branch: input.kind === 'majors' ? MAJORS_BRANCH : FIX_BRANCH,
     checksMode: input.repo.id === R.storefront.id ? 'full' : 'install',
     state,
     stateReason: input.reason ?? null,
@@ -521,7 +638,7 @@ function run(input: RunInput): FixRun {
       ? {
           number: prNumber,
           url: `https://github.com/${input.repo.fullName}/pull/${prNumber}`,
-          draft: state === 'checks_failing',
+          draft: input.kind === 'majors' || state === 'checks_failing',
           mergeSha: merged ? hex(input.id + 2, 40) : null,
         }
       : null,
@@ -605,6 +722,50 @@ function verification(
 /** Every fix run, newest first. Run ids grow with time. */
 export const RUNS: FixRunDetail[] = [
   detail(run({ id: 49, repo: R.notifier, state: 'pending', hours: 0.01 })),
+  // The majors agent: only majors in the plan, running; a majors draft PR beside a fix that
+  // was verified; an agent that timed out, then a fix run of the same plan that was verified.
+  detail(run({ id: 50, repo: R.exporter, kind: 'majors', state: 'running', hours: 0.15 }), {
+    tracking: polled(0.2, 0.3),
+  }),
+  detail(
+    run({
+      id: 51,
+      repo: R.gateway,
+      kind: 'majors',
+      state: 'pr_open',
+      hours: 0.5,
+      agent: agentReport({ refusedPaths: ['.github/workflows/ci.yml'] }),
+    }),
+    { tracking: polled(1, 1) },
+  ),
+  detail(run({ id: 54, repo: R.ledger, state: 'verified', hours: 5 }), {
+    verification: verification({
+      after: 'merge',
+      status: 'done',
+      scan: { kind: 'repo', scanRunId: null, at: ago(4.8) },
+      targeted: [137],
+      cleared: [137],
+    }),
+  }),
+  detail(
+    run({
+      id: 53,
+      repo: R.ledger,
+      kind: 'majors',
+      state: 'failed',
+      hours: 6,
+      reached: 3,
+      reason: 'The agent timed out: the runner stopped it after 40 minutes',
+      agent: agentReport({
+        outcome: 'timeout',
+        detail: 'The runner stopped the agent after 40 minutes',
+        summary: null,
+        durationMs: 40 * 60_000,
+        turns: 80,
+        costUsd: 9.87,
+      }),
+    }),
+  ),
   detail(run({ id: 48, repo: R.reports, state: 'dispatched', hours: 0.05 }), {
     tracking: { ...polled(1, 4), pausedUntil: ago(-0.07) },
   }),
@@ -628,6 +789,15 @@ export const RUNS: FixRunDetail[] = [
   }),
   detail(run({ id: 41, repo: R.storefront, state: 'checks_failing', hours: 2, checks: FAILING }), {
     tracking: polled(3, 7),
+  }),
+  detail(run({ id: 52, repo: R.gateway, state: 'verified', hours: 30 }), {
+    verification: verification({
+      after: 'merge',
+      status: 'done',
+      scan: { kind: 'repo', scanRunId: null, at: ago(28) },
+      targeted: [133],
+      cleared: [133],
+    }),
   }),
   detail(run({ id: 40, repo: R.ingest, state: 'deployed', hours: 26 }), {
     deployments: [appLink(R.ingest, { status: 'deployed', deploy: shipped(42, 'identical', 20) })],
@@ -811,7 +981,7 @@ function runner(repo: RepoRef, over: Partial<RunnerStatus> = {}): RunnerStatus {
   const runs = runsFor(repo.id)
   return {
     repoId: repo.id,
-    settings: { enabled: true, workflow: 'hinomi-fix.yml' },
+    settings: { enabled: true, workflow: 'hinomi-fix.yml', majorsAgent: 'off' },
     defaultWorkflow: 'hinomi-fix.yml',
     ready: true,
     github: {
@@ -840,6 +1010,7 @@ function runner(repo: RepoRef, over: Partial<RunnerStatus> = {}): RunnerStatus {
       outdated: false,
       latestSha: LATEST_SHA,
       missingInputs: [],
+      passesAgentSecret: false,
       message: CALLER_MESSAGE.current,
       template: renderCallerWorkflow({ sha: LATEST_SHA, version: 'v0.2.0' }),
     },
@@ -849,6 +1020,29 @@ function runner(repo: RepoRef, over: Partial<RunnerStatus> = {}): RunnerStatus {
     message: 'Ready to dispatch.',
     ...over,
   }
+}
+
+/** A runner with the majors agent on, the caller passing the secret or not. */
+function withAgent(repo: RepoRef, passesSecret: boolean): RunnerStatus {
+  const base = runner(repo)
+  return runner(repo, {
+    settings: { ...base.settings, majorsAgent: 'claude-code' },
+    caller: {
+      ...base.caller,
+      passesAgentSecret: passesSecret,
+      template: renderCallerWorkflow({
+        sha: LATEST_SHA,
+        version: 'v0.2.0',
+        majorsAgent: 'claude-code',
+      }),
+    },
+    ...(passesSecret
+      ? {}
+      : {
+          message:
+            'Ready to dispatch. The majors agent is on but the caller workflow passes no ANTHROPIC_API_KEY, so it cannot run.',
+        }),
+  })
 }
 
 function callerOf(
@@ -917,6 +1111,12 @@ export function runnerFor(repoId: number): RunnerStatus | null {
         },
       })
     }
+    case R.scheduler.id:
+      return withAgent(repo, false)
+    case R.exporter.id:
+    case R.gateway.id:
+    case R.ledger.id:
+      return withAgent(repo, true)
     default:
       return runner(repo)
   }
