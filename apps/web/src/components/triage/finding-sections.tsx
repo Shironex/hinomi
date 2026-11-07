@@ -44,6 +44,7 @@ import {
   VERSION_UNKNOWN_HINT,
 } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
+import { FIXED_ON_MAIN_HINT, FIXED_ON_MAIN_LABEL } from '@/lib/release-meta'
 import { codeParts, GUARD_LEVEL_LABEL, guardSubject } from '@/lib/guard-meta'
 import { cn } from '@/lib/utils'
 import { findingsQuery } from '@/lib/view-api'
@@ -540,8 +541,52 @@ function clearsText(f: FindingDetail): string {
   return `The same bump clears ${number.format(n)} open findings, this one included, across every repo that pins ${f.advisory?.packageName ?? 'the package'} below it.`
 }
 
+/**
+ * A release finding says which tag it was found in. When the default branch already fixed it, a
+ * patched release is due, and the finding stays open until one ships.
+ */
+function ReleaseNotice({ f }: { f: FindingDetail }) {
+  if (!f.releaseTag) return null
+  return (
+    <FixBox tone={f.fixedOnDefaultBranch ? 'ok' : 'fix'}>
+      <h2 className="text-base">
+        {f.fixedOnDefaultBranch ? FIXED_ON_MAIN_LABEL : `In the released build ${f.releaseTag}`}
+      </h2>
+      <p className="max-w-[68ch] text-sm text-foreground-2">
+        {f.fixedOnDefaultBranch
+          ? `${FIXED_ON_MAIN_HINT} It was found in ${f.releaseTag}.`
+          : `Found in the latest release, ${f.releaseTag}, of an app people install. Fixing the default branch is not enough: a new release has to ship the patched version.`}
+        {f.repo ? (
+          <>
+            {' '}
+            <Link
+              to="/repos/$id"
+              params={{ id: String(f.repo.id) }}
+              className="text-accent-ink underline-offset-2 hover:underline"
+            >
+              Release panel for {f.repo.fullName}
+            </Link>
+          </>
+        ) : null}
+      </p>
+    </FixBox>
+  )
+}
+
 /** The bump that fixes an advisory and how much it clears; the steps that close a gap. */
 export function FixCard({ f, compact = false }: { f: FindingDetail; compact?: boolean }) {
+  if (f.releaseTag) {
+    return (
+      <>
+        <ReleaseNotice f={f} />
+        <FixCardBody f={f} compact={compact} />
+      </>
+    )
+  }
+  return <FixCardBody f={f} compact={compact} />
+}
+
+function FixCardBody({ f, compact = false }: { f: FindingDetail; compact?: boolean }) {
   const pkg = f.advisory?.packageName ?? 'the package'
   if (f.kind === 'guard') {
     if (!f.guard?.fixText) return null
@@ -972,7 +1017,23 @@ export function DetailsList({ f, className }: { f: FindingDetail; className?: st
       })
     }
   }
-  if (f.repo) items.push({ label: 'Repo', value: f.repo.fullName, mono: true })
+  if (f.repo) {
+    items.push({
+      label: 'Repo',
+      value: (
+        <Link
+          to="/repos/$id"
+          params={{ id: String(f.repo.id) }}
+          className="text-foreground hover:underline"
+        >
+          {f.repo.fullName}
+        </Link>
+      ),
+      mono: true,
+      title: f.repo.fullName,
+    })
+  }
+  if (f.releaseTag) items.push({ label: 'Release', value: f.releaseTag, mono: true })
   if (f.kind === 'guard') items.push({ label: 'On', value: guardSubject(f), mono: true })
   else if (f.kind !== 'advisory')
     items.push({ label: 'On', value: blindSpotSubject(f), mono: true })

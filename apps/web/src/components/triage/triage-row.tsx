@@ -2,6 +2,7 @@ import type { FindingListItem } from '@hinomi/shared'
 import {
   IconClockPause,
   IconEyeOff,
+  IconGitMerge,
   IconGitPullRequest,
   IconPower,
   IconShieldCheck,
@@ -18,6 +19,7 @@ import {
 import { decisionLabel, findingTitle, formatAge, gapInfo, isDecided } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
 import { evidenceSummary } from '@/lib/guard-meta'
+import { FIXED_ON_MAIN_HINT, FIXED_ON_MAIN_LABEL } from '@/lib/release-meta'
 import { findingName } from '@/lib/triage'
 import { cn } from '@/lib/utils'
 
@@ -113,6 +115,13 @@ export function RowState({ item, plain = false }: { item: FindingListItem; plain
         return (
           <StatusText icon={IconShieldCheck} tone="ok">
             GitHub alert still open
+          </StatusText>
+        )
+      }
+      if (item.fixedOnDefaultBranch) {
+        return (
+          <StatusText icon={IconGitMerge} tone="ok" title={FIXED_ON_MAIN_HINT}>
+            {FIXED_ON_MAIN_LABEL}
           </StatusText>
         )
       }
