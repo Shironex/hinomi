@@ -99,6 +99,8 @@ export const repos = sqliteTable(
     runnerMajorsAgent: text('runner_majors_agent', { enum: RUNNER_MAJORS_AGENTS })
       .notNull()
       .default('off'),
+    /** Where the repo's fix plans run: GitHub Actions (default), a webhook runner or locally. */
+    runnerKind: text('runner_kind', { enum: FIX_RUNNER_KINDS }).notNull().default('github_actions'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

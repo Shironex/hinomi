@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `runner_kind` text DEFAULT 'github_actions' NOT NULL;
