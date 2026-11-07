@@ -264,6 +264,13 @@ export const runnerSetupPrSchema = z.object({
 })
 export type RunnerSetupPr = z.infer<typeof runnerSetupPrSchema>
 
+/**
+ * The warning the UI shows next to the local runner kind. The local runner runs the repo's own
+ * package manager configuration on the Hinomi host (docs/runners.md, residual risks).
+ */
+export const LOCAL_RUNNER_WARNING =
+  "The local runner applies fix plans on this Hinomi host. The repo's package manager config and hooks run as the Hinomi user, next to the database and the encrypted tokens, and the push token sits in the runner's environment while it runs. Use it only in a dedicated container with no other mounts, never on a workstation."
+
 /** Whether the runners other than GitHub Actions can take a dispatch, for every repo. */
 export const runnerKindsStatusSchema = z.object({
   webhook: z.object({
@@ -271,6 +278,17 @@ export const runnerKindsStatusSchema = z.object({
     configured: z.boolean(),
     message: z.string(),
   }),
+  /** Absent from a server before the local runner. */
+  local: z
+    .object({
+      /** HINOMI_LOCAL_RUNNER=1 is set and the host can run it (git, the bundled action). */
+      available: z.boolean(),
+      /** Why it is not available, or how it runs when it is. */
+      message: z.string(),
+      /** LOCAL_RUNNER_WARNING, to show next to the kind switch whether or not it is available. */
+      warning: z.string(),
+    })
+    .optional(),
 })
 export type RunnerKindsStatus = z.infer<typeof runnerKindsStatusSchema>
 
