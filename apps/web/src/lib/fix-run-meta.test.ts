@@ -2,10 +2,13 @@ import type { FixCheckResult } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { PLANS, runFor } from '@/fixtures/fix-runs'
 import {
+  AGENT_OUTCOME_INFO,
+  formatCost,
   formatDuration,
   orderedChecks,
   parseStepId,
   previewPlan,
+  runNext,
   runSummary,
   runTimeline,
   runUrgency,
@@ -157,5 +160,55 @@ describe('small helpers', () => {
     expect(formatDuration(4_200)).toBe('4.2 s')
     expect(formatDuration(64_200)).toBe('1 min 4 s')
     expect(formatDuration(120_000)).toBe('2 min')
+  })
+})
+
+describe('majors runs', () => {
+  it('lists the major upgrades of a plan apart from the safe steps', () => {
+    const marked = PLANS.find((p) => p.repo.id === 18)!
+    const preview = previewPlan(marked)
+    expect(preview.sent.map((s) => s.packageName)).toEqual(['streamtap'])
+    expect(preview.majors.map((s) => s.packageName)).toEqual(['marked-lite', 'argkit'])
+    // The agent is off for a plan with no major upgrade the runner can take.
+    expect(previewPlan(PLANS.find((p) => p.repo.id === 2)!).majors).toEqual([])
+    expect(previewPlan(PLANS.find((p) => p.repo.id === 16)!).sent).toEqual([])
+  })
+
+  it('words what happens next for a majors run, and keeps the fix wording otherwise', () => {
+    expect(runNext({ kind: 'majors', state: 'running' })).toMatch(/coding agent/)
+    expect(runNext({ kind: 'majors', state: 'checks_passing' })).toMatch(/draft pull request/)
+    expect(runNext({ kind: 'fix', state: 'running' })).toMatch(/safe steps/)
+    // A state with no majors wording falls back to the shared one.
+    expect(runNext({ kind: 'majors', state: 'merged' })).toMatch(/deploy of the merge commit/)
+  })
+
+  it('describes the workflow run stage by the agent, not the safe steps', () => {
+    expect(runTimeline(runFor(50)!)[1]!.detail).toBe(
+      'The agent is editing the code for the major upgrades',
+    )
+    expect(runTimeline(runFor(51)!)[1]!.detail).toBe('Agent: changed the code, 37 turns, $3.42')
+    const failed = runTimeline(runFor(53)!)
+    expect(failed.map((s) => s.status)).toEqual([
+      'done',
+      'fail',
+      'todo',
+      'todo',
+      'todo',
+      'todo',
+      'todo',
+    ])
+    expect(failed[1]!.detail).toMatch(/The agent timed out/)
+  })
+
+  it('names every agent outcome and formats the cost', () => {
+    expect(Object.keys(AGENT_OUTCOME_INFO)).toEqual([
+      'changed',
+      'no_changes',
+      'failed',
+      'timeout',
+      'refused',
+    ])
+    expect(formatCost(3.4)).toBe('$3.40')
+    expect(formatCost(0)).toBe('$0.00')
   })
 })

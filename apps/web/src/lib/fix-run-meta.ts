@@ -1,5 +1,9 @@
 import {
+  FIX_MAJORS_MAX_STEPS,
+  MAJORS_BRANCH,
+  isMajorStep,
   toFixDispatch,
+  type FixAgentOutcome,
   type FixCheckResult,
   type FixPlan,
   type FixPlanStep,
@@ -173,6 +177,51 @@ export const RUN_STATE_INFO: Record<FixRunState, RunStateInfo> = {
   },
 }
 
+/** Where the setup and behaviour of the optional majors agent is written down. */
+export const MAJORS_DOCS_URL =
+  'https://github.com/Shironex/hinomi/blob/main/docs/github.md#the-optional-majors-agent'
+
+/** The branch the majors draft PR lives on. */
+export const MAJORS_BRANCH_NAME = MAJORS_BRANCH
+
+/** What each state means for a majors run, where it differs from a fix run. */
+const MAJORS_NEXT: Partial<Record<FixRunState, string>> = {
+  running:
+    'The coding agent edits the code for the major upgrades, then the runner keeps the changes as a patch.',
+  branch_pushed: 'Hinomi opens or updates the draft pull request from the pushed branch.',
+  checks_passing:
+    "The draft pull request's own CI passes. Review the agent's changes before you mark it ready: Hinomi never merges.",
+  checks_failing:
+    "The draft pull request's own CI fails. The agent's changes may need a person to finish them.",
+  nothing_to_do: 'The agent left nothing to change.',
+  failed: "Read the agent's reason, then run the plan again.",
+  closed_unmerged:
+    'The draft pull request was closed without merging. Hinomi asks before it opens a fresh one.',
+}
+
+/** One line on what happens next, for a fix run or a majors run. */
+export function runNext(run: Pick<FixRun, 'state' | 'kind'>): string {
+  return (
+    (run.kind === 'majors' ? MAJORS_NEXT[run.state] : undefined) ?? RUN_STATE_INFO[run.state].next
+  )
+}
+
+export const AGENT_OUTCOME_INFO: Record<
+  FixAgentOutcome,
+  { label: string; tone: StatusTone; icon: Icon }
+> = {
+  changed: { label: 'Changed the code', tone: 'ok', icon: IconCircleCheck },
+  no_changes: { label: 'Made no change', tone: 'neutral', icon: IconCircleDashed },
+  failed: { label: 'Failed', tone: 'bad', icon: IconCircleX },
+  timeout: { label: 'Timed out', tone: 'bad', icon: IconClockHour4 },
+  refused: { label: 'Patch refused', tone: 'bad', icon: IconShieldX },
+}
+
+/** Estimated agent cost in USD, to the cent. */
+export function formatCost(usd: number): string {
+  return `$${usd.toFixed(2)}`
+}
+
 /** States that need a person: listed first, so failed checks come before everything else. */
 const ATTENTION: readonly FixRunState[] = [
   'checks_failing',
@@ -324,8 +373,23 @@ export function verificationLine(v: FixRunVerification): string {
   }
 }
 
+/** The workflow run stage of a majors run: the agent's turn, not the safe steps. */
+function majorsRunDetail(run: TimelineRun, status: StepStatus): string {
+  const agent = run.result?.agent
+  if (status === 'now') {
+    return run.state === 'running'
+      ? 'The agent is editing the code for the major upgrades'
+      : runNext(run)
+  }
+  if (agent) {
+    const turns = agent.turns === null ? '' : `, ${agent.turns} turn${agent.turns === 1 ? '' : 's'}`
+    const cost = agent.costUsd === null ? '' : `, ${formatCost(agent.costUsd)}`
+    return `Agent: ${AGENT_OUTCOME_INFO[agent.outcome].label.toLowerCase()}${turns}${cost}`
+  }
+  return 'A coding agent edits the code for the major upgrades'
+}
+
 function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepStatus): string {
-  const info = RUN_STATE_INFO[run.state]
   const failing = status === 'fail' || status === 'skip'
   switch (key) {
     case 'dispatch':
@@ -334,9 +398,10 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
         ? 'Asking GitHub to start the caller workflow'
         : 'GitHub accepted the caller workflow dispatch'
     case 'run':
-      if (failing) return run.stateReason ?? info.next
+      if (failing) return run.stateReason ?? runNext(run)
+      if (run.kind === 'majors') return majorsRunDetail(run, status)
       if (status === 'now') {
-        return run.state === 'running' ? 'Applying the safe steps and running checks' : info.next
+        return run.state === 'running' ? 'Applying the safe steps and running checks' : runNext(run)
       }
       if (status === 'done' && run.result) {
         const applied = run.result.steps.filter((s) => s.status === 'applied').length
@@ -353,7 +418,7 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
       if (run.state === 'nothing_to_do') return 'Nothing to check'
       if (run.state === 'checks_failing')
         return 'Failing. The pull request stays a draft with the failure output'
-      if (failing) return run.stateReason ?? info.next
+      if (failing) return run.stateReason ?? runNext(run)
       if (run.state === 'checks_none' || (status === 'done' && run.at.checksUpdated === null)) {
         return 'The repo reported no checks on the pull request'
       }
@@ -363,7 +428,7 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
     case 'merged':
       if (run.state === 'nothing_to_do') return 'Nothing to merge'
       if (run.state === 'closed_unmerged') return 'Closed without merging'
-      if (failing) return run.stateReason ?? info.next
+      if (failing) return run.stateReason ?? runNext(run)
       if (status === 'now') return 'Waiting for a person to review and merge on GitHub'
       if (status === 'done' && run.pr?.mergeSha)
         return `Merge commit ${run.pr.mergeSha.slice(0, 7)}`
@@ -378,7 +443,7 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
       return 'A deploy of the merge commit or a later one'
     case 'verified':
       if (run.verification && status !== 'todo') return verificationLine(run.verification)
-      if (run.state === 'not_cleared') return run.stateReason ?? info.next
+      if (run.state === 'not_cleared') return run.stateReason ?? runNext(run)
       if (status === 'done') return 'The rescan no longer finds the findings'
       if (status === 'now') return 'A rescan of the repo compares the findings of the plan'
       return 'A rescan compares the findings of the plan'
@@ -468,6 +533,8 @@ export interface DiffFile {
 export interface PlanPreview {
   /** Safe steps the runner receives, in order. */
   sent: FixPlanStep[]
+  /** Major upgrades the optional agent takes into its own draft PR (at most 50). */
+  majors: FixPlanStep[]
   /** Safe steps the runner cannot apply (manual, no lockfile): listed in the PR as not sent. */
   notSent: FixPlanStep[]
   /** Risky steps: never in the fix PR, always listed in its body. */
@@ -553,7 +620,8 @@ export function previewPlan(plan: FixPlan): PlanPreview {
     })
   }
   const findings = new Set(sent.flatMap((s) => s.findingIds)).size
-  return { sent, notSent, risky, files: [...files.values()], findings }
+  const majors = ordered.filter(isMajorStep).slice(0, FIX_MAJORS_MAX_STEPS)
+  return { sent, majors, notSent, risky, files: [...files.values()], findings }
 }
 
 export const RISK_REASON_LABEL: Record<string, string> = {
