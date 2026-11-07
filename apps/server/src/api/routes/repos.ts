@@ -1,8 +1,10 @@
 import {
   idParamSchema,
   repoDetailSchema,
+  updateRepoReleaseTierRequestSchema,
   updateRepoRequestSchema,
   type RepoDetail,
+  type RepoRelease,
   type RepoSourceRef,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
@@ -13,12 +15,40 @@ import {
   type Repositories,
   type Source,
 } from '../../repository/index.js'
+import {
+  cachedInstallerAssets,
+  indexDeployments,
+  isReleaseFinding,
+  releaseStatus,
+} from '../../scan/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, send } from '../http.js'
 import { toRepoRef } from '../serialize.js'
 
 function sourceRef(source: Source): RepoSourceRef {
   return { id: source.id, name: source.name, auth: source.auth, enabled: source.enabled }
+}
+
+const isOpen = (state: string) => state === 'open' || state === 'fixing'
+
+/** The repo's latest release, its desktop tier status and what the tag scan found. */
+export function toRepoRelease(repositories: Repositories, repo: RepoRow): RepoRelease {
+  const deployed = indexDeployments(repositories).byRepo.has(repo.id)
+  const rows = repositories.findings.list({ repoId: repo.id }).filter(isReleaseFinding)
+  const advisories = rows.filter((f) => f.kind === 'advisory' && isOpen(f.state))
+  return {
+    tier: repo.releaseTier,
+    status: releaseStatus(repo, deployed),
+    latestTag: repo.latestReleaseTag,
+    latestAt: repo.latestReleaseAt?.toISOString() ?? null,
+    installers: repo.releaseInstallers,
+    installerAssets:
+      repo.latestReleaseTag === null ? [] : cachedInstallerAssets(repositories, repo.id),
+    checkedAt: repo.releaseCheckedAt?.toISOString() ?? null,
+    openFindings: advisories.length,
+    fixedOnDefaultBranch: advisories.filter((f) => f.fixedOnDefaultBranch).length,
+    lockfileMissing: rows.some((f) => f.kind === 'coverage_note' && f.state !== 'fixed'),
+  }
 }
 
 /** The repo with the GitHub source it is read and fixed through, and the sources that see it. */
@@ -44,6 +74,7 @@ export function toRepoDetail(repositories: Repositories, repo: RepoRow): RepoDet
       overrideId: repo.sourceOverrideId,
       seenBy,
     },
+    release: toRepoRelease(repositories, repo),
   }
 }
 
@@ -79,6 +110,16 @@ export function repoDetailRoutes(deps: ApiDeps) {
       }
     }
     const repo = repositories.repoSources.setOverride(id, sourceId) ?? requireRepo(id)
+    return send(c, repoDetailSchema, toRepoDetail(repositories, repo))
+  })
+
+  // The desktop tier mode. The next scan asks GitHub for the latest release again and moves the
+  // repo's release findings in or out of the tier.
+  app.put('/:id/release-tier', async (c) => {
+    const { id } = readParams(c, idParamSchema)
+    requireRepo(id)
+    const { tier } = await readJson(c, updateRepoReleaseTierRequestSchema)
+    const repo = repositories.repos.setReleaseTier(id, tier) ?? requireRepo(id)
     return send(c, repoDetailSchema, toRepoDetail(repositories, repo))
   })
 

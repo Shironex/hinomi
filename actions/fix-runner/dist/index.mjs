@@ -5893,6 +5893,14 @@ const guardEvidenceSchema = discriminatedUnion("check", [
 	actionRuntimeEvidenceSchema
 ]);
 
+// ../../packages/shared/src/releases.ts
+const RELEASE_TIER_MODES = [
+	"auto",
+	"on",
+	"off"
+];
+const releaseTierModeSchema = _enum(RELEASE_TIER_MODES);
+
 // ../../packages/shared/src/sources/deployment-facts.ts
 const FACT_KEYS = [
 	"user",
@@ -6392,6 +6400,7 @@ const findingListItemSchema = object({
 	coverageNote: coverageNoteTypeSchema.nullable(),
 	guard: findingGuardSchema.nullable(),
 	releaseTag: string().nullable(),
+	fixedOnDefaultBranch: boolean(),
 	advisory: advisorySummarySchema.nullable(),
 	installedVersion: string().nullable(),
 	repo: repoRefSchema.nullable(),
@@ -7003,7 +7012,23 @@ const REPO_RELEASE_STATUSES = [
 	"not_checked"
 ];
 const repoReleaseStatusSchema = _enum(REPO_RELEASE_STATUSES);
-const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema });
+const repoReleaseSchema = object({
+	tier: releaseTierModeSchema,
+	status: repoReleaseStatusSchema,
+	latestTag: string().nullable(),
+	latestAt: isoDate$5.nullable(),
+	installers: boolean().nullable(),
+	installerAssets: array(string()),
+	checkedAt: isoDate$5.nullable(),
+	openFindings: number$1().int().nonnegative(),
+	fixedOnDefaultBranch: number$1().int().nonnegative(),
+	lockfileMissing: boolean()
+});
+const repoDetailSchema = repoRefSchema.extend({
+	source: repoSourceViewSchema,
+	release: repoReleaseSchema
+});
+const updateRepoReleaseTierRequestSchema = strictObject({ tier: releaseTierModeSchema });
 const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
 const checkOverrideSchema = object({
 	id: id$3,
@@ -13878,14 +13903,6 @@ const healthResponseSchema = object({
 	status: literal("ok"),
 	version: string()
 });
-
-// ../../packages/shared/src/releases.ts
-const RELEASE_TIER_MODES = [
-	"auto",
-	"on",
-	"off"
-];
-const releaseTierModeSchema = _enum(RELEASE_TIER_MODES);
 
 // ../../packages/shared/src/runner-payload.ts
 const WORKFLOW_DISPATCH_INPUT_LIMIT = 65535;

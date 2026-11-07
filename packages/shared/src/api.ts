@@ -20,6 +20,7 @@ import {
   guardResultSchema,
   overridableCheckSchema,
 } from './guards.js'
+import { releaseTierModeSchema } from './releases.js'
 import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
@@ -226,6 +227,11 @@ export const findingListItemSchema = z.object({
   guard: findingGuardSchema.nullable(),
   /** Desktop release advisories: the release tag that was scanned. Null otherwise. */
   releaseTag: z.string().nullable(),
+  /**
+   * Desktop release advisories: the default branch no longer has the vulnerable version, so a
+   * patched release is due. The finding stays open, users still run the released build.
+   */
+  fixedOnDefaultBranch: z.boolean(),
   advisory: advisorySummarySchema.nullable(),
   installedVersion: z.string().nullable(),
   repo: repoRefSchema.nullable(),
@@ -1212,9 +1218,42 @@ export const REPO_RELEASE_STATUSES = [
 export const repoReleaseStatusSchema = z.enum(REPO_RELEASE_STATUSES)
 export type RepoReleaseStatus = z.infer<typeof repoReleaseStatusSchema>
 
+/** The latest final release of a repo and its desktop tier, as GET /api/repos/:id serves it. */
+export const repoReleaseSchema = z.object({
+  /** The per repo mode (`auto` unless changed). */
+  tier: releaseTierModeSchema,
+  status: repoReleaseStatusSchema,
+  /** Tag of the latest release that is neither a draft nor a prerelease. Null: none or not checked. */
+  latestTag: z.string().nullable(),
+  latestAt: isoDate.nullable(),
+  /** The latest release has installer like assets. Null until checked. */
+  installers: z.boolean().nullable(),
+  /** The asset names that look installable (at most 50). */
+  installerAssets: z.array(z.string()),
+  /** When the daily release check last asked GitHub. */
+  checkedAt: isoDate.nullable(),
+  /** Open advisories found at the latest tag. */
+  openFindings: z.number().int().nonnegative(),
+  /** Of those, fixed on the default branch but not released yet: a patched release is due. */
+  fixedOnDefaultBranch: z.number().int().nonnegative(),
+  /** The latest tag has no lockfile Hinomi reads, so the released version is not checked. */
+  lockfileMissing: z.boolean(),
+})
+export type RepoRelease = z.infer<typeof repoReleaseSchema>
+
 /** GET /api/repos/:id. */
-export const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema })
+export const repoDetailSchema = repoRefSchema.extend({
+  source: repoSourceViewSchema,
+  release: repoReleaseSchema,
+})
 export type RepoDetail = z.infer<typeof repoDetailSchema>
+
+/**
+ * PUT /api/repos/:id/release-tier: the repo's desktop tier mode. `on` and `off` override the
+ * installer heuristic; `auto` goes back to it. Answers the repo detail.
+ */
+export const updateRepoReleaseTierRequestSchema = z.strictObject({ tier: releaseTierModeSchema })
+export type UpdateRepoReleaseTierRequest = z.infer<typeof updateRepoReleaseTierRequestSchema>
 
 /** PATCH /api/repos/:id. A GitHub source id picks the repo's source by hand; null clears it. */
 export const updateRepoRequestSchema = z.strictObject({ sourceId: id.nullable() })

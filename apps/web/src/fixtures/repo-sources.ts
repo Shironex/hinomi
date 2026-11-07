@@ -62,5 +62,17 @@ export function repoDetailFor(id: number): RepoDetail | null {
       overrideId: placement.override,
       seenBy: placement.seenBy,
     },
+    release: {
+      tier: 'auto',
+      status: 'deployed',
+      latestTag: null,
+      latestAt: null,
+      installers: null,
+      installerAssets: [],
+      checkedAt: null,
+      openFindings: 0,
+      fixedOnDefaultBranch: 0,
+      lockfileMissing: false,
+    },
   }
 }

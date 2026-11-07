@@ -23,7 +23,7 @@ import {
   type SourceHealth,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
-import type { Repositories, Source } from '../../repository/index.js'
+import { coverageNoteTypeOf, type Repositories, type Source } from '../../repository/index.js'
 import {
   countFindings,
   funnelSteps,
@@ -114,7 +114,9 @@ function allSourceHealth(repositories: Repositories): SourceHealth[] {
 
 function findingTitle(r: RankedFinding): string {
   if (r.advisory) return `${r.advisory.packageName} ${r.advisory.advisoryKey}`
-  if (r.kind === 'coverage_note') return 'image only'
+  if (r.kind === 'coverage_note') {
+    return (coverageNoteTypeOf(r.finding) ?? 'coverage note').replaceAll('_', ' ')
+  }
   if (r.guardCheck) return GUARD_COPY[r.guardCheck].title
   return (r.finding.blindSpotType ?? 'blind spot').replaceAll('_', ' ')
 }
