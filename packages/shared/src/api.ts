@@ -13,6 +13,7 @@ import {
   sourceKindSchema,
 } from './model.js'
 import { guardEvidenceSchema } from './guard-evidence.js'
+import { imageScanModeSchema } from './image-scan.js'
 import {
   guardCapabilitySchema,
   guardCheckSchema,
@@ -1345,6 +1346,8 @@ export const settingsSchema = z.object({
   updateCheckEnabled: z.boolean(),
   /** Days before end of life at which a support window turns to a warning. */
   supportWindowDays: z.number().int().min(SUPPORT_WINDOW_MIN_DAYS).max(SUPPORT_WINDOW_MAX_DAYS),
+  /** Image scan of image only deployments: `off` (default) or `coolify` (Coolify's own results). */
+  imageScan: imageScanModeSchema,
 })
 export type SettingsDto = z.infer<typeof settingsSchema>
 

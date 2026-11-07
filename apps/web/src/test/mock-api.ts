@@ -187,6 +187,7 @@ export function configuredRoutes(): Record<string, unknown> {
       includeAccountRepos: false,
       updateCheckEnabled: true,
       supportWindowDays: 90,
+      imageScan: 'off',
     },
     'GET /notifications/channels': { items: [] },
     'GET /notifications/settings': { publicBaseUrl: null, digestHour: 8 },

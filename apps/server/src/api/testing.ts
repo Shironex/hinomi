@@ -25,7 +25,7 @@ export const EMPTY_SOURCES: ScanSources = {
   github: [],
   osv: null,
   fetchLockfiles: () => Promise.resolve([]),
-  settings: { osvEnabled: true, includeAccountRepos: false },
+  settings: { osvEnabled: true, includeAccountRepos: false, imageScan: 'off' },
 }
 
 /**

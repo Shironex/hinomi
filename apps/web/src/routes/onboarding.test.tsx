@@ -32,6 +32,7 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
     includeAccountRepos: false,
     updateCheckEnabled: true,
     supportWindowDays: 90,
+    imageScan: 'off',
   },
   ...over,
 })

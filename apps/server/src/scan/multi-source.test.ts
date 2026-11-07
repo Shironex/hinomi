@@ -135,7 +135,7 @@ function scanSources(...github: FakeSource[]): ScanSources {
     coolify: [],
     github: github.map((g) => g.github),
     osv: null,
-    settings: { osvEnabled: false, includeAccountRepos: true },
+    settings: { osvEnabled: false, includeAccountRepos: true, imageScan: 'off' },
     fetchLockfiles: () => Promise.resolve([]),
   }
 }

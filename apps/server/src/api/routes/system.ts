@@ -269,6 +269,9 @@ export function settingsRoutes(deps: ApiDeps) {
       if (body.supportWindowDays !== undefined) {
         repositories.settings.set(SUPPORT_WINDOW_KEY, body.supportWindowDays)
       }
+      if (body.imageScan !== undefined) {
+        repositories.settings.set(SCAN_SETTING_KEYS.imageScan, body.imageScan)
+      }
     })
     if (body.scanIntervalMinutes !== undefined) scheduler.reschedule()
     // Switching the check on looks right away instead of waiting for the next daily one.

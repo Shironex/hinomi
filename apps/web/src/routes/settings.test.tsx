@@ -209,6 +209,7 @@ describe('settings', () => {
         includeAccountRepos: false,
         updateCheckEnabled: true,
         supportWindowDays: 90,
+        imageScan: 'off',
       },
     })
     const user = userEvent.setup()
