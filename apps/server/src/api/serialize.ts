@@ -87,6 +87,8 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     sources: finding.reportedBy,
     blindSpotType: finding.blindSpotType,
     coverageNote: finding.kind === 'coverage_note' ? 'image_only' : null,
+    guard: null,
+    releaseTag: null,
     advisory: ranked.advisory ? toAdvisorySummary(ranked.advisory) : null,
     installedVersion: finding.installedVersion,
     repo: ranked.repo ? toRepoRef(ranked.repo) : null,

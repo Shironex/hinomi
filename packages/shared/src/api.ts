@@ -12,6 +12,14 @@ import {
   sourceAuthSchema,
   sourceKindSchema,
 } from './model.js'
+import { guardEvidenceSchema } from './guard-evidence.js'
+import {
+  guardCapabilitySchema,
+  guardCheckSchema,
+  guardLevelSchema,
+  guardResultSchema,
+  overridableCheckSchema,
+} from './guards.js'
 import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
@@ -165,6 +173,30 @@ export const advisorySummarySchema = z.object({
 })
 export type AdvisorySummary = z.infer<typeof advisorySummarySchema>
 
+/** A check override as a finding or a guard entry carries it. */
+export const checkOverrideRefSchema = z.object({
+  id,
+  /** Turned off for this deployment, or for the whole repo. */
+  scope: z.enum(['deployment', 'repo']),
+  reason: z.string(),
+  createdAt: isoDate,
+})
+export type CheckOverrideRef = z.infer<typeof checkOverrideRefSchema>
+
+/** The guard part of a finding of kind `guard`. */
+export const findingGuardSchema = z.object({
+  check: guardCheckSchema,
+  level: guardLevelSchema,
+  evidence: guardEvidenceSchema,
+  /** From GUARD_COPY, so every client shows the same words. */
+  title: z.string(),
+  explanation: z.string(),
+  fixText: z.string(),
+  /** Set when the check is turned off for the subject: the finding is then `accepted`. */
+  override: checkOverrideRefSchema.nullable(),
+})
+export type FindingGuard = z.infer<typeof findingGuardSchema>
+
 export const findingListItemSchema = z.object({
   id,
   kind: findingKindSchema,
@@ -189,6 +221,10 @@ export const findingListItemSchema = z.object({
   blindSpotType: blindSpotTypeSchema.nullable(),
   /** Set for coverage notes, null for advisories and blind spots. */
   coverageNote: coverageNoteTypeSchema.nullable(),
+  /** Set for guard findings, null for every other kind. */
+  guard: findingGuardSchema.nullable(),
+  /** Desktop release advisories: the release tag that was scanned. Null otherwise. */
+  releaseTag: z.string().nullable(),
   advisory: advisorySummarySchema.nullable(),
   installedVersion: z.string().nullable(),
   repo: repoRefSchema.nullable(),
@@ -826,6 +862,15 @@ export const findingsQuerySchema = z.strictObject({
   sourceMatch: z.enum(['any', 'all']).default('any'),
   scope: csvOf(findingScopeSchema).optional(),
   kind: csvOf(findingKindSchema).optional(),
+  /** Guard checks. Only guard findings match. */
+  check: csvOf(guardCheckSchema).optional(),
+  /** Guard levels. Only guard findings match. */
+  level: csvOf(guardLevelSchema).optional(),
+  /** true: only desktop release findings; false: none of them. */
+  release: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
   /** Repo ids. */
   repo: csvIds.optional(),
   /** Deployment ids. */
@@ -1134,6 +1179,89 @@ export type RepoDetail = z.infer<typeof repoDetailSchema>
 /** PATCH /api/repos/:id. A GitHub source id picks the repo's source by hand; null clears it. */
 export const updateRepoRequestSchema = z.strictObject({ sourceId: id.nullable() })
 export type UpdateRepoRequest = z.infer<typeof updateRepoRequestSchema>
+
+// ---------------------------------------------------------------------------
+// Guards and check overrides
+
+/** A check turned off with a reason, for one deployment or one repo. */
+export const checkOverrideSchema = z.object({
+  id,
+  check: overridableCheckSchema,
+  /** Exactly one of `deployment` and `repo` is set. */
+  deployment: deploymentRefSchema.nullable(),
+  repo: repoRefSchema.nullable(),
+  reason: z.string(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+})
+export type CheckOverride = z.infer<typeof checkOverrideSchema>
+
+/** Query of GET /api/overrides. */
+export const checkOverridesQuerySchema = z.strictObject({
+  check: csvOf(overridableCheckSchema).optional(),
+  /** Deployment ids. */
+  deployment: csvIds.optional(),
+  /** Repo ids. */
+  repo: csvIds.optional(),
+})
+export type CheckOverridesQuery = z.input<typeof checkOverridesQuerySchema>
+
+export const checkOverridesResponseSchema = z.object({ items: z.array(checkOverrideSchema) })
+export type CheckOverridesResponse = z.infer<typeof checkOverridesResponseSchema>
+
+/** POST /api/overrides: turn a check off for one deployment or one repo, with a reason. */
+export const createCheckOverrideRequestSchema = z
+  .strictObject({
+    check: overridableCheckSchema,
+    deploymentId: id.optional(),
+    repoId: id.optional(),
+    reason,
+  })
+  .refine((value) => (value.deploymentId === undefined) !== (value.repoId === undefined), {
+    message: 'Give either deploymentId or repoId',
+    path: ['deploymentId'],
+  })
+export type CreateCheckOverrideRequest = z.infer<typeof createCheckOverrideRequestSchema>
+
+/** PATCH /api/overrides/:id: only the reason can change. */
+export const updateCheckOverrideRequestSchema = z.strictObject({ reason })
+export type UpdateCheckOverrideRequest = z.infer<typeof updateCheckOverrideRequestSchema>
+
+/** One check in the registry of GET /api/guards. */
+export const guardInfoSchema = z.object({
+  check: guardCheckSchema,
+  title: z.string(),
+  /** What the check reads. */
+  reads: z.string(),
+  /** Levels the check can produce. */
+  levels: z.array(guardLevelSchema),
+  /** How much of the check each connected kind of deployment source can answer. */
+  capabilities: z.partialRecord(sourceKindSchema, guardCapabilitySchema),
+  /** Open (not fixed) findings per level. */
+  counts: z.record(guardLevelSchema, z.number().int()),
+  /** Active overrides of this check. */
+  overrides: z.number().int(),
+})
+export type GuardInfo = z.infer<typeof guardInfoSchema>
+
+export const guardsResponseSchema = z.object({ items: z.array(guardInfoSchema) })
+export type GuardsResponse = z.infer<typeof guardsResponseSchema>
+
+/**
+ * One check on one deployment, for the deployment's guards panel. Blind spot types that
+ * can be turned off (like `archived_deployed`) are listed here too.
+ */
+export const deploymentGuardSchema = z.object({
+  check: overridableCheckSchema,
+  /** `pass`, a level, or null when the check has not run on it yet. */
+  result: guardResultSchema.nullable(),
+  /** Null for a pass without evidence, and for blind spot types. */
+  evidence: guardEvidenceSchema.nullable(),
+  /** The open finding, null on a pass. */
+  findingId: id.nullable(),
+  override: checkOverrideRefSchema.nullable(),
+})
+export type DeploymentGuard = z.infer<typeof deploymentGuardSchema>
 
 // ---------------------------------------------------------------------------
 // Settings

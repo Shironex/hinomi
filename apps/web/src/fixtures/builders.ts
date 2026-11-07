@@ -60,6 +60,8 @@ export function findingItem(over: Partial<FindingListItem> = {}): FindingListIte
     sources: ['github', 'osv'],
     blindSpotType: null,
     coverageNote: null,
+    guard: null,
+    releaseTag: null,
     advisory: {
       id: 1,
       advisoryKey: 'GHSA-7q2m-48vx-hc3r',
