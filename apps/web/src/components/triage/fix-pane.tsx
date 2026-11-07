@@ -1,13 +1,15 @@
 import { FINDING_TIERS, type FixItem } from '@hinomi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { IconLock, IconPackage, IconRobot, IconServer2, IconWorld } from '@tabler/icons-react'
+import { IconListCheck, IconLock, IconPackage, IconServer2, IconWorld } from '@tabler/icons-react'
 import { SeverityCounts } from '@/components/findings/severity-badge'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
 import { displayDomain, TIER_INFO } from '@/lib/finding-meta'
+import { planKey } from '@/lib/fix-run-meta'
 import { findingsQuery } from '@/lib/view-api'
-import { FIX_AGENT_NOTE, joinAnd } from '@/lib/triage'
+import { NO_PLAN_NOTE } from '@/lib/fix-request'
+import { fixPlanRepos, joinAnd } from '@/lib/triage'
 import { FixBox, PaneSection } from './finding-sections'
 import { TriageRow } from './triage-row'
 
@@ -127,6 +129,7 @@ function ClearedFindings({ fix }: { fix: FixItem }) {
 /** The detail of one bump: what it clears, in which repos (with each repo's own target) and apps. */
 export function FixPane({ fix, focused }: { fix: FixItem; focused: boolean }) {
   const repos = fix.repos.length
+  const plans = fixPlanRepos(fix)
   return (
     <>
       <div className="flex flex-col gap-2.5">
@@ -161,15 +164,16 @@ export function FixPane({ fix, focused }: { fix: FixItem; focused: boolean }) {
             : ''}
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          {fix.target ? (
-            <Button disabled title={FIX_AGENT_NOTE} aria-describedby="fix-pane-note">
-              <IconRobot aria-hidden="true" />
-              Run fix agent
-            </Button>
-          ) : null}
+          {fix.target ? <FixWithHinomi repos={plans} noteId="fix-pane-note" hint /> : null}
           <SeverityCounts counts={fix.findings.bySeverity} />
           <span id="fix-pane-note" className="text-xs text-muted-foreground">
-            {fix.target ? FIX_AGENT_NOTE : null}
+            {!fix.target
+              ? null
+              : plans.length === 0
+                ? NO_PLAN_NOTE
+                : plans.length > 1
+                  ? `Runs the plan of one repo at a time; pick it in the next step.`
+                  : null}
           </span>
         </div>
       </div>
@@ -197,14 +201,27 @@ export function FixPane({ fix, focused }: { fix: FixItem; focused: boolean }) {
               <span className="text-muted-foreground tabular-nums">
                 {number.format(r.findings)} finding{r.findings === 1 ? '' : 's'}
               </span>
-              <span className="col-span-2 text-xs text-muted-foreground">
-                {r.target ? (
-                  <>
-                    Needs <span className="font-mono text-success">{r.target}</span>
-                  </>
-                ) : (
-                  'No patched version yet'
-                )}
+              <span className="col-span-2 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                <span>
+                  {r.target ? (
+                    <>
+                      Needs <span className="font-mono text-success">{r.target}</span>
+                    </>
+                  ) : (
+                    'No patched version yet'
+                  )}
+                </span>
+                {r.plan ? (
+                  <Link
+                    to="/fix-runs"
+                    search={{ sel: planKey(r.repo.id) }}
+                    className="inline-flex items-center gap-1 text-accent-ink hover:underline"
+                  >
+                    <IconListCheck aria-hidden="true" className="size-3.5" stroke={1.75} />
+                    Fix plan: {r.plan.summary.steps.safe} safe step
+                    {r.plan.summary.steps.safe === 1 ? '' : 's'}
+                  </Link>
+                ) : null}
               </span>
             </li>
           ))}

@@ -105,7 +105,7 @@ describe('SplitView', () => {
     expect(within(list).getByText('Internal')).toBeInTheDocument()
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' })
     expect(within(crumbs).getByText('tessera')).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText('fix agent')).toBeInTheDocument()
+    expect(screen.getByText('fix with Hinomi')).toBeInTheDocument()
     expect(screen.queryByText('accept')).not.toBeInTheDocument()
   })
 

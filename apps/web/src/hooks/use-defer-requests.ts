@@ -1,5 +1,6 @@
 import type { FindingListItem } from '@hinomi/shared'
 import { useCallback, useState } from 'react'
+import { requestFix } from '@/lib/fix-request'
 import type { DeferKind } from '@/lib/view-api'
 
 /** A request from the list (s or a on the selected row) to open the decision form. */
@@ -10,9 +11,15 @@ export interface DeferRequest {
   n: number
 }
 
+/** f on an advisory with a repo: the dispatch dialog for that repo's plan. */
+function fixFinding(item: Pick<FindingListItem, 'id' | 'kind' | 'repo'>) {
+  if (item.kind !== 'advisory' || !item.repo) return
+  requestFix({ repos: [{ id: item.repo.id, fullName: item.repo.fullName }], findingId: item.id })
+}
+
 /**
- * The s and a keys of a split list: each press asks the selected finding's pane to open its
- * decision form. Fixed findings take no decision.
+ * The f, s and a keys of a split list: f opens Fix with Hinomi for the finding's repo, s and a
+ * ask the selected finding's pane to open its decision form. Fixed findings take no decision.
  */
 export function useDeferRequests() {
   const [request, setRequest] = useState<DeferRequest | null>(null)
@@ -23,5 +30,8 @@ export function useDeferRequests() {
     },
     [],
   )
-  return { request, actions: { snooze: ask('snooze'), accept: ask('accept') } }
+  return {
+    request,
+    actions: { fix: fixFinding, snooze: ask('snooze'), accept: ask('accept') },
+  }
 }
