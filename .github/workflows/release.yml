@@ -69,6 +69,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build date
+        id: built
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -76,6 +80,11 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Shown by GET /api/version, the rail footer and Settings, About.
+          build-args: |
+            HINOMI_BUILD_VERSION=${{ github.ref_name }}
+            HINOMI_BUILD_COMMIT=${{ github.sha }}
+            HINOMI_BUILD_DATE=${{ steps.built.outputs.date }}
           # BuildKit attestations: an SBOM and max-detail SLSA provenance travel with the image.
           sbom: true
           provenance: mode=max
