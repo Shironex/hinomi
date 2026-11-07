@@ -31,6 +31,7 @@ const ERROR_TAXONOMY = [
   'ConnectionTestFailed',
   'CoolifyError',
   'FindingTransitionError',
+  'FixPayloadError',
   'GitHubContentsError',
   'GithubError',
   'GithubRateLimitError',
