@@ -290,8 +290,8 @@ Both live on the server, so every tab and browser sees the same setup progress. 
 | `PATCH /api/notifications/channels/:id` | Any of `name`, `url` (discord and webhook), `email` (a partial of the SMTP settings; an omitted `password` stays, an empty one removes it), `enabled`, `minSeverity` |
 | `DELETE /api/notifications/channels/:id` | Removes it |
 | `POST /api/notifications/channels/:id/test` | Sends a test message: `{ ok, error? }` |
-| `GET /api/notifications/settings` | `{ publicBaseUrl, digestHour }` |
-| `PATCH /api/notifications/settings` | `publicBaseUrl` (empty clears it) and `digestHour` (0 to 23, server local time) |
+| `GET /api/notifications/settings` | `{ publicBaseUrl, digestHour, fixRunEvents }`; `fixRunEvents` is `{ prOpened, checksFailing, verified, notCleared, failed, warnings }`, all booleans, all `true` until switched off |
+| `PATCH /api/notifications/settings` | `publicBaseUrl` (empty clears it), `digestHour` (0 to 23, server local time) and `fixRunEvents` (any of the six switches; the ones left out keep their value, an unknown name or an empty object is a 400) |
 
 See [notifications.md](notifications.md) for what is sent and when.
 

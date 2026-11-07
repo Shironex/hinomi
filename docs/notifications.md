@@ -21,6 +21,51 @@ A finding is never announced twice. Each channel remembers which `opened` or `re
 
 Each channel has a minimum severity (`low`, `moderate`, `high`, `critical`). Blind spots count with the severity shown in the app (alerts disabled is `critical`, alerts unknown and archived but deployed are `high`, the rest `moderate`).
 
+## Fix run events
+
+The same channels announce what happens to a fix run (the fix PR flow, see [design/fix-runner.md](design/fix-runner.md)). These go out **right away**, on every enabled channel: they are rare, someone is waiting on them, and they skip the scan batching, the first scan summary and the daily digest. The channel's minimum severity does not apply (a fix run has no severity).
+
+| Setting | Sent when | Default |
+| --- | --- | --- |
+| `prOpened` | The fix PR is open. Says if it is a draft and why (the checks are failing, the install failed, a step failed). | on |
+| `checksFailing` | The checks on the fix PR are failing. | on |
+| `verified` | The verification rescan found every targeted finding gone, with the cleared count. | on |
+| `notCleared` | The rescan left some findings open: targeted, cleared, still open and new counts. | on |
+| `failed` | The run failed (dispatch refused, result unreadable, PR could not be opened) or was lost, with the reason. | on |
+| `warnings` | A merged run got a `watch_paths_skip` or `deploy_not_seen` warning, one message per code. | on |
+
+Not announced: intermediate states (queued, running, checks pending, merged, deployed), cancelled runs and superseded runs. A run first seen after its PR merged does not announce the PR.
+
+Each (run, event, channel) is sent once. The record lives in the `notify.fixRunState` setting, so it survives a restart, and it is written as soon as a message is delivered. A delivery that failed is not recorded: the next change of that run tries that channel again. A PR that opened as a draft because its checks fail goes out as one message (the draft one), with both events recorded. An event that is switched off is skipped and not recorded. Records of runs that no longer exist are dropped.
+
+**Links.** The message links to the PR on GitHub. It links to the run in Hinomi (`<base>/fix-runs?sel=<run id>`) only for private repos with a public base URL, the same rule as the fix PR body, so a message in a shared channel never shows the address of the instance for a public repo. (Scan messages always link to the finding when a base URL is set; fix messages follow the stricter fix PR rule.)
+
+**Per channel.** Discord gets one embed (title is the headline, linked to the PR, fields for repository, run, plan, PR, draft reason, reason, counts and warnings). Email gets the headline as the subject and the same rows as text and a simple HTML body. A generic webhook gets this JSON:
+
+```json
+{
+  "schema": "hinomi.fix-run.v1",
+  "sentAt": "2026-11-07T08:00:00.000Z",
+  "event": "pr_opened",
+  "summary": "Hinomi: draft fix PR opened for kestrel-co/storefront",
+  "repo": "kestrel-co/storefront",
+  "runId": 12,
+  "runKind": "fix",
+  "state": "pr_open",
+  "plan": { "scanRunId": 7, "version": 2, "steps": { "applied": 2, "skipped": 1, "failed": 0 } },
+  "pr": { "number": 42, "url": "https://github.com/kestrel-co/storefront/pull/42", "draft": true },
+  "draftReason": "a check failed in the runner",
+  "reason": null,
+  "counts": null,
+  "warnings": [],
+  "hinomiUrl": null
+}
+```
+
+- `event`: `pr_opened`, `checks_failing`, `verified`, `not_cleared`, `failed`, `warning:watch_paths_skip` or `warning:deploy_not_seen`.
+- `counts` is `{ targeted, cleared, stillOpen, new }` on `verified` and `not_cleared`, otherwise `null`. `reason` is set on `failed`. `warnings` lists the messages of that code on a warning event.
+- `plan.steps` is `null` until the runner's result was read. Fields are only ever added within `hinomi.fix-run.v1`.
+
 ## Settings
 
 | Key | Meaning |
@@ -29,6 +74,8 @@ Each channel has a minimum severity (`low`, `moderate`, `high`, `critical`). Bli
 | `notify.publicBaseUrl` | Public address of this Hinomi, for example `https://hinomi.example.dev`. Messages link to `<base>/finding/<id>`. Without it there is no link. |
 | `notify.digestHour` | Hour of the day, 0 to 23. |
 | `notify.state` | What was already sent. Internal. |
+| `notify.fixRunEvents` | The six fix run switches (see above). Missing switches are on. |
+| `notify.fixRunState` | Fix run events already sent, per run and channel. Internal. |
 
 A channel is `{ kind: 'discord' | 'webhook' | 'email', name, url, enabled, minSeverity }`. An email channel has no `url`; it carries `email` instead (see Email below).
 
