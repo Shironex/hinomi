@@ -47,9 +47,18 @@ if (config.cfAccess)
     teamDomain: config.cfAccess.teamDomain,
   })
 
+// The endoflife.date data behind the support checks. Nothing is fetched until a repo exists to
+// have pins or frameworks; the stored copy of an earlier run is served either way.
+const support = createSupportData({
+  cache: storage.repositories.httpCache,
+  log,
+  demand: () => storage.repositories.repos.list().length > 0,
+})
+
 const scheduler = createScheduler({
   repositories: storage.repositories,
   log,
+  support: () => support.index(),
   shutdownTimeoutMs: config.shutdownTimeoutMs,
 })
 const notifier = createNotifier({
@@ -153,14 +162,6 @@ if (config.localRunner.enabled) {
 const { build } = config
 const updates = createUpdateChecker({ settings: storage.repositories.settings, build, log })
 log.info('build', { version: build.version, commit: build.commit })
-
-// The endoflife.date data behind the support checks. Nothing is fetched until a repo exists to
-// have pins or frameworks; the stored copy of an earlier run is served either way.
-const support = createSupportData({
-  cache: storage.repositories.httpCache,
-  log,
-  demand: () => storage.repositories.repos.list().length > 0,
-})
 
 const app = createApp({
   build,

@@ -56,10 +56,10 @@ const SERVER_LAYERS = {
   db: [],
   sources: [],
   repository: ['crypto', 'db'],
-  scan: ['db', 'repository', 'sources'],
+  scan: ['db', 'repository', 'sources', 'support'],
   notify: ['crypto', 'db', 'repository', 'scan'],
   runner: ['db', 'repository', 'sources'],
-  scheduler: ['db', 'notify', 'repository', 'scan'],
+  scheduler: ['db', 'notify', 'repository', 'scan', 'support'],
   support: ['repository'],
   webhook: ['crypto', 'db', 'repository'],
   api: [

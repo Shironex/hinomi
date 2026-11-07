@@ -516,7 +516,15 @@ describe('guard findings', () => {
       { subject: { deploymentId: deployment.id }, level, evidence: rootUserEvidence() },
     ]
     const index = indexDeployments(repos)
-    const ctx = { deployments: index.deployments, repos: [], index, scans: new Map(), now: clock }
+    const ctx = {
+      deployments: index.deployments,
+      repos: [],
+      index,
+      scans: new Map(),
+      support: null,
+      supportWindowDays: 90,
+      now: clock,
+    }
     return summary(await runGuards(repos, [fake.guard], ctx, { warn: () => {} }))
   }
 

@@ -21,6 +21,7 @@ import {
   type ScanSources,
   type ScanSummary,
 } from '../scan/index.js'
+import type { SupportIndex } from '../support/index.js'
 
 /** Settings key of the scan interval, in minutes (plain JSON number). */
 export const SCAN_INTERVAL_KEY = 'scan.intervalMinutes'
@@ -101,6 +102,8 @@ export interface SchedulerOptions {
   /** How long `shutdown()` waits for a running scan. Defaults to DEFAULT_SHUTDOWN_TIMEOUT_MS. */
   shutdownTimeoutMs?: number
   now?: () => Date
+  /** The support data index the guards read, asked once per scan. */
+  support?: () => SupportIndex | null
   /** Builds the sources for one scan. Defaults to buildScanSources over storage. */
   buildSources?: (repositories: Repositories) => ScanSources
   /** The scan itself. Tests swap it for a controllable fake. */
@@ -262,6 +265,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
         trigger,
         now,
         log,
+        ...(options.support && { support: options.support }),
         onProgress: (progress) => {
           state.progress = progress
         },

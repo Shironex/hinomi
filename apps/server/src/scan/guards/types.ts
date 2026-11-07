@@ -8,6 +8,7 @@ import type {
 } from '@hinomi/shared'
 import type { DeploymentRow, RepoRow } from '../../db/schema.js'
 import type { GuardSubject } from '../../repository/index.js'
+import type { SupportIndex } from '../../support/index.js'
 import type { RepoScan } from '../collect.js'
 import type { DeploymentIndex } from '../deployments.js'
 
@@ -41,6 +42,10 @@ export interface GuardContext {
   index: DeploymentIndex
   /** This scan's results per repo id: health, alerts and the lockfiles OSV read. */
   scans: ReadonlyMap<number, RepoScan>
+  /** The endoflife.date lookups; null until a copy exists (checks then leave their rows alone). */
+  support: SupportIndex | null
+  /** Days before end of support at which a line turns to a warning (setting supportWindowDays). */
+  supportWindowDays: number
   now: Date
 }
 
