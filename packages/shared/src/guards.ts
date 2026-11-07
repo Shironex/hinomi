@@ -71,6 +71,24 @@ export const RUNTIME_PRODUCTS: Record<Runtime, string> = {
 }
 
 /**
+ * How the support check judges a runtime (decision Q12a).
+ * `support_window`: the line's end of security support from endoflife.date (Node).
+ * `behind_latest`: how many releases a pinned version is behind the latest one, because the
+ * product publishes no usable end dates (Rust supports only the newest stable, Bun publishes none).
+ * It can warn, never fail.
+ */
+export const RUNTIME_SUPPORT_RULES = ['support_window', 'behind_latest'] as const
+export const runtimeSupportRuleSchema = z.enum(RUNTIME_SUPPORT_RULES)
+export type RuntimeSupportRule = z.infer<typeof runtimeSupportRuleSchema>
+
+/** The rule each runtime is judged by. */
+export const RUNTIME_SUPPORT_RULE: Record<Runtime, RuntimeSupportRule> = {
+  node: 'support_window',
+  bun: 'behind_latest',
+  rust: 'behind_latest',
+}
+
+/**
  * Where a runtime pin was read.
  * Node: `nvmrc`, `node_version`, `tool_versions`, `mise`, `volta`, `engines`,
  * `dev_engines`, `dockerfile` (FROM node), `setup_node`, `action_runs_using`.
@@ -231,13 +249,13 @@ export const GUARD_COPY: Record<GuardCheck, GuardCopy> = {
   runtime_support: {
     title: 'Runtime near or past end of support',
     question:
-      'Does the repo pin a Node, Bun or Rust line that has lost, or is about to lose, support?',
+      'Does the repo pin a Node line that has lost, or is about to lose, security support, or a Rust or Bun version far behind the latest?',
     reads:
-      'Runtime pins that decide production: the deployed Dockerfile `FROM`, version files (`.nvmrc`, `.node-version`, `.bun-version`, `.tool-versions`, `mise.toml`, `rust-toolchain.toml`, `volta`, `devEngines`, `packageManager`) and the `engines` floor.',
+      'Runtime pins that decide production: the deployed Dockerfile `FROM`, version files (`.nvmrc`, `.node-version`, `.bun-version`, `.tool-versions`, `mise.toml`, `rust-toolchain.toml`, `volta`, `devEngines`, `packageManager`) and the `engines` floor. Node is checked against its end of security support dates; Rust and Bun against how many releases the pin is behind the latest. Cargo `rust-version` is a minimum, never the running toolchain.',
     levels: ['fail', 'warn', 'unknown'],
     explanation: {
       fail: 'The runtime line this repo runs on no longer gets security fixes.',
-      warn: 'The runtime line this repo runs on loses support soon.',
+      warn: 'The runtime line this repo runs on loses support soon, or (Rust and Bun) the pinned version is several releases behind the latest one.',
       unknown:
         'The pinned line is not in the support data (a typo, or a line newer than the cached copy).',
     },
