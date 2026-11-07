@@ -42,6 +42,7 @@ import {
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { readSupportWindowDays, SUPPORT_WINDOW_KEY } from '../../support/index.js'
 import { readUpdateCheckEnabled, UPDATE_CHECK_KEY } from '../../version/index.js'
 import { latestPlans, tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
@@ -52,6 +53,7 @@ function readSettings(repositories: Repositories): SettingsDto {
     scanIntervalMinutes: readScanIntervalMinutes(repositories.settings),
     ...readScanSettings(repositories.settings),
     updateCheckEnabled: readUpdateCheckEnabled(repositories.settings),
+    supportWindowDays: readSupportWindowDays(repositories.settings),
   }
 }
 
@@ -258,6 +260,9 @@ export function settingsRoutes(deps: ApiDeps) {
       }
       if (body.updateCheckEnabled !== undefined) {
         repositories.settings.set(UPDATE_CHECK_KEY, body.updateCheckEnabled)
+      }
+      if (body.supportWindowDays !== undefined) {
+        repositories.settings.set(SUPPORT_WINDOW_KEY, body.supportWindowDays)
       }
     })
     if (body.scanIntervalMinutes !== undefined) scheduler.reschedule()

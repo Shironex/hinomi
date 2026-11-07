@@ -30,6 +30,7 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
     osvEnabled: true,
     includeAccountRepos: false,
     updateCheckEnabled: true,
+    supportWindowDays: 90,
   },
   ...over,
 })

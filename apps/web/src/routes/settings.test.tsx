@@ -208,6 +208,7 @@ describe('settings', () => {
         osvEnabled: true,
         includeAccountRepos: false,
         updateCheckEnabled: true,
+        supportWindowDays: 90,
       },
     })
     const user = userEvent.setup()

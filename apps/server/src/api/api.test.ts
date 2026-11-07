@@ -370,18 +370,22 @@ describe('settings', () => {
       osvEnabled: true,
       includeAccountRepos: false,
       updateCheckEnabled: true,
+      supportWindowDays: 90,
     })
     expect((await call('PATCH', '/settings', { scanIntervalMinutes: 5 })).status).toBe(400)
     expect((await call('PATCH', '/settings', {})).status).toBe(400)
+    expect((await call('PATCH', '/settings', { supportWindowDays: 0 })).status).toBe(400)
     const updated = await call('PATCH', '/settings', {
       scanIntervalMinutes: 30,
       includeAccountRepos: true,
+      supportWindowDays: 30,
     })
     expect(updated.json).toEqual({
       scanIntervalMinutes: 30,
       osvEnabled: true,
       includeAccountRepos: true,
       updateCheckEnabled: true,
+      supportWindowDays: 30,
     })
   })
 })

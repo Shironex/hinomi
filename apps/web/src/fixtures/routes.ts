@@ -244,6 +244,7 @@ export function fixtureRoute(
         osvEnabled: true,
         includeAccountRepos: false,
         updateCheckEnabled: true,
+        supportWindowDays: 90,
       })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))

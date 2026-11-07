@@ -24,6 +24,7 @@ import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
 import { nowMs } from './clock.js'
+import { SUPPORT_WINDOW_MAX_DAYS, SUPPORT_WINDOW_MIN_DAYS } from './support.js'
 
 // Contract of the JSON API under /api (see docs/api.md). The server validates
 // every request with these schemas and every response before it is sent;
@@ -1280,6 +1281,8 @@ export const settingsSchema = z.object({
   includeAccountRepos: z.boolean(),
   /** The daily look at the latest GitHub release. On unless switched off. */
   updateCheckEnabled: z.boolean(),
+  /** Days before end of life at which a support window turns to a warning. */
+  supportWindowDays: z.number().int().min(SUPPORT_WINDOW_MIN_DAYS).max(SUPPORT_WINDOW_MAX_DAYS),
 })
 export type SettingsDto = z.infer<typeof settingsSchema>
 
