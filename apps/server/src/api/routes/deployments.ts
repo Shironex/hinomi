@@ -16,8 +16,13 @@ import {
 import { Hono } from 'hono'
 import type { DeploymentRow, RepoRow } from '../../db/schema.js'
 import type { Repositories, Source } from '../../repository/index.js'
-import { isImageOnly, needsRepoMapping } from '../../scan/deployments.js'
-import { isExposed, listRankedFindings, type RankedFinding } from '../../scan/index.js'
+import {
+  isExposed,
+  isImageOnly,
+  listRankedFindings,
+  needsRepoMapping,
+  type RankedFinding,
+} from '../../scan/index.js'
 import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'

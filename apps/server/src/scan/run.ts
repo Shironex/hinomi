@@ -8,7 +8,7 @@ import {
 } from '@hinomi/shared'
 import type { RepoRow, ScanSourceResult } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
-import { mapLimit } from '../sources/osv/client.js'
+import { mapLimit } from '../sources/osv/index.js'
 import { applyRepoAdvisories, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
 import { collectGithub, collectOsv, errorMessage, type RepoScan } from './collect.js'

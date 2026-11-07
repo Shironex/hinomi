@@ -1,6 +1,6 @@
 import { FINDING_TIERS, type FindingTier } from '@hinomi/shared'
 import type { DeploymentRow, RepoRow } from '../db/schema.js'
-import { compareVersions } from '../sources/osv/semver.js'
+import { compareVersions } from '../sources/osv/index.js'
 import { tierOf } from './rank.js'
 import type { RankedFinding } from './views.js'
 

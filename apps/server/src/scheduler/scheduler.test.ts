@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ONBOARDING_KEYS } from '../api/routes/onboarding.js'
 import { controllableScan, EMPTY_SOURCES, recordingLogger } from '../api/testing.js'
 import { createTestRepositories } from '../db/test-db.js'
-import type { Repositories } from '../repository/index.js'
+import { ONBOARDING_KEYS, type Repositories } from '../repository/index.js'
 import {
   createScheduler,
   INTERRUPTED_SCAN_MESSAGE,
