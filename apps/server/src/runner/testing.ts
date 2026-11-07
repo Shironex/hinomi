@@ -1,4 +1,12 @@
-import { FINDING_TIERS, fixPlanSchema, type FindingTier, type FixPlan } from '@hinomi/shared'
+import {
+  FINDING_TIERS,
+  FIX_RESULT_SCHEMA,
+  fixPlanSchema,
+  parseFixResult,
+  type FindingTier,
+  type FixPlan,
+  type FixResultV1,
+} from '@hinomi/shared'
 import type { FixPlanRow, RepoRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 
@@ -186,4 +194,47 @@ export function connectGithubToken(
   token = 'github_pat_fictional0000000000000000',
 ) {
   return repos.sources.create({ kind: 'github', name: 'kestrel-co', token })
+}
+
+/**
+ * The runner's result for a runner plan: both safe steps applied, install and one check
+ * passed. `checkFailed` makes the test check fail, so the PR is a draft.
+ */
+export function runnerResult(
+  plan: FixPlan,
+  runId: string,
+  options: { repo?: string; checkFailed?: boolean } = {},
+): FixResultV1 {
+  const safe = plan.steps.filter((step) => step.risk === 'safe')
+  return parseFixResult({
+    schema: FIX_RESULT_SCHEMA,
+    runId,
+    planScanRunId: plan.scanRunId,
+    repo: options.repo ?? plan.repo.fullName,
+    baseSha: 'a'.repeat(40),
+    packageManager: 'pnpm',
+    packageManagerVersion: '10.20.0',
+    checksMode: 'full',
+    steps: safe.map((step) => ({
+      id: step.id,
+      status: 'applied',
+      reason: null,
+      detail: null,
+      files: ['package.json'],
+    })),
+    releaseAge: [],
+    install: { status: 'ok', durationMs: 20_000, output: null, truncated: false },
+    checks: [
+      {
+        name: 'test',
+        command: 'pnpm test',
+        status: options.checkFailed ? 'failed' : 'passed',
+        durationMs: 40_000,
+        output: options.checkFailed ? 'FAIL harbor.test.ts' : null,
+        truncated: false,
+      },
+    ],
+    patch: { sha256: 'b'.repeat(64), files: ['package.json'], insertions: 2, deletions: 2 },
+    finishedAt: '2026-11-07T10:05:00.000Z',
+  })
 }

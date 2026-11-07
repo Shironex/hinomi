@@ -6,7 +6,7 @@ import {
   type FixRunKind,
   type FixRunnerKind,
 } from '@hinomi/shared'
-import { and, desc, eq, inArray, isNotNull, ne, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { fixRuns, type FixRunRow } from '../db/schema.js'
 import {
@@ -236,6 +236,35 @@ export function createFixRunsRepository(db: Db) {
         .map((r) => r.id)
       if (latest.length === 0) return []
       return db.select().from(fixRuns).where(inArray(fixRuns.id, latest)).all()
+    },
+
+    /**
+     * The run that recorded PR `prNumber` as closed without merging before the run `before`
+     * was created. When there is one, the dispatch of `before` went through the reopen question
+     * (decision 10 of the runner design), so a fresh PR may replace the closed one.
+     */
+    closedUnmergedPr(
+      repoId: number,
+      kind: FixRunKind,
+      prNumber: number,
+      before: { id: number; createdAt: Date },
+    ): FixRunRow | undefined {
+      return db
+        .select()
+        .from(fixRuns)
+        .where(
+          and(
+            eq(fixRuns.repoId, repoId),
+            eq(fixRuns.kind, kind),
+            eq(fixRuns.prNumber, prNumber),
+            eq(fixRuns.state, 'closed_unmerged'),
+            lt(fixRuns.id, before.id),
+            lte(fixRuns.closedAt, before.createdAt),
+          ),
+        )
+        .orderBy(desc(fixRuns.id))
+        .limit(1)
+        .get()
     },
 
     /**
