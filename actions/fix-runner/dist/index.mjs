@@ -5893,6 +5893,102 @@ const guardEvidenceSchema = discriminatedUnion("check", [
 	actionRuntimeEvidenceSchema
 ]);
 
+// ../../packages/shared/src/sources/deployment-facts.ts
+const FACT_KEYS = [
+	"user",
+	"mounts",
+	"networks",
+	"privileged",
+	"image",
+	"buildPack",
+	"dockerfile",
+	"destination",
+	"project",
+	"autoDeploy",
+	"watchPaths"
+];
+const factKeySchema = _enum(FACT_KEYS);
+const factMountSchema = object({
+	origin: mountSourceSchema,
+	type: _enum([
+		"bind",
+		"volume",
+		"tmpfs",
+		"other"
+	]),
+	source: string().nullable(),
+	target: string().nullable(),
+	readOnly: boolean(),
+	service: string().nullable()
+});
+const factNetworkSchema = object({
+	origin: _enum(["run_options", "compose"]),
+	name: string(),
+	service: string().nullable()
+});
+const factServiceSchema = object({
+	name: string(),
+	user: string().nullable(),
+	image: string().nullable(),
+	build: object({
+		context: string().nullable(),
+		dockerfile: string().nullable(),
+		target: string().nullable()
+	}).nullable(),
+	privileged: boolean(),
+	networkMode: string().nullable()
+});
+const inlineDockerfileFactSchema = object({
+	kind: _enum([
+		"none",
+		"root",
+		"non_root",
+		"unknown"
+	]),
+	user: string().nullable(),
+	line: number$1().int().positive().nullable(),
+	stage: string().nullable(),
+	from: string().nullable(),
+	baseImage: string().nullable(),
+	baseNonroot: boolean()
+});
+const dockerfileFactSchema = object({
+	location: string().nullable(),
+	baseDirectory: string().nullable(),
+	target: string().nullable(),
+	inline: inlineDockerfileFactSchema.nullable()
+});
+const destinationFactSchema = object({
+	server: string().nullable(),
+	typeName: string().nullable(),
+	id: number$1().int().nullable()
+});
+const projectFactSchema = object({
+	key: string(),
+	name: string().nullable(),
+	environment: string().nullable()
+});
+const deploymentFactsSchema = object({
+	version: literal(1),
+	fetchedAt: string(),
+	buildPack: string().nullable(),
+	image: string().nullable(),
+	commit: string().nullable(),
+	user: string().nullable(),
+	services: array(factServiceSchema),
+	dockerfile: dockerfileFactSchema.nullable(),
+	mounts: array(factMountSchema),
+	mountsChecked: array(mountSourceSchema),
+	networks: array(factNetworkSchema),
+	hostNetwork: boolean(),
+	privileged: boolean(),
+	destination: destinationFactSchema.nullable(),
+	attachedToDestination: boolean().nullable(),
+	project: projectFactSchema.nullable(),
+	autoDeploy: boolean().nullable(),
+	gaps: partialRecord(factKeySchema, string().max(300))
+});
+
 // ../../packages/shared/src/sources/coolify.ts
 const deploymentKindSchema = _enum([
 	"application",
@@ -5913,7 +6009,9 @@ const deploymentRecordSchema = object({
 	status: string(),
 	image: string().nullable(),
 	lastDeployAt: string().nullable(),
-	watchPaths: array(string()).nullable()
+	watchPaths: array(string()).nullable(),
+	facts: deploymentFactsSchema.nullable().optional(),
+	factsVersion: string().nullable().optional()
 });
 const coolifyConnectionConfigSchema = object({
 	name: string().min(1),
