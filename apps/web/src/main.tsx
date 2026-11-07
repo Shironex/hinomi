@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { registerServiceWorker } from './lib/pwa'
 import { createQueryClient } from './lib/queries'
 import { syncThemeFromStorage, THEME_STORAGE_KEY, watchSystemTheme } from './lib/theme'
 import { createAppRouter } from './router'
@@ -14,6 +15,8 @@ watchSystemTheme()
 window.addEventListener('storage', (event) => {
   if (event.key === THEME_STORAGE_KEY) syncThemeFromStorage()
 })
+
+registerServiceWorker()
 
 const queryClient = createQueryClient()
 const router = createAppRouter({ queryClient })
