@@ -19,7 +19,7 @@ Hinomi answers one question: **is anything that is deployed and reachable right 
 
 | Source | What it gives | How |
 |---|---|---|
-| Coolify API | applications, services, databases: git repo, branch, domains, status, server, image, last deploy | `GET /api/v1/applications`, `/services`, `/servers` with a read token |
+| Coolify API | applications, services, databases: git repo, branch, domains, status, server, image, last deploy; deployment facts for the guards (build pack, run options, compose, inline Dockerfile, storages, destination, project, auto deploy) | `GET /api/v1/applications`, `/services`, `/servers`, `/databases` with a read token; per changed resource `/{applications,services,databases}/{uuid}/storages` (and `/applications/{uuid}` when the list has no `settings`); `/projects` and `/projects/{uuid}/environments` when anything changed |
 | GitHub | Dependabot alerts per repo, repo metadata (archived, default branch, alerts enabled) | GraphQL `repository.vulnerabilityAlerts` (severity, CVSS, `dependencyScope` RUNTIME/DEVELOPMENT, vulnerable range, first patched version, manifest path); REST `GET /repos/{o}/{r}/vulnerability-alerts` (404 = disabled) |
 | OSV.dev | independent advisory matching from lockfiles, covers repos with Dependabot off | fetch lockfiles via GitHub contents API, parse (pnpm, npm, yarn, bun, Cargo first), `POST /v1/querybatch` |
 | Later | plain Docker hosts (labels), GitHub releases for desktop apps, Docker image scan | phase 2+ |
