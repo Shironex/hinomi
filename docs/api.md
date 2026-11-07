@@ -180,6 +180,7 @@ The GitHub Actions fix runner applies a repo's latest plan in the repo's own Act
 |---|---|
 | `GET /api/repos/:id/runner` | Settings plus a live status (see below). Reads GitHub, never writes |
 | `PATCH /api/repos/:id/runner` | `{ enabled?, workflow? }`. `workflow` is a file name under `.github/workflows` ending in `.yml` or `.yaml`; `null` goes back to `hinomi-fix.yml`. Answers with the same status |
+| `POST /api/repos/:id/runner/setup-pr` | Opens the PR that adds the caller workflow, or moves its pin to the latest release (see below). No body |
 | `POST /api/repos/:id/fix-runs` | Dispatches the repo's latest plan. Body `{ confirmReopen? }`. 201 `{ run, encoding, omittedStepIds }` |
 | `GET /api/repos/:id/fix-runs` | `{ items }`, newest first. `?kind=fix\|majors`, `?limit=` 1 to 100 (default 50) |
 | `GET /api/fix-runs/:id` | One run, plus `tracking`: `{ lastPolledAt, nextPollAt, lastError, pausedUntil }` from the tracker, null when it has not looked at the run since the server started or no longer follows it; `deployments`, `warnings` and `verification` (see below) |
@@ -192,10 +193,20 @@ The runner status:
 | `ready` | On, the credential may dispatch, and the caller workflow calls Hinomi with every input |
 | `github` | `{ fullName, defaultBranch, visibility, checksMode }` as GitHub reports the repo now, null when it could not be read. `checksMode` is `full` on public repos and `install` on private ones |
 | `permissions` | `{ auth, ok, canOpenSetupPr, items, message }`. `auth` is `github_app`, `fine_grained_token` or `classic_token`. Each item is `{ name, label, purpose, required, status }` with `status` `granted`, `missing` or `unverified` (a fine grained token's write access cannot be read without writing, so a working read leaves it unverified) |
-| `caller` | `{ state, path, ref, latestSha, missingInputs, message, template }`. `state`: `missing`, `invalid` (not YAML), `not_hinomi`, `unpinned` (a tag or branch), `pinned` (a SHA, no release SHA known yet), `current`, `outdated`, `unknown` (could not be read). `template` is the caller workflow to paste |
+| `setupPr` | `{ available, reason }`: whether the setup PR button can work. `reason` always says why, also when it is available but unverified (a fine grained token's Workflows write cannot be read in advance, so Hinomi tries and explains a refusal) |
+| `caller` | `{ state, path, ref, present, pinnedSha, latestSha, outdated, missingInputs, message, template }`. `present`: the file exists on the default branch. `pinnedSha`: the SHA it pins, null when unpinned or absent. `outdated`: pinned to a SHA other than `latestSha`. `state`: `missing`, `invalid` (not YAML), `not_hinomi`, `unpinned` (a tag or branch), `pinned` (a SHA, no release SHA known yet), `current`, `outdated`, `unknown` (could not be read). `template` is the caller workflow to paste |
 | `latestRun` | The newest fix run, or null |
 | `closedUnmerged` | `{ runId, pr: { number, url }, closedAt }` when the last fix PR was closed without merging, else null |
 | `message` | What to do next, or `Ready to dispatch.` |
+
+The setup PR, `POST /api/repos/:id/runner/setup-pr` (`apps/server/src/runner/setup-pr.ts`):
+
+1. Renders the caller for the repo's workflow file name, pinned to the latest release SHA (read from GitHub as for `caller.latestSha`).
+2. Reads the file on the default branch. If it is already exactly that text, answers `already_set_up` and opens nothing.
+3. Creates the branch `hinomi/setup-fix-runner` from the default branch head (or reuses it), puts the file on it, and opens a PR (`ci(hinomi): add the hinomi fix runner`, or `update the pin of the hinomi fix runner` when the file already exists). An open PR from an earlier call is reused and its text refreshed, so the call is safe to repeat.
+4. Answers `{ outcome, pr, path, sha, version }`: 201 with `outcome: "created"`, or 200 with `updated` (existing PR, now current) or `already_set_up` (`pr` is null).
+
+Refused: 404 unknown repo; 409 when no release SHA is known yet (an instance that cannot reach api.github.com and has none built in), or when the credential is known not to write workflow files (classic token without `workflow`, App without Workflows: write), or GitHub refused the write; 503 when GitHub could not be asked. The message says what to grant.
 
 How a dispatch goes:
 
