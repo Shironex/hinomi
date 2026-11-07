@@ -13,7 +13,9 @@ import { readOnboarding, type Repositories, type SettingsRepository } from '../r
 import {
   buildScanSources,
   errorMessage,
+  runRepoScan,
   runScan,
+  type RepoScanSummary,
   type RunScanOptions,
   type ScanProgress,
   type ScanSources,
@@ -67,6 +69,11 @@ export interface Scheduler {
   stop(): void
   /** Starts a scan unless one is running, in which case that one is returned. */
   scanNow(trigger?: ScanTrigger): StartScanResult
+  /**
+   * Rescans one repo (fix run verification) without recording a scan run. Null while a full scan
+   * is running (that scan covers the repo; listen with onScanFinished) or once shutdown began.
+   */
+  scanRepo(repoId: number): Promise<RepoScanSummary> | null
   /** Re-reads the interval and sources and plans the next scan again (after a settings change). */
   reschedule(): void
   /**
@@ -102,6 +109,8 @@ export interface SchedulerOptions {
     sources: ScanSources,
     options: RunScanOptions,
   ) => Promise<ScanSummary>
+  /** The rescan of one repo. Tests swap it for a fake. */
+  runRepoScan?: typeof runRepoScan
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
 }
@@ -155,6 +164,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const now = options.now ?? (() => currentTime())
   const build = options.buildSources ?? ((repos: Repositories) => buildScanSources(repos))
   const scan = options.runScan ?? runScan
+  const scanOneRepo = options.runRepoScan ?? runRepoScan
   const setTimer = options.setTimer ?? defaultSetTimer
   const clearTimer = options.clearTimer ?? defaultClearTimer
 
@@ -325,6 +335,14 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     stop,
 
     scanNow,
+
+    scanRepo(repoId) {
+      if (closed || active) return null
+      // Inside an async function, so a source that cannot be built rejects instead of throwing.
+      const rescan = async () =>
+        scanOneRepo({ repositories }, build(repositories), repoId, { now, log })
+      return rescan()
+    },
 
     reschedule() {
       if (active) return

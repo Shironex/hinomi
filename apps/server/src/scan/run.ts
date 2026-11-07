@@ -9,9 +9,9 @@ import {
 import type { RepoRow, ScanSourceResult } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { mapLimit } from '../sources/osv/index.js'
-import { applyRepoAdvisories, type FindingChange } from './apply.js'
+import { applyRepoAdvisories, coveringSources, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
-import { collectGithub, collectOsv, errorMessage, type RepoScan } from './collect.js'
+import { collectGithub, collectOsv, collectRepo, errorMessage, type RepoScan } from './collect.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
 import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
@@ -211,7 +211,7 @@ function tallyRepo(ctx: ScanContext, scan: RepoScan): void {
   }
 }
 
-function saveRepoHealth(ctx: ScanContext, scan: RepoScan): void {
+function saveRepoHealth(ctx: Pick<ScanContext, 'repositories' | 'now'>, scan: RepoScan): void {
   const { repos } = ctx.repositories
   if (scan.health.status === 'ok') {
     const health = scan.health.value
@@ -435,5 +435,85 @@ export async function runScan(
     ...counts,
     changes,
     errors: ctx.errors,
+  }
+}
+
+export interface RepoScanSummary {
+  repoId: number
+  /** `failed` when a source could not read the repo fully; its findings may be stale. */
+  status: 'succeeded' | 'failed'
+  startedAt: Date
+  finishedAt: Date
+  /** Findings of the repo this rescan created or changed. */
+  changes: FindingChange[]
+  errors: ScanError[]
+}
+
+/** Why a repo rescan cannot be trusted to say which findings are gone, or null. */
+function incompleteReason(scan: RepoScan): ScanError | null {
+  const subject = `${scan.repo.owner}/${scan.repo.name}`
+  if (scan.health.status === 'error') {
+    return { source: 'github', subject, error: scan.health.error }
+  }
+  if (scan.alerts.status === 'error') {
+    return { source: 'github', subject, error: scan.alerts.error }
+  }
+  if (scan.osv.status === 'error') return { source: 'osv', subject, error: scan.osv.error }
+  if (scan.osv.status === 'ok' && scan.osv.value.unparseable.length > 0) {
+    const first = scan.osv.value.unparseable[0]!
+    return { source: 'osv', subject, error: `could not read ${first.path}: ${first.error}` }
+  }
+  if (coveringSources(scan).size === 0) {
+    return { source: 'github', subject, error: 'no source could read the repo' }
+  }
+  return null
+}
+
+/**
+ * A rescan of one repo, for verifying a fix: GitHub alerts and lockfiles of that repo only,
+ * written to its findings like a full scan does. It records no scan run (so the schedule and the
+ * last scan stay as they are), builds no fix plan and leaves blind spots to the next full scan.
+ * `failed` when a source errored or a lockfile could not be read, since findings that source
+ * reported then stay open whether or not they are fixed. Never throws.
+ */
+export async function runRepoScan(
+  storage: { repositories: Repositories },
+  sources: ScanSources,
+  repoId: number,
+  options: Pick<RunScanOptions, 'now' | 'log'> = {},
+): Promise<RepoScanSummary> {
+  const now = options.now ?? (() => currentTime())
+  const log = options.log ?? silent
+  const { repositories } = storage
+  const startedAt = now()
+  const done = (
+    status: RepoScanSummary['status'],
+    changes: FindingChange[],
+    errors: ScanError[],
+  ) => {
+    const summary = { repoId, status, startedAt, finishedAt: now(), changes, errors }
+    log.info('scan: repo rescan finished', { repoId, status, changes: changes.length })
+    return summary
+  }
+  const repo = repositories.repos.get(repoId)
+  if (!repo) {
+    return done(
+      'failed',
+      [],
+      [{ source: 'github', subject: `repo ${repoId}`, error: 'unknown repo' }],
+    )
+  }
+  try {
+    const deployments = indexDeployments(repositories).byRepo.get(repo.id) ?? []
+    const scan = await collectRepo(sources, repo, deployments)
+    const ctx: Pick<ScanContext, 'repositories' | 'now'> = { repositories, now }
+    saveRepoHealth(ctx, scan)
+    const changes = applyRepoAdvisories(repositories, scan, now())
+    const incomplete = incompleteReason(scan)
+    return done(incomplete ? 'failed' : 'succeeded', changes, incomplete ? [incomplete] : [])
+  } catch (error) {
+    const subject = `${repo.owner}/${repo.name}`
+    log.warn('scan: repo rescan failed', { repoId, error: errorMessage(error) })
+    return done('failed', [], [{ source: 'github', subject, error: errorMessage(error) }])
   }
 }

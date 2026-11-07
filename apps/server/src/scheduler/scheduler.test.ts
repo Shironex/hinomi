@@ -313,3 +313,45 @@ describe('scheduler', () => {
     })
   })
 })
+
+describe('repo rescans', () => {
+  it('rescans one repo when no full scan runs, and refuses while one does or after shutdown', async () => {
+    const summary = {
+      repoId: 4,
+      status: 'succeeded' as const,
+      startedAt: new Date('2026-11-01T10:00:00Z'),
+      finishedAt: new Date('2026-11-01T10:00:05Z'),
+      changes: [],
+      errors: [],
+    }
+    const runRepoScan = vi.fn(() => Promise.resolve(summary))
+    const { repos, scan, scheduler } = setup({ runRepoScan })
+    connect(repos)
+
+    await expect(scheduler.scanRepo(4)).resolves.toBe(summary)
+    expect(runRepoScan).toHaveBeenCalledWith({ repositories: repos }, EMPTY_SOURCES, 4, {
+      now: expect.any(Function) as unknown,
+      log: expect.anything() as unknown,
+    })
+    expect(repos.scanRuns.list()).toHaveLength(0)
+
+    scheduler.scanNow()
+    expect(scheduler.scanRepo(4)).toBeNull()
+    scan.finish()
+    await scheduler.idle()
+    expect(scheduler.scanRepo(4)).not.toBeNull()
+
+    await scheduler.shutdown()
+    expect(scheduler.scanRepo(4)).toBeNull()
+    expect(runRepoScan).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects instead of throwing when the sources cannot be built', async () => {
+    const { scheduler } = setup({
+      buildSources: () => {
+        throw new Error('HINOMI_SECRET_KEY is not set')
+      },
+    })
+    await expect(scheduler.scanRepo(4)).rejects.toThrow('HINOMI_SECRET_KEY is not set')
+  })
+})

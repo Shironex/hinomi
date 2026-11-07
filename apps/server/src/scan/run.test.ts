@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
-import { runScan, type ScanProgress, type ScanSummary } from './run.js'
+import { runRepoScan, runScan, type ScanProgress, type ScanSummary } from './run.js'
 import { SCAN_SETTING_KEYS } from './settings.js'
 import { buildScanSources } from './sources.js'
 import { tierOf } from './rank.js'
@@ -784,5 +784,47 @@ describe('alerts GitHub keeps open although the lockfile is patched', () => {
     world.lockfiles['harbor-web'] = { 'example-parser': '1.2.0' }
     await scan(2)
     expect(advisoryFinding('harbor-web', GHSA)).toMatchObject({ patchedInLockfile: false })
+  })
+})
+
+describe('runRepoScan', () => {
+  function rescan(name: string, n: number) {
+    const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+    return runRepoScan({ repositories: repos }, sources, repoId(name), {
+      now: () => new Date(t0 + n * day),
+    })
+  }
+
+  it('fixes the findings of one repo without a scan run or touching other repos', async () => {
+    await scan(0)
+    const runs = repos.scanRuns.list().length
+    world.githubAlerts['harbor-web'] = []
+    world.lockfiles['harbor-web'] = { 'example-parser': '1.2.5' }
+    world.lockfiles['lantern-api'] = { 'example-yaml': '3.0.1' }
+    const summary = await rescan('harbor-web', 1)
+    expect(summary).toMatchObject({ status: 'succeeded', errors: [] })
+    const fixed = advisoryFinding('harbor-web', 'GHSA-hw00-0000-0001')!
+    expect(fixed.state).toBe('fixed')
+    expect(summary.changes).toEqual([{ findingId: fixed.id, change: 'fixed' }])
+    // Other repos wait for the next full scan; no scan run is recorded.
+    expect(advisoryFinding('lantern-api', 'GHSA-la00-0000-0002')!.state).toBe('open')
+    expect(repos.scanRuns.list()).toHaveLength(runs)
+    expect(repos.repos.get(repoId('harbor-web'))!.lastScannedAt).toEqual(new Date(t0 + day))
+  })
+
+  it('fails when a source could not read the repo, keeping its findings open', async () => {
+    await scan(0)
+    world.githubAlerts['harbor-web'] = []
+    world.repoStatus['harbor-web'] = 500
+    const summary = await rescan('harbor-web', 1)
+    expect(summary.status).toBe('failed')
+    expect(summary.errors[0]).toMatchObject({ subject: 'kestrel-co/harbor-web' })
+    expect(advisoryFinding('harbor-web', 'GHSA-hw00-0000-0001')!.state).toBe('open')
+  })
+
+  it('fails for an unknown repo', async () => {
+    const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
+    const summary = await runRepoScan({ repositories: repos }, sources, 999)
+    expect(summary).toMatchObject({ status: 'failed', changes: [] })
   })
 })
