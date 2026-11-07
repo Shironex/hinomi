@@ -105,12 +105,14 @@ export function createTestApi({
   fixRunTracking,
   localRunner,
   updates,
+  support,
 }: {
   withSecret?: boolean
   sourceFetch?: typeof fetch
   fixRunTracking?: ApiOptions['fixRunTracking']
   localRunner?: ApiOptions['localRunner']
   updates?: ApiOptions['updates']
+  support?: ApiOptions['support']
 } = {}) {
   const { handle, repos } = createTestRepositories({ withSecret })
   const scan = controllableScan()
@@ -211,6 +213,7 @@ export function createTestApi({
       webhookRunner,
       ...(localRunner && { localRunner }),
       ...(updates && { updates }),
+      ...(support && { support }),
     },
   })
 

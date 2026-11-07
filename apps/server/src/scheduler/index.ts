@@ -25,3 +25,8 @@ export {
   type FixRunTrackingTimer,
   type FixRunTrackingTimerOptions,
 } from './fix-runs.js'
+export {
+  SUPPORT_FIRST_DELAY_MS,
+  startSupportRefresh,
+  type SupportRefreshTimerOptions,
+} from './support.js'
