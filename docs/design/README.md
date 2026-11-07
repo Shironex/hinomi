@@ -2,6 +2,7 @@
 
 - [tokens.css](tokens.css): the Nightshade design tokens as a Tailwind CSS v4 starting point (`:root` light, `.dark`, `@theme inline`), using shadcn token names where they exist. The app's copy is `apps/web/src/index.css`.
 - [fix-runner.md](fix-runner.md): design of the GitHub Actions fix runner that applies fix plans and opens one pull request per repo.
+- [phase-2.md](phase-2.md): design of phase 2 (v0.3.0): guard findings, runtime support windows, image scan, desktop tier, more lockfiles and deployment sources, with the decisions taken.
 - [github-sources.md](github-sources.md): several GitHub sources, and which one reads and fixes each repo.
 - [prototype.html](prototype.html): the first interactive prototype (open it in a browser), kept as history. It predates the Nightshade redesign; its layout and tokens are no longer current. All demo data is fictional.
 
