@@ -1,7 +1,8 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runFor, runnerFor } from '@/fixtures/fix-runs'
+import { PLANS, runFor, runnerFor } from '@/fixtures/fix-runs'
+import { presetTokenUrl } from '@/lib/github-token-url'
 import { fixtureRoute } from '@/fixtures/routes'
 import { closeFix } from '@/lib/fix-request'
 import { Reply, reply } from '@/test/mock-api'
@@ -225,6 +226,26 @@ describe('fix runs page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The token cannot write workflow files',
     )
+  })
+
+  it('links a prefilled runner token when a token lacks runner permissions', async () => {
+    wideScreen()
+    fixtureApi()
+    const auth = PLANS.find((p) => p.repo.name === 'auth')!.repo
+    await renderApp(`/fix-runs?sel=plan-${auth.id}`)
+    const link = await screen.findByRole('link', { name: 'Create a token for the runner' })
+    expect(link).toHaveAttribute('href', presetTokenUrl('runner', 'kestrel-co'))
+    expect(new URL(link.getAttribute('href')!).searchParams.get('target_name')).toBe('kestrel-co')
+    expect(screen.getByText('Only select repositories')).toBeVisible()
+    expect(screen.getByText(/Workflows: write/, { selector: 'b' }).closest('li')).toHaveTextContent(
+      /only for the setup PR/,
+    )
+
+    // A GitHub App has no token to create, and a ready runner needs none.
+    cleanup()
+    await renderApp('/fix-runs?sel=plan-1')
+    await screen.findByRole('heading', { name: 'Permissions' })
+    expect(screen.queryByRole('link', { name: 'Create a token for the runner' })).toBeNull()
   })
 
   it('turns the runner off and saves the workflow file', async () => {
