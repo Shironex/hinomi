@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { LOCAL_RUNNER_WARNING } from '@hinomi/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { planFor, runnerFor } from '@/fixtures/fix-runs'
+import { repoDetailFor } from '@/fixtures/repo-sources'
 import { fixtureRoute, type FixtureScenario } from '@/fixtures/routes'
 import { closeFix } from '@/lib/fix-request'
 import { Reply, reply } from '@/test/mock-api'
@@ -332,5 +333,106 @@ describe('Fix with Hinomi on other runners', () => {
     expect(dialog).toHaveTextContent('on this Hinomi host and opens one pull request')
     expect(within(dialog).getByText(/installs from the lockfile only/)).toBeVisible()
     expect(within(dialog).queryByText(/majors agent takes/)).not.toBeInTheDocument()
+  })
+})
+
+describe('repo github source', () => {
+  const sourceSection = async () =>
+    within((await screen.findByRole('heading', { name: 'GitHub source' })).closest('section')!)
+
+  it('shows the source that reads the repo and switches it when several see it', async () => {
+    const calls = fixtureApi({
+      'PATCH /repos/1': (body: unknown) => {
+        const detail = repoDetailFor(1)!
+        const id = (body as { sourceId: number | null }).sourceId
+        const picked = detail.source.seenBy.find((s) => s.id === id)!
+        return {
+          ...detail,
+          source: {
+            ...detail.source,
+            current: { id: picked.id, name: picked.name, auth: picked.auth, enabled: true },
+            mode: 'override',
+            overrideId: id,
+          },
+        }
+      },
+    })
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    const section = await sourceSection()
+    expect(await section.findByText('kestrel-co')).toBeVisible()
+    expect(section.getByText('Picked by the scan')).toBeVisible()
+    expect(section.getByText(/2 GitHub sources see this repo/)).toBeVisible()
+    const select = section.getByLabelText('Read and fix through')
+    expect(select).toHaveValue('auto')
+    expect(
+      within(select).getByRole('option', { name: 'mara-kestrel, token, cannot read alerts' }),
+    ).toBeInTheDocument()
+    await user.selectOptions(select, '3')
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH' && c.path === '/repos/1')?.body).toEqual({
+        sourceId: 3,
+      }),
+    )
+    expect(await section.findByText('Picked by hand')).toBeVisible()
+    expect(section.getByText('mara-kestrel')).toBeVisible()
+  })
+
+  it('goes back to the scan choice with null', async () => {
+    const detail = repoDetailFor(1)!
+    const calls = fixtureApi({
+      'GET /repos/1': {
+        ...detail,
+        source: { ...detail.source, mode: 'override', overrideId: 2 },
+      },
+      'PATCH /repos/1': detail,
+    })
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    const section = await sourceSection()
+    const select = await section.findByLabelText('Read and fix through')
+    expect(select).toHaveValue('2')
+    await user.selectOptions(select, 'auto')
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH' && c.path === '/repos/1')?.body).toEqual({
+        sourceId: null,
+      }),
+    )
+    expect(await section.findByText('Picked by the scan')).toBeVisible()
+  })
+
+  it('offers no switch when only one source sees the repo', async () => {
+    fixtureApi()
+    await setup('/fix-runs?sel=plan-23')
+    const section = await sourceSection()
+    expect(await section.findByText('kestrel-co')).toBeVisible()
+    expect(section.getByText(/The only GitHub source that sees this repo/)).toBeVisible()
+    expect(section.queryByLabelText('Read and fix through')).not.toBeInTheDocument()
+  })
+
+  it('says when no source can read the repo and links to the sources', async () => {
+    fixtureApi({
+      'GET /repos/1': {
+        ...repoDetailFor(1)!,
+        source: { current: null, mode: 'none', overrideId: null, seenBy: [] },
+      },
+    })
+    await setup('/fix-runs?sel=plan-1')
+    const section = await sourceSection()
+    expect(await section.findByText('No source can read it')).toBeVisible()
+    expect(section.getByRole('link', { name: 'Settings, Sources' })).toHaveAttribute(
+      'href',
+      '/settings?sel=sources',
+    )
+  })
+
+  it('shows the refusal of a switched off source', async () => {
+    fixtureApi({
+      'PATCH /repos/1': reply(409, {
+        error: { code: 'conflict', message: 'GitHub source "mara-kestrel" is switched off.' },
+      }),
+    })
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    const section = await sourceSection()
+    await user.selectOptions(await section.findByLabelText('Read and fix through'), '3')
+    expect(await section.findByRole('alert')).toHaveTextContent('is switched off')
   })
 })

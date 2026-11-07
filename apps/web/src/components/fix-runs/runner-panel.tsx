@@ -45,6 +45,7 @@ import {
 } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { ownerOf } from '@/lib/github-token-url'
+import { RepoSource } from './repo-source'
 import { RunnerKindPicker } from './runner-kind-picker'
 import { SetupPrButton } from './setup-pr-button'
 
@@ -391,6 +392,8 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
             </pre>
           </section>
         ) : null}
+
+        <RepoSource repoId={repoId} />
 
         <section aria-labelledby={`perms-${repoId}`} className="flex flex-col gap-2.5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
