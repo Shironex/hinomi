@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
-import type { HealthResponse } from '@hinomi/shared'
+import { GITHUB_WEBHOOK_PATH, type HealthResponse } from '@hinomi/shared'
 import { Hono } from 'hono'
 import type { AccessOptions } from './access/index.js'
 import { errorBody, errorHandler } from './api/http.js'
 import { registerApiRoutes, type ApiOptions } from './api/index.js'
 import { accessRoutes } from './api/routes/access.js'
 import { silentLogger, type Logger } from './log.js'
+import type { GithubWebhookReceiver } from './webhook/index.js'
 
 export interface AppOptions {
   /** Directory with the built SPA. Static serving is skipped when it does not exist. */
@@ -43,6 +44,11 @@ export function createApp({
   const onError = errorHandler(apiOptions?.log ?? log)
   app.onError(onError)
 
+  // The webhook first: GitHub's payloads outgrow the API's body limit, and the receiver reads
+  // and caps the raw body itself before checking its signature.
+  const webhook = apiOptions?.githubWebhook
+  if (webhook) app.post(GITHUB_WEBHOOK_PATH, (c) => webhook.handle(c.req.raw))
+
   const api = new Hono()
   api.onError(onError)
   api.get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
@@ -73,5 +79,17 @@ export function createApp({
     app.get('*', serveStatic({ path: join(webDistDir, 'index.html') }))
   }
 
+  return app
+}
+
+/**
+ * The app behind HINOMI_WEBHOOK_PORT: the webhook path and nothing else, so a tunnel or funnel
+ * pointed at this port cannot reach the UI or the API even when its path rule is wrong.
+ */
+export function createWebhookApp(receiver: GithubWebhookReceiver, log: Logger = silentLogger) {
+  const app = new Hono()
+  app.onError(errorHandler(log))
+  app.post(GITHUB_WEBHOOK_PATH, (c) => receiver.handle(c.req.raw))
+  app.all('*', (c) => c.json(errorBody('not_found', 'No such API route'), 404))
   return app
 }

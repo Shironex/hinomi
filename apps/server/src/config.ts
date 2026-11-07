@@ -27,6 +27,11 @@ export interface Config {
   trustedProxies: string[]
   /** Team domain (https origin) and audience to verify Cloudflare Access tokens; null when unset. */
   cfAccess: { teamDomain: string; audience: string } | null
+  /**
+   * HINOMI_WEBHOOK_PORT: a second listener that serves only the GitHub webhook path, so a
+   * tunnel pointed at it can reach nothing else. Null when unset.
+   */
+  webhookPort: number | null
 }
 
 const DEFAULT_PORT = 3000
@@ -51,20 +56,26 @@ const optionalString = z
   .optional()
   .transform((value) => (value === undefined || value.trim() === '' ? undefined : value))
 
-const envSchema = z.object({
-  HOST: optionalString.transform((value) => value ?? '0.0.0.0'),
-  PORT: optionalString.transform((value, ctx) => {
-    if (value === undefined) return DEFAULT_PORT
+/** A TCP port, or undefined when unset. */
+function portSetting(name: string) {
+  return optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
     const port = Number(value)
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       ctx.addIssue({
         code: 'custom',
-        message: `PORT must be an integer between 1 and 65535, got "${value}"`,
+        message: `${name} must be an integer between 1 and 65535, got "${value}"`,
       })
       return z.NEVER
     }
     return port
-  }),
+  })
+}
+
+const envSchema = z.object({
+  HOST: optionalString.transform((value) => value ?? '0.0.0.0'),
+  PORT: portSetting('PORT').transform((port) => port ?? DEFAULT_PORT),
+  HINOMI_WEBHOOK_PORT: portSetting('HINOMI_WEBHOOK_PORT'),
   WEB_DIST_DIR: optionalString,
   NODE_ENV: optionalString,
   HINOMI_DATA_DIR: optionalString,
@@ -142,6 +153,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       'Invalid configuration: set both HINOMI_CF_ACCESS_TEAM_DOMAIN and HINOMI_CF_ACCESS_AUD to verify Cloudflare Access tokens, or neither',
     )
   }
+  if (parsed.HINOMI_WEBHOOK_PORT === parsed.PORT) {
+    throw new Error(
+      'Invalid configuration: HINOMI_WEBHOOK_PORT must differ from PORT, or be left unset to serve the webhook on PORT only',
+    )
+  }
   const dataDir = resolve(parsed.HINOMI_DATA_DIR ?? defaultDataDir(parsed.NODE_ENV))
 
   return {
@@ -158,5 +174,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN && parsed.HINOMI_CF_ACCESS_AUD
         ? { teamDomain: parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN, audience: parsed.HINOMI_CF_ACCESS_AUD }
         : null,
+    webhookPort: parsed.HINOMI_WEBHOOK_PORT ?? null,
   }
 }
