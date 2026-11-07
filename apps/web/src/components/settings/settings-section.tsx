@@ -147,3 +147,8 @@ export function SaveStatus({
     </span>
   )
 }
+
+/** Inline code in settings copy. */
+export const Mono = ({ children }: { children: React.ReactNode }) => (
+  <code className="font-mono text-[max(13px,0.92em)] text-foreground">{children}</code>
+)

@@ -8,9 +8,11 @@ import {
   repoOverridesResponseSchema,
   reposResponseSchema,
   rotateGithubWebhookSecretResponseSchema,
+  rotateWebhookRunnerSecretResponseSchema,
   scanRunSchema,
   scansResponseSchema,
   settingsSchema,
+  webhookRunnerSettingsSchema,
   sourceSchema,
   sourcesResponseSchema,
   sourceTestResultSchema,
@@ -24,6 +26,7 @@ import {
   type UpdateNotifySettingsRequest,
   type UpdateSettingsRequest,
   type UpdateSourceRequest,
+  type UpdateWebhookRunnerRequest,
 } from '@hinomi/shared'
 import { queryOptions } from '@tanstack/react-query'
 import { z } from 'zod'
@@ -47,6 +50,7 @@ export const settingsKeys = {
   deployments: ['deployments'] as const,
   repos: ['repos'] as const,
   githubWebhook: ['settings', 'github-webhook'] as const,
+  webhookRunner: ['settings', 'webhook-runner'] as const,
 }
 
 export const sourcesQuery = queryOptions({
@@ -101,6 +105,12 @@ export const githubWebhookQuery = queryOptions({
   queryKey: settingsKeys.githubWebhook,
   queryFn: ({ signal }) =>
     api.get('/settings/github-webhook', githubWebhookSettingsSchema, { signal }),
+})
+
+export const webhookRunnerQuery = queryOptions({
+  queryKey: settingsKeys.webhookRunner,
+  queryFn: ({ signal }) =>
+    api.get('/settings/webhook-runner', webhookRunnerSettingsSchema, { signal }),
 })
 
 // Sources ------------------------------------------------------------------
@@ -162,3 +172,13 @@ export const updateGithubWebhook = (body: UpdateGithubWebhookRequest) =>
 /** Generates or replaces the secret. The answer holds it once, with the settings after. */
 export const rotateGithubWebhookSecret = () =>
   api.post('/settings/github-webhook/secret', rotateGithubWebhookSecretResponseSchema)
+
+// Webhook runner -----------------------------------------------------------
+
+/** A URL the server refuses is a 422 whose message says why. */
+export const updateWebhookRunner = (body: UpdateWebhookRunnerRequest) =>
+  request('/settings/webhook-runner', webhookRunnerSettingsSchema, { method: 'PATCH', json: body })
+
+/** Generates or replaces the secret. The answer holds it once, with the settings after. */
+export const rotateWebhookRunnerSecret = () =>
+  api.post('/settings/webhook-runner/secret', rotateWebhookRunnerSecretResponseSchema)
