@@ -38,6 +38,32 @@ function mockGitHub(requests: { url: string; headers: Headers }[]): typeof fetch
   }
 }
 
+describe('fetchLockfiles names', () => {
+  it('lists the wider ecosystem files too', async () => {
+    const names = [
+      'go.mod',
+      'go.sum',
+      'uv.lock',
+      'poetry.lock',
+      'requirements.txt',
+      'composer.lock',
+      'Gemfile.lock',
+    ]
+    const fetched = await fetchLockfiles('kestrel-co', 'site', 'main', null, {
+      fetch: (input, init) => {
+        const path = decodeURIComponent((input as string).slice(API.length + 1).split('?')[0]!)
+        if (new Headers(init?.headers).get('accept') === 'application/vnd.github.raw+json') {
+          return Promise.resolve(new Response(`text of ${path}`))
+        }
+        return Promise.resolve(
+          path === '' ? Response.json(names.map(file)) : new Response('', { status: 404 }),
+        )
+      },
+    })
+    expect(fetched.map((f) => f.path).sort()).toEqual([...names].sort())
+  })
+})
+
 describe('fetchLockfiles', () => {
   it('finds lockfiles at the root and one level inside apps and packages', async () => {
     const requests: { url: string; headers: Headers }[] = []

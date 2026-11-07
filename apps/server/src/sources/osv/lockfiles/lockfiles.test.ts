@@ -1,6 +1,11 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
-import { parseLockfile, UnsupportedLockfileError } from './index.js'
+import {
+  hasLockfileParser,
+  isLockfileName,
+  parseLockfile,
+  UnsupportedLockfileError,
+} from './index.js'
 
 /** `name@version` -> `scope direct|transitive`, for compact assertions. */
 function summary(deps: LockfileDependency[]): Record<string, string> {
@@ -494,7 +499,24 @@ describe('Cargo.lock', () => {
 
 describe('parseLockfile', () => {
   it('rejects unknown file names', () => {
-    expect(() => parseLockfile('', 'Gemfile.lock')).toThrow(UnsupportedLockfileError)
+    expect(() => parseLockfile('', 'Pipfile.lock')).toThrow(UnsupportedLockfileError)
+  })
+
+  it('knows the names of formats without a parser and refuses them without misparsing', () => {
+    for (const name of [
+      'go.mod',
+      'go.sum',
+      'uv.lock',
+      'poetry.lock',
+      'requirements.txt',
+      'composer.lock',
+      'Gemfile.lock',
+    ]) {
+      expect(isLockfileName(name)).toBe(true)
+      expect(hasLockfileParser(`apps/api/${name}`)).toBe(false)
+      expect(() => parseLockfile('anything', name)).toThrow(UnsupportedLockfileError)
+    }
+    expect(hasLockfileParser('apps/api/Cargo.lock')).toBe(true)
   })
 })
 

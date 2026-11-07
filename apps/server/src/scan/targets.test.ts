@@ -5,6 +5,7 @@ import {
   inRange,
   knownFromOsv,
   mergeKnown,
+  osvEcosystemOf,
   packageKey,
   type KnownAdvisory,
   type OsvAnswer,
@@ -178,5 +179,27 @@ describe('chooseTarget', () => {
     expect(chooseTarget({ ...base, minimum: '2026-10-01', facts: facts([], {}) })).toEqual({
       kind: 'skip',
     })
+  })
+})
+
+describe('osvEcosystemOf', () => {
+  it('maps the ecosystems the fix runner applies', () => {
+    expect(osvEcosystemOf('npm')).toBe('npm')
+    expect(osvEcosystemOf('rust')).toBe('crates.io')
+  })
+
+  it('is not supported by the fix runner for the wider ecosystems, under any spelling', () => {
+    for (const name of [
+      'go',
+      'Go',
+      'pip',
+      'PyPI',
+      'composer',
+      'Packagist',
+      'rubygems',
+      'RubyGems',
+    ]) {
+      expect(osvEcosystemOf(name)).toBeNull()
+    }
   })
 })

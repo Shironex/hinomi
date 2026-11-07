@@ -12,6 +12,7 @@ export { fetchLockfiles, GitHubContentsError } from './github.js'
 export type { FetchedLockfile, FetchLockfilesOptions } from './github.js'
 export {
   dedupeDependencies,
+  hasLockfileParser,
   isLockfileName,
   LOCKFILE_NAMES,
   parseLockfile,

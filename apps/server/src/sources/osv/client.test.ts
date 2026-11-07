@@ -201,3 +201,41 @@ describe('mapLimit', () => {
     expect(await mapLimit([], 3, () => Promise.resolve(1))).toEqual([])
   })
 })
+
+describe('ecosystems', () => {
+  // The names OSV documents, spelled exactly: the client passes them through untouched.
+  const cases: [string, string, string][] = [
+    ['Go', 'example.dev/kestrel/router', '1.4.2'],
+    ['PyPI', 'kestrel-client', '2.0.1'],
+    ['Packagist', 'kestrel/laravel-bridge', '3.1.0'],
+    ['RubyGems', 'kestrel-rails', '4.2.0'],
+  ]
+  it.each(cases)(
+    'queries %s with its OSV name and reads the answer',
+    async (ecosystem, name, version) => {
+      const sent: OsvQuery[] = []
+      const client = createOsvClient({
+        fetch: (url, init) => {
+          if (typeof url === 'string' && url.includes('/querybatch')) {
+            const body = JSON.parse(init?.body as string) as Body
+            sent.push(...body.queries)
+            return Promise.resolve(
+              Response.json({ results: [{ vulns: [{ id: `OSV-${ecosystem}-1` }] }] }),
+            )
+          }
+          return Promise.resolve(
+            Response.json({
+              id: `OSV-${ecosystem}-1`,
+              affected: [{ package: { name, ecosystem } }],
+            }),
+          )
+        },
+      })
+      const ids = await client.queryBatch([{ package: { name, ecosystem }, version }])
+      expect(sent).toEqual([{ package: { name, ecosystem }, version }])
+      expect(ids).toEqual([[`OSV-${ecosystem}-1`]])
+      const [vuln] = await client.getVulnerabilities(ids[0]!)
+      expect(vuln?.affected?.[0]?.package?.ecosystem).toBe(ecosystem)
+    },
+  )
+})
