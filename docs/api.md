@@ -69,7 +69,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 | `alerts` | Fetches GitHub repo health and Dependabot alerts per repo. Skipped without GitHub | Repos |
 | `lockfiles` | Reads lockfiles and checks them against OSV.dev per repo. Skipped while OSV is off | Repos |
 | `matching` | Joins advisories to deployments and saves the findings | Repos |
-| `ranking` | Opens and resolves blind spots and records the run | None (0 of 0) |
+| `ranking` | Opens and resolves blind spots, builds the fix plan of every scanned repo and records the run | None (0 of 0) |
 
 ### Findings
 
@@ -129,7 +129,7 @@ Returns `{ items, total, offset, limit, nextOffset }`. Each item is a fix:
 | `findingIds` | The findings, most urgent first |
 | `bestTier` | The most urgent tier among them |
 | `exposedCritical` | At least one finding is critical, shipped at runtime and on an app reachable from the internet (tier `exposed`) |
-| `repos` | `{ repo, target, findings }` per repo, most findings first. `target` is the highest first patched version among that repo's findings of the package |
+| `repos` | `{ repo, target, findings, plan }` per repo, most findings first. `target` is the highest first patched version among that repo's findings of the package; `plan` links the repo's latest fix plan (see Fix plans below), null before one exists |
 | `apps` | Deployments the findings reach |
 
 How findings are grouped:
@@ -140,7 +140,37 @@ How findings are grouped:
 - Fixes are sorted by exposure: `exposedCritical` first, then the number of exposed findings, then the number of findings, then the top severity.
 - Not deployed and dev only findings are included (`byTier` says so): a repo with no deployment still has a bump to make.
 
-`GET /api/findings/:id` has `sameFixClears`: the number of open findings the same fix clears, itself included, across repos. It is 0 when the finding is not part of a fix (not open, patched in the lockfile, a blind spot or a coverage note).
+`GET /api/findings/:id` has `sameFixClears`: the number of open findings the same fix clears, itself included, across repos. It is 0 when the finding is not part of a fix (not open, patched in the lockfile, a blind spot or a coverage note). It also has `plan`: the link to the latest fix plan of the finding's repo, or null.
+
+### Fix plans
+
+Every scan builds one upgrade plan per scanned repo at the end of the ranking phase, so a whole repo can be fixed in one branch and one pull request instead of one bump at a time. Plans are stored per scan (the latest 20 per repo are kept), so a later plan can say how the previous one turned out.
+
+| Method and path | Returns |
+|---|---|
+| `GET /api/repos/:id/plan` | The repo's latest plan. `?scan=<scan run id>` returns the plan that scan built. 404 when the repo is unknown or has no such plan |
+| `GET /api/plans` | `{ items }`: the latest plan of every repo as `{ repo, repoId, scanRunId, createdAt, summary }`, most findings cleared first |
+
+The plan is a versioned contract (`fixPlanSchema` in `packages/shared/src/api.ts`, `version: 1`); a runner that applies plans must refuse a version it does not know. Fields:
+
+| Field | Meaning |
+|---|---|
+| `version`, `repo`, `scanRunId`, `createdAt` | Contract version, the repo, the scan that built it and when |
+| `projects` | One per lockfile Hinomi read: `lockfile`, `root` (its folder, `.` at the repo root), `packageManager` (`npm`, `pnpm`, `yarn`, `bun`, `cargo`, `unknown`, from the lockfile name) and `workspaces` (repo relative folders of the manifests in it; for Cargo the workspace crate names, since Cargo.lock records no folders) |
+| `steps` | What to change, in `order` |
+| `unfixed` | Packages no step can fix yet |
+| `summary` | `findings` (`total`, `cleared`, `clearedSafely`, `unfixed`, `clearedByTier`, `unfixedByTier`), `steps` (`safe`, `risky`), `unfixed` (entries) |
+| `previous` | How the previous plan of the repo turned out by this scan: `{ scanRunId, findings, cleared, stillOpen }` over the findings its steps covered, null for the first plan |
+
+How a plan is built:
+
+- It covers the same findings as `GET /api/fixes` (open advisories with a version to bump), for this repo only. Each finding is placed in the lockfiles that hold its installed version, from the lockfiles OSV read in the same scan. Without that data (OSV off or failed) the finding's manifest path and dependency path decide.
+- One step per package, project and relationship (direct or transitive). `to` is the highest first patched version among its findings, so one change clears all of them; `from` lists the installed versions.
+- Order: safe bumps of direct dependencies first, then safe fixes of transitive ones, then risky steps; within each, the most urgent tier and the most findings first.
+- `apply` says how to make the change without judgement: `manifest_bump` (set the version in each listed `package.json`, keeping the range prefix, then install; Cargo lists no manifests and names the crates in `workspaces`), `override` (set `key` to `value` under `field` of the project's root `package.json`: `pnpm.overrides` for pnpm, `overrides` for npm and bun, `resolutions` for yarn), `lockfile_update` (`cargo update -p <name>@<from> --precise <to>`) or `manual`. A transitive package is fixed with an override in npm family projects and with `cargo update` in Cargo projects; a direct one by bumping the manifests that list it (or `cargo update` when the Cargo bump is not major).
+- A step is `risky` with `riskReasons` and a `note` for the PR body when: the bump is a semver major (`semver_major`: a change of the first non zero part, so 0.3 to 0.4 counts, read the changelog), the override would also move other installed versions of the package (`pins_other_versions`), the versions are not semver (`unknown_version`), Hinomi could not tell direct from transitive (`unknown_relationship`) or no lockfile it reads lists the package (`unknown_package_manager`, `apply` is `manual`).
+- `unfixed` holds advisories with no patched version (`blocker: "no_patch"`). `too_new` (and `availableAt`) is reserved for the 7 day release age gate: OSV and GitHub do not say when a version was published, so every step has `releasedAt: null` and `releaseAge: "unknown"` until Hinomi reads release dates from the registries.
+- A repo with nothing to fix still gets a plan with no steps, so the next scan can compare.
 
 ### Deployments and repo mapping
 
