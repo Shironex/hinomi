@@ -15,10 +15,12 @@ import {
   createScheduler,
   startDigestTimer,
   startFixRunTracking,
+  startSupportRefresh,
   type DigestTimer,
   type FixRunTrackingTimer,
 } from './scheduler/index.js'
 import { openStorage } from './storage.js'
+import { createSupportData } from './support/index.js'
 import { createUpdateChecker } from './version/index.js'
 import {
   createGithubWebhookReceiver,
@@ -86,6 +88,7 @@ scheduler.onScanFinished((summary) => {
   })
 })
 let tracking: FixRunTrackingTimer | null = null
+let supportRefresh: FixRunTrackingTimer | null = null
 // The optional GitHub webhook only brings polls forward; the tracker's own poll moves the runs.
 const githubWebhook = createGithubWebhookReceiver({
   repositories: storage.repositories,
@@ -151,6 +154,14 @@ const { build } = config
 const updates = createUpdateChecker({ settings: storage.repositories.settings, build, log })
 log.info('build', { version: build.version, commit: build.commit })
 
+// The endoflife.date data behind the support checks. Nothing is fetched until a repo exists to
+// have pins or frameworks; the stored copy of an earlier run is served either way.
+const support = createSupportData({
+  cache: storage.repositories.httpCache,
+  log,
+  demand: () => storage.repositories.repos.list().length > 0,
+})
+
 const app = createApp({
   build,
   updates,
@@ -159,6 +170,7 @@ const app = createApp({
     repositories: storage.repositories,
     scheduler,
     log,
+    support,
     notifications: { notifier, onDigestHourChanged: () => digest?.rearm() },
     fixRunTracking: tracker,
     githubWebhook,
@@ -181,6 +193,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
   tracking = startFixRunTracking({ ticker: tracker, log })
   updates.start()
+  supportRefresh = startSupportRefresh({ support, log })
 })
 
 // HINOMI_WEBHOOK_PORT: a listener with the webhook path alone, the one port safe to expose.
@@ -216,6 +229,7 @@ async function shutdown(signal: NodeJS.Signals) {
   digest?.stop()
   tracking?.stop()
   updates.stop()
+  supportRefresh?.stop()
   const { drained } = await scheduler.shutdown()
   // A tick in flight is a handful of GitHub requests, each with its own timeout.
   await Promise.race([

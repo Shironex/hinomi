@@ -15,6 +15,7 @@ import type {
   RunnerCallbackReceiver,
   WebhookRunnerTransport,
 } from '../webhook/index.js'
+import { createSupportData, type SupportData } from '../support/index.js'
 import type { UpdateChecker } from '../version/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
@@ -28,6 +29,7 @@ import { onboardingRoutes } from './routes/onboarding.js'
 import { notificationsRoutes, type NotificationsApiOptions } from './routes/notifications.js'
 import { repoDetailRoutes } from './routes/repos.js'
 import { sourcesRoutes } from './routes/sources.js'
+import { supportRoutes } from './routes/support.js'
 import { overviewRoutes, scansRoutes, settingsRoutes, shellRoutes } from './routes/system.js'
 import { createSourceTesters, type SourceTesters } from './source-testers.js'
 import { currentTime } from '@hinomi/shared'
@@ -47,6 +49,11 @@ export interface ApiOptions {
   notifications?: NotificationsApiOptions
   /** Runner settings and fix run dispatch. Defaults to the GitHub Actions runner on `sourceFetch`. */
   fixRuns?: FixRunService
+  /**
+   * The endoflife.date data (its daily job runs in index.ts). Without it the routes serve what the
+   * cache table holds and never fetch.
+   */
+  support?: Pick<SupportData, 'status'>
   /** The daily update check, looked at again when the Settings switch is turned on. */
   updates?: Pick<UpdateChecker, 'check'>
   /** The fix run tracker, for the tracking state on GET /api/fix-runs/:id. */
@@ -77,6 +84,9 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     testers: options.testers ?? createSourceTesters(),
     log: options.log ?? silentLogger,
     now,
+    support:
+      options.support ??
+      createSupportData({ cache: options.repositories.httpCache, now, demand: () => false }),
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
     ...(options.fixRunTracking && { fixRunTracking: options.fixRunTracking }),
     ...(options.updates && { updates: options.updates }),
@@ -125,6 +135,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   }
   api.route('/settings', settingsRoutes(deps))
   api.route('/scans', scansRoutes(deps))
+  api.route('/support', supportRoutes(deps))
   api.route('/shell', shellRoutes(deps))
   api.route('/onboarding', onboardingRoutes(deps))
   if (options.notifications) {
