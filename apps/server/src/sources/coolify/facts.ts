@@ -137,7 +137,8 @@ function mount(origin: MountSource, m: ContainerMount, service: string | null): 
   return { origin, type: m.type, source: m.source, target: m.target, readOnly: m.readOnly, service }
 }
 
-function readInlineDockerfile(text: string, target: string | null): InlineDockerfileFact {
+/** What a Dockerfile says about the container user, from its text (inline or fetched). */
+export function readInlineDockerfile(text: string, target: string | null): InlineDockerfileFact {
   const reading = readDockerfileUser(decodeDockerfile(text), { target })
   return {
     kind: reading.kind,
