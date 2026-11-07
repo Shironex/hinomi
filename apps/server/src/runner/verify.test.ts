@@ -22,6 +22,7 @@ const repo = {
   runnerEnabled: true,
   runnerWorkflow: null,
   runnerMajorsAgent: 'off' as const,
+  runnerKind: 'github_actions' as const,
   createdAt: AT,
   updatedAt: AT,
 }

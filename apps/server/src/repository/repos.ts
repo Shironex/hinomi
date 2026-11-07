@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { repos, type RepoRow } from '../db/schema.js'
-import { currentTime, type RunnerMajorsAgent } from '@hinomi/shared'
+import { currentTime, type FixRunnerKind, type RunnerMajorsAgent } from '@hinomi/shared'
 
 export interface UpsertRepoInput {
   owner: string
@@ -15,6 +15,7 @@ export interface RepoRunnerPatch {
   enabled?: boolean
   workflow?: string | null
   majorsAgent?: RunnerMajorsAgent
+  kind?: FixRunnerKind
 }
 
 /** GitHub owner and repo names are case-insensitive; rows store them lowercased. */
@@ -74,6 +75,7 @@ export function createReposRepository(db: Db) {
         ...(patch.enabled !== undefined && { runnerEnabled: patch.enabled }),
         ...(patch.workflow !== undefined && { runnerWorkflow: patch.workflow }),
         ...(patch.majorsAgent !== undefined && { runnerMajorsAgent: patch.majorsAgent }),
+        ...(patch.kind !== undefined && { runnerKind: patch.kind }),
       }
       if (Object.keys(set).length === 0) {
         return db.select().from(repos).where(eq(repos.id, id)).get()

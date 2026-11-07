@@ -64,6 +64,13 @@
       "when": 1794050253010,
       "tag": "0008_runner_majors_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794051510034,
+      "tag": "0009_runner_kind",
+      "breakpoints": true
     }
   ]
 }
