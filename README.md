@@ -43,7 +43,7 @@ GitHub can report thousands of Dependabot alerts across a few dozen repos, and m
 
 Hinomi answers one question: **is anything that is actually deployed and reachable right now exposed to a serious vulnerability?** It joins your deployments with your advisories, ranks every finding by real exposure, and reports the repos it cannot see into as findings of their own.
 
-I built it for my own servers: a dozen apps on Coolify, one person looking after them. It reads; it does not change your repos or deployments.
+I built it for my own servers: a dozen apps on Coolify, one person looking after them. It reads by default. If you turn on the fix runner, it opens pull requests for you to review; it never merges and never touches deployments.
 
 ## Screenshots
 
