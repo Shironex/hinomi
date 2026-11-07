@@ -4,6 +4,7 @@ import {
   parseFixResult,
   truncateCheckOutput,
   type FixCheckResult,
+  type FixDispatchRisky,
   type FixDispatchStep,
   type FixDispatchV1,
   type FixReleaseAgeCheck,
@@ -110,6 +111,22 @@ export function groupProjects(steps: FixDispatchStep[]): Project[] {
       projects.set(step.lockfile, project)
     }
     project.steps.push(step)
+  }
+  return [...projects.values()]
+}
+
+/** Which job a step runs for: the fix plan's safe steps or the majors agent's risky ones. */
+export type FixScope = 'fix' | 'majors'
+
+/** The projects of the risky steps the majors agent works on, one per lockfile. */
+export function riskyProjects(
+  risky: readonly FixDispatchRisky[],
+): Array<{ root: string; packageManager: StepPackageManager }> {
+  const projects = new Map<string, { root: string; packageManager: StepPackageManager }>()
+  for (const step of [...risky].sort((a, b) => a.order - b.order)) {
+    const { lockfile, packageManager } = step
+    if (lockfile === null || packageManager === 'unknown' || projects.has(lockfile)) continue
+    projects.set(lockfile, { root: repoDirname(lockfile), packageManager })
   }
   return [...projects.values()]
 }
@@ -411,9 +428,14 @@ export interface DetectOutcome {
  * package manager of every project, so the workflow installs each tool the dispatch needs
  * (mixed ecosystems get every manager). The single project outputs name the first project.
  */
-export async function runDetect(inputs: DispatchInputs, fs: RepoFs): Promise<DetectOutcome> {
+export async function runDetect(
+  inputs: DispatchInputs,
+  fs: RepoFs,
+  scope: FixScope = 'fix',
+): Promise<DetectOutcome> {
   const dispatch = await readDispatch(inputs)
-  const projects = groupProjects(dispatch.steps)
+  const projects =
+    scope === 'majors' ? riskyProjects(dispatch.risky) : groupProjects(dispatch.steps)
   const matched: ToolchainProject[] = []
   const entries: ProjectDetection[] = []
   for (const project of projects) {

@@ -1,0 +1,48 @@
+{
+  "schema": "hinomi.fix-dispatch/1",
+  "runId": "selftest-majors",
+  "dispatchedAt": "2026-11-07T10:00:00.000Z",
+  "plan": {
+    "version": 1,
+    "scanRunId": 1,
+    "createdAt": "2026-11-07T09:00:00.000Z"
+  },
+  "repo": {
+    "id": 1,
+    "fullName": "Shironex/hinomi",
+    "baseBranch": "main"
+  },
+  "steps": [],
+  "risky": [
+    {
+      "id": "manifest_bump:npm:ms:3.0.0-canary.1:actions/fix-runner/fixtures/selftest-npm/package-lock.json",
+      "order": 1,
+      "tier": "exposed",
+      "ecosystem": "npm",
+      "packageName": "ms",
+      "packageManager": "npm",
+      "lockfile": "actions/fix-runner/fixtures/selftest-npm/package-lock.json",
+      "workspaces": [],
+      "from": ["2.1.2"],
+      "to": "3.0.0-canary.1",
+      "level": "major",
+      "riskReasons": ["semver_major"],
+      "note": null,
+      "apply": {
+        "type": "manifest_bump",
+        "manifests": ["actions/fix-runner/fixtures/selftest-npm/package.json"],
+        "packageName": "ms",
+        "version": "3.0.0-canary.1"
+      },
+      "advisories": []
+    }
+  ],
+  "omitted": { "steps": 0, "risky": 0, "advisories": false },
+  "options": {
+    "checks": "install",
+    "agent": true,
+    "agentPreset": "stub",
+    "linksAllowed": false,
+    "releaseAgeDays": 7
+  }
+}

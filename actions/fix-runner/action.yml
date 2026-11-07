@@ -4,9 +4,13 @@ author: Shironex
 
 inputs:
   step:
-    description: 'detect (validate the dispatch and name every toolchain, before they are set up), apply, check (the full install and checks after apply with defer_checks) or publish (verify the patch and push the fix branch)'
+    description: 'detect (validate the dispatch and name every toolchain, before they are set up), apply, check (the full install and checks after apply with defer_checks), agent (run the majors coding agent and capture its patch) or publish (verify the patch and push the branch)'
     required: false
     default: apply
+  scope:
+    description: 'fix (the safe steps, hinomi/fix-plan) or majors (the agent job, hinomi/majors); used by detect and publish'
+    required: false
+    default: fix
   plan:
     description: The dispatch from Hinomi, JSON or gzip plus base64. Not used by publish.
     required: false
@@ -43,8 +47,12 @@ inputs:
     description: "publish: the apply step's patch_files output; the patch must touch exactly these"
     required: false
     default: '[]'
+  agent_secret:
+    description: 'agent: the API key of the coding agent preset, passed to the agent process only'
+    required: false
+    default: ''
   dry_run:
-    description: 'publish: true verifies, applies and commits but pushes nothing'
+    description: 'publish: true verifies, applies and commits but pushes nothing. agent: allows the stub preset'
     required: false
     default: 'false'
   token:
@@ -86,13 +94,15 @@ outputs:
   rust_root:
     description: Folder of the first cargo project, where a rust-toolchain file applies (detect).
   artifact_name:
-    description: Name for the uploaded artifact, from the validated dispatch run id (detect).
+    description: Name for the uploaded artifact, hinomi-<scope>-<run id> from the validated dispatch (detect).
+  has_steps:
+    description: true when the dispatch carries safe steps for the apply step (detect).
   base_sha:
-    description: The commit the steps were applied to (apply).
+    description: The commit the steps were applied to (apply, agent).
   patch_sha256:
-    description: SHA-256 of fix.patch, empty without a patch (apply).
+    description: SHA-256 of fix.patch, empty without a patch (apply, agent).
   patch_files:
-    description: JSON list of the files in fix.patch (apply).
+    description: JSON list of the files in fix.patch (apply, agent).
   branch:
     description: The fix branch (publish).
   commit_sha:
@@ -100,7 +110,7 @@ outputs:
   pushed:
     description: false in a dry run (publish).
   has_changes:
-    description: true when the apply step produced a patch.
+    description: true when the apply or agent step produced a patch.
   agent_needed:
     description: true when the dispatch asks for the optional majors job and carries risky steps.
   output_dir:

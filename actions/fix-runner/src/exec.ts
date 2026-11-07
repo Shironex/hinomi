@@ -17,6 +17,11 @@ export interface ExecOptions {
   /** Absolute working directory. */
   cwd: string
   timeoutMs: number
+  /**
+   * Run the command as the leader of its own process group and kill the whole group when it
+   * exits or times out, so nothing it started in the background outlives it (the agent).
+   */
+  processGroup?: boolean
 }
 
 export interface ExecResult {
@@ -50,6 +55,8 @@ const SCRUBBED = [
   'ACTIONS_CACHE_URL',
   'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
   'ACTIONS_ID_TOKEN_REQUEST_URL',
+  // The majors agent's secret reaches only the agent command, through its own env.
+  'ANTHROPIC_API_KEY',
 ]
 
 /** The environment a child process gets: the parent's minus inputs and runtime tokens. */
@@ -74,7 +81,7 @@ export interface NodeExecOptions {
 /** The real Exec: node:child_process spawn with `shell: false`. */
 export function nodeExec(options: NodeExecOptions): Exec {
   return {
-    run(command, { cwd, timeoutMs }) {
+    run(command, { cwd, timeoutMs, processGroup = false }) {
       const started = nowMs()
       return new Promise((resolve) => {
         let output = ''
@@ -90,11 +97,26 @@ export function nodeExec(options: NodeExecOptions): Exec {
           env: childEnv(options.env, command.env),
           shell: false,
           stdio: ['ignore', 'pipe', 'pipe'],
+          detached: processGroup,
         })
+        const killAll = () => {
+          if (processGroup && child.pid !== undefined) {
+            try {
+              process.kill(-child.pid, 'SIGKILL')
+            } catch {
+              // The group is already gone.
+            }
+          } else {
+            child.kill('SIGKILL')
+          }
+        }
         const timer = setTimeout(() => {
           timedOut = true
-          child.kill('SIGKILL')
+          killAll()
         }, timeoutMs)
+        // Background processes of the group can hold the pipes open; ending the group on exit
+        // lets `close` fire.
+        if (processGroup) child.on('exit', killAll)
         child.stdout.on('data', keep)
         child.stderr.on('data', keep)
         const finish = (code: number | null, extra = '') => {
