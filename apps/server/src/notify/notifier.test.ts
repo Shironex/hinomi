@@ -507,6 +507,57 @@ describe('findings dismissed upstream', () => {
   })
 })
 
+describe('desktop release findings', () => {
+  function seedReleaseFinding(
+    repoId: number,
+    severity: 'critical' | 'high',
+    scope: 'runtime' | 'dev' = 'runtime',
+  ) {
+    const n = ++advisoryCounter
+    const advisory = repos.advisories.upsert({
+      advisoryKey: `GHSA-desk-0000-${n}`,
+      ghsaId: `GHSA-desk-0000-${n}`,
+      ecosystem: 'npm',
+      packageName: `example-${severity}-${scope}`,
+      severity,
+    })
+    return repos.findings.observe(
+      {
+        kind: 'advisory',
+        advisoryId: advisory.id,
+        repoId,
+        scope,
+        reportedBy: ['osv'],
+        releaseTag: 'v2.3.0',
+      },
+      clock,
+    ).finding
+  }
+
+  it('sends a critical runtime one right away and leaves the rest to the digest', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    const desk = repos.repos.upsert({ owner: 'kestrel-co', name: 'kestrel-desk' })
+    const critical = seedReleaseFinding(desk.id, 'critical')
+    const high = seedReleaseFinding(desk.id, 'high')
+    const devOnly = seedReleaseFinding(desk.id, 'critical', 'dev')
+
+    await n.handleScanFinished(summary([critical, high, devOnly].map((f) => opened(f.id))))
+    expect(calls.map((c) => c.body.embeds.map((e) => e.title))).toEqual([
+      ['[CRITICAL] example-critical-runtime'],
+    ])
+
+    advance(60)
+    await n.sendDigest()
+    const digest = calls.slice(1).flatMap((c) => c.body.embeds.map((e) => e.title))
+    // The critical runtime one was announced already, so the digest leaves it out.
+    expect(digest).toEqual([
+      'New: [CRITICAL] example-critical-dev',
+      'New: [HIGH] example-high-runtime',
+    ])
+  })
+})
+
 describe('guard findings', () => {
   /** Runs a fake root user check on the deployment, at the given level, through the framework. */
   async function guardScan(level: 'warn' | 'fail' | 'unknown') {

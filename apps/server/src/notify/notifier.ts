@@ -112,13 +112,20 @@ const ANNOUNCED_AS: ReadonlyMap<string, ItemEvent> = new Map([
 /**
  * True when a finding needs a message right away: a critical or high advisory, any blind spot,
  * or a guard at `fail` (decision Q14: warn goes to the digest), on something that is deployed.
- * A guard must also be running: a stopped deployment's guard waits for the digest.
+ * A guard must also be running: a stopped deployment's guard waits for the digest. A released
+ * desktop app's advisory goes to the digest unless it is critical (decision Q18).
  */
 function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
   if (!isMessageFinding(ranked)) return false
   // The lockfile is already patched: GitHub's alert is stale, nothing to announce.
   if (ranked.patchedInLockfile) return false
   if (ranked.state !== 'open' && ranked.state !== 'fixing') return false
+  if (ranked.reach === 'released') {
+    // Dev dependencies are not shipped in an installer.
+    return (
+      ranked.kind === 'advisory' && ranked.factors.runtime && ranked.factors.severity === 'critical'
+    )
+  }
   if (ranked.deployments.length === 0) return false
   if (ranked.kind === 'blind_spot') return true
   if (ranked.kind === 'guard') return ranked.guardLevel === 'fail' && ranked.factors.deployed

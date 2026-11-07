@@ -9,6 +9,8 @@ import { fetchCoolifyInventory } from '../sources/coolify/index.js'
 import {
   createGithubSourceFromConfig,
   readRepoFile,
+  type ConditionalRead,
+  type GithubRelease,
   type GithubSource,
 } from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
@@ -27,6 +29,12 @@ export interface GithubScanSource {
   fetchRepoHealth(owner: string, name: string): Promise<RepoHealth>
   fetchDependabotAlerts(owner: string, name: string): Promise<DependabotAlertsResult>
   listAccountRepos(): Promise<AccountRepo[]>
+  /** The repo's latest final release, read with the last ETag (the desktop release tier). */
+  fetchLatestRelease(
+    owner: string,
+    name: string,
+    etag: string | null,
+  ): Promise<ConditionalRead<GithubRelease | null>>
 }
 
 export interface OsvScanSource {
@@ -148,6 +156,8 @@ function githubSource(
       fetchRepoHealth: async (owner, name) => client().fetchRepoHealth(owner, name),
       fetchDependabotAlerts: async (owner, name) => client().fetchDependabotAlerts(owner, name),
       listAccountRepos: async () => client().listAccountRepos(),
+      fetchLatestRelease: async (owner, name, etag) =>
+        client().fetchLatestRelease(owner, name, etag),
     },
   }
 }

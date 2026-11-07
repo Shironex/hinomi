@@ -18,6 +18,8 @@ export interface FixableFinding extends RankedFinding {
 export function isFixable(ranked: RankedFinding): ranked is FixableFinding {
   return (
     ranked.kind === 'advisory' &&
+    // A release row is fixed by cutting a release, not by a change to the default branch.
+    ranked.finding.releaseTag === null &&
     ranked.state === 'open' &&
     !ranked.patchedInLockfile &&
     ranked.advisory !== null &&

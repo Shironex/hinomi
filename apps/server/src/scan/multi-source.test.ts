@@ -111,6 +111,7 @@ function source(name: string, sees: Record<string, Sight>): FakeSource {
       fake.calls.push(`alerts ${owner}/${repo}`)
       return Promise.resolve(alertsFor(owner, repo))
     },
+    fetchLatestRelease: () => Promise.resolve({ modified: true, etag: null, value: null }),
     listAccountRepos: (): Promise<AccountRepo[]> => {
       if (fake.failWith) return Promise.reject(fake.failWith)
       return Promise.resolve(

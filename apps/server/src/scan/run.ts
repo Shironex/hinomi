@@ -18,6 +18,7 @@ import { readSupportWindowDays, type SupportIndex } from '../support/index.js'
 import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { createRepoFileReader } from './guards/repo-files.js'
 import { saveScanPlans } from './plans.js'
+import { scanReleases } from './releases.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
 
@@ -363,6 +364,37 @@ async function scanRepos(
   return { scans, changes }
 }
 
+/**
+ * The desktop release tier (releases.ts): daily latest release checks and tag scans of the repos
+ * nothing deploys. Failures count against the source that failed, like a repo's.
+ */
+async function checkReleases(
+  ctx: ScanContext,
+  repos: RepoRow[],
+  index: DeploymentIndex,
+  scans: Map<number, RepoScan>,
+  concurrency: number,
+): Promise<FindingChange[]> {
+  const result = await scanReleases({
+    repositories: ctx.repositories,
+    sources: ctx.sources,
+    index,
+    repos,
+    scans,
+    now: ctx.now(),
+    concurrency,
+  })
+  if (result.checked > 0) bump(tally(ctx.tallies, 'github'), 'releases', result.checked)
+  if (result.scanned > 0) bump(tally(ctx.tallies, 'osv'), 'releaseTags', result.scanned)
+  for (const error of result.errors) {
+    const t = tally(ctx.tallies, error.source)
+    t.attempted++
+    t.failed++
+    recordError(ctx, error)
+  }
+  return result.changes
+}
+
 function sourceResults(ctx: ScanContext): Partial<Record<SourceKind, ScanSourceResult>> {
   const out: Partial<Record<SourceKind, ScanSourceResult>> = {}
   for (const kind of ['coolify', 'github', 'osv'] as const) {
@@ -487,6 +519,9 @@ export async function runScan(
     const repos = reposToScan(ctx, index, accountRepoIds)
     const result = await scanRepos(ctx, repos, index, options.concurrency ?? 4)
     changes.push(...result.changes)
+    changes.push(
+      ...(await checkReleases(ctx, repos, index, result.scans, options.concurrency ?? 4)),
+    )
     ctx.progress('ranking', 0, 0)
     changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
     const guardContext = {
