@@ -1,5 +1,6 @@
 import {
   FINDING_TIERS,
+  isFixRunTerminal,
   type AdvisorySummary,
   type DeploymentRef,
   type FindingDetail,
@@ -10,6 +11,7 @@ import {
   type FixItem,
   type FixPlan,
   type FixPlanRef,
+  type FixRun,
   type ScanRun,
   type SeverityCounts,
   type SourceDto,
@@ -19,6 +21,7 @@ import type {
   DeploymentRow,
   FindingEventRow,
   FixPlanRow,
+  FixRunRow,
   ScanRunRow,
 } from '../db/schema.js'
 import type { Repositories, Source } from '../repository/index.js'
@@ -237,5 +240,46 @@ export function toFixItem(fix: Fix, planOf: PlanRefs = () => null): FixItem {
       plan: planOf(r.repo.id),
     })),
     apps: fix.apps.map(toDeploymentRef),
+  }
+}
+
+export function toFixRun(row: FixRunRow): FixRun {
+  return {
+    id: row.id,
+    repoId: row.repoId,
+    plan: { fixPlanId: row.fixPlanId, scanRunId: row.planScanRunId, version: row.planVersion },
+    runner: row.runner,
+    kind: row.kind,
+    correlationId: row.correlationId,
+    branch: row.branch,
+    checksMode: row.checksMode,
+    state: row.state,
+    stateReason: row.stateReason,
+    terminal: isFixRunTerminal(row.state),
+    github:
+      row.githubRunId === null
+        ? null
+        : { runId: row.githubRunId, runAttempt: row.githubRunAttempt },
+    headSha: row.headSha,
+    pr:
+      row.prNumber === null || row.prUrl === null
+        ? null
+        : { number: row.prNumber, url: row.prUrl, draft: row.prDraft, mergeSha: row.mergeSha },
+    result: row.result ?? null,
+    at: {
+      created: iso(row.createdAt),
+      dispatched: isoOrNull(row.dispatchedAt),
+      started: isoOrNull(row.startedAt),
+      completed: isoOrNull(row.completedAt),
+      pushed: isoOrNull(row.pushedAt),
+      prOpened: isoOrNull(row.prOpenedAt),
+      checksUpdated: isoOrNull(row.checksUpdatedAt),
+      merged: isoOrNull(row.mergedAt),
+      closed: isoOrNull(row.closedAt),
+      deployed: isoOrNull(row.deployedAt),
+      rescanned: isoOrNull(row.rescannedAt),
+      ended: isoOrNull(row.endedAt),
+      stateChanged: iso(row.stateChangedAt),
+    },
   }
 }
