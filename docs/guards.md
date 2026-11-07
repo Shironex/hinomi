@@ -23,7 +23,7 @@ type GuardSubject = { deploymentId: number } | { repoId: number }
 
 Register it by adding it to `GUARDS` in `scan/guards/registry.ts`. That is all: the scan runs it, the API lists it, the deployment panel shows it.
 
-`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read), the endoflife.date lookups (`support`, null until a copy exists; a support check then returns nothing so its rows stay as they are) with the warning window (`supportWindowDays`), and `now`. A check that needs more (runtime pins) adds a field to `GuardContext` and fills it where `runScan` builds the context.
+`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read), the endoflife.date lookups (`support`, null until a copy exists; a support check then returns nothing so its rows stay as they are) with the warning window (`supportWindowDays`), `repoFiles` and `now`. `repoFiles.read(repo, path, ref)` reads one file of a repo through the repo's own GitHub source (the one the scan used, else `repos.source_id`); a read at a full commit sha is kept in the `http_cache` table under `repo-file:{owner}/{name}@{sha}:{path}` (a missing file too), so an unchanged deploy costs no GitHub call, and a branch is read once per scan. It answers `ok`, `missing`, `no_source` (say `unknown`) or `error` (return `null`). A check that needs more (runtime pins) adds a field to `GuardContext` and fills it where `runScan` builds the context.
 
 Rules for `run`:
 
@@ -39,6 +39,11 @@ Rules for `run`:
 Stopped deployments: run the check anyway (a stopped root container is still configured as root). The finding ranks low because nothing runs.
 
 Tests: one test file per check, a pure function of fictional rows. `scan/guards/testing.ts` has `fakeGuard(check)` (a check whose results a test sets between scans) and `rootUserEvidence()`; `runScan(..., { guards: [myGuard] })` and `createTestApi({ guards: [myGuard] })` take a list instead of the registry.
+
+## Registered checks
+
+- `root_user` (`scan/guards/root-user.ts`): the first answer wins: run options `--user`, compose `user:` per service (a service without it falls to its image: a `nonroot` tag passes, any other tag warns, a build is unknown), the inline Dockerfile, then the Dockerfile fetched from the repo at the deployed commit sha (else the branch). A final stage with no `USER` warns "probably root" unless the base image tag ends in `nonroot`. A build pack that gives no signal, an image only deployment, a missing file or an unresolved variable is `unknown` with the reason; a failed fetch leaves the row alone. Managed databases are skipped.
+- `docker_socket` (`scan/guards/docker-socket.ts`): `fail` when a bind mount (run options, compose, file or persistent storage) is the Docker socket or a folder holding it, read only too. `pass` records which sources were read and any gap (Coolify does not document the persistent storage `host_path`); `unknown` when no source was read.
 
 ## What the framework does
 
