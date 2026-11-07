@@ -24,5 +24,6 @@ export {
   UnsupportedLockfileError,
 } from './lockfiles/index.js'
 export type { LockfileName, ParseLockfileOptions } from './lockfiles/index.js'
-export { scanDependencies, scanLockfile } from './scan.js'
+export { matchDependency, scanDependencies, scanLockfile } from './scan.js'
+export { deriveSeverity } from './severity.js'
 export type { ScanOptions } from './scan.js'

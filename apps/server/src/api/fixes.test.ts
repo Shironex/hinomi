@@ -61,6 +61,7 @@ describe('GET /api/fixes', () => {
         Promise.resolve(queries.map((q) => (q.version === '2.1.0' ? [affected.id] : []))),
       getVulnerability: () => Promise.resolve(affected),
       getVulnerabilities: (ids) => Promise.resolve(ids.map(() => affected)),
+      queryPackage: () => Promise.resolve([]),
     }
     const skipped = { status: 'skipped', reason: 'off' } as const
     const run = repos.scanRuns.start('manual', currentTime())
