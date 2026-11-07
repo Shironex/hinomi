@@ -1,6 +1,8 @@
 import {
   DEFAULT_CALLER_WORKFLOW,
+  MAJORS_AGENT_SECRET,
   currentTime,
+  isMajorStep,
   type FixDispatchEncoding,
   type FixResultV1,
   type FixRunPreviousPr,
@@ -19,7 +21,7 @@ import { releaseLatestSource, type LatestFixWorkflowSource } from './latest.js'
 import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import { openSetupPr, setupPrCapability, type SetupPrResult } from './setup-pr.js'
-import type { FixRunner } from './runner.js'
+import type { FixRunDispatchOutcome, FixRunner } from './runner.js'
 
 // What the API calls: runner settings and status per repo, and dispatching the latest plan.
 // The checks shared by every runner (on, a plan, decision 10) live here; the runner itself only
@@ -47,7 +49,14 @@ export interface DispatchRefused {
 }
 
 export type DispatchFixRunResult =
-  | { kind: 'created'; run: FixRunRow; encoding: FixDispatchEncoding; omittedStepIds: string[] }
+  | {
+      kind: 'created'
+      run: FixRunRow
+      encoding: FixDispatchEncoding
+      omittedStepIds: string[]
+      /** The majors run dispatched beside `run`; null when none was (see dispatch). */
+      majorsRun: FixRunRow | null
+    }
   /** Decision 10: the last fix PR was closed unmerged; the UI asks before dispatching again. */
   | { kind: 'reopen_required'; previous: FixRunPreviousPr }
   | DispatchRefused
@@ -80,6 +89,11 @@ function refused(
   return { kind: 'refused', status, code, message }
 }
 
+function refusedDispatch(outcome: Exclude<FixRunDispatchOutcome, { created: true }>) {
+  if (outcome.code === 'unavailable') return refused(503, 'unavailable', outcome.message)
+  return refused(409, 'conflict', outcome.message)
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -108,6 +122,9 @@ function statusMessage(
   if (!meta || !permissions.ok) return permissions.message
   if (!callerUsable(caller)) return caller.message
   if (!repo.runnerEnabled) return 'The runner is set up. Turn it on to dispatch fix plans.'
+  if (repo.runnerMajorsAgent !== 'off' && caller.passesAgentSecret === false) {
+    return `Ready to dispatch. The majors agent is on, but ${caller.path} passes no ${MAJORS_AGENT_SECRET} secret, so majors runs will fail.`
+  }
   return 'Ready to dispatch.'
 }
 
@@ -138,7 +155,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
     const unread = (message: string) => ({
       meta: null,
       permissions: NO_PERMISSIONS(message),
-      caller: unknownCaller(workflow, message, latest),
+      caller: unknownCaller(workflow, message, latest, repo.runnerMajorsAgent),
     })
     const gh = github()
     if (!gh.ok) return unread(gh.message)
@@ -165,6 +182,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
         workflow,
         ref: meta.defaultBranch,
         latest,
+        majorsAgent: repo.runnerMajorsAgent,
       }),
     ])
     return { meta, permissions, caller }
@@ -177,7 +195,11 @@ export function createFixRunService(options: FixRunServiceOptions) {
     const { meta, permissions, caller } = await inspect(repo, workflow)
     return {
       repoId: repo.id,
-      settings: { enabled: repo.runnerEnabled, workflow },
+      settings: {
+        enabled: repo.runnerEnabled,
+        workflow,
+        majorsAgent: repo.runnerMajorsAgent,
+      },
       defaultWorkflow: DEFAULT_CALLER_WORKFLOW,
       ready: repo.runnerEnabled && meta !== null && permissions.ok && callerUsable(caller),
       github: meta && {
@@ -218,7 +240,14 @@ export function createFixRunService(options: FixRunServiceOptions) {
 
     /**
      * Dispatches the repo's latest plan. Refuses when the runner is off, there is no plan, or
-     * the last fix PR was closed unmerged and `confirmReopen` is not set.
+     * the last fix (or majors) PR was closed unmerged and `confirmReopen` is not set.
+     *
+     * With the majors agent on and major upgrades in the plan, a second run of kind `majors`
+     * is dispatched right after the fix run: its own workflow run (queued behind the fix run by
+     * the workflow's concurrency group), branch and draft PR. A plan with only major upgrades
+     * gets the majors run alone, returned as `run`. A majors dispatch the runner refuses
+     * before creating a run is left out (`majorsRun: null`); one it refused after is a failed
+     * run with the reason.
      */
     async dispatch(
       repoId: number,
@@ -231,22 +260,37 @@ export function createFixRunService(options: FixRunServiceOptions) {
       }
       const plan = repositories.fixPlans.forRepo(repo.id)
       if (!plan) return refused(404, 'not_found', 'Fix plan not found')
-      const closed = repositories.fixRuns.closedUnmergedPrevious(repo.id, 'fix')
-      const previous = closed ? previousPrOf(closed) : null
-      if (previous && request.confirmReopen !== true) {
-        return { kind: 'reopen_required', previous }
+      const majors =
+        repo.runnerMajorsAgent !== 'off' && plan.plan.steps.some((step) => isMajorStep(step))
+      const kinds = majors ? (['fix', 'majors'] as const) : (['fix'] as const)
+      for (const kind of kinds) {
+        const closed = repositories.fixRuns.closedUnmergedPrevious(repo.id, kind)
+        const previous = closed ? previousPrOf(closed) : null
+        if (previous && request.confirmReopen !== true) {
+          return { kind: 'reopen_required', previous }
+        }
       }
-      const outcome = await runner.dispatch({ repo, plan })
+      const outcome = await runner.dispatch({ repo, plan, kind: 'fix' })
+      const majorsOnly = majors && !outcome.created && outcome.code === 'nothing_to_send'
+      if (!outcome.created && !majorsOnly) return refusedDispatch(outcome)
+      const majorsOutcome = majors ? await runner.dispatch({ repo, plan, kind: 'majors' }) : null
       if (outcome.created) {
         return {
           kind: 'created',
           run: outcome.run,
           encoding: outcome.encoding,
           omittedStepIds: outcome.omittedStepIds,
+          majorsRun: majorsOutcome?.created ? majorsOutcome.run : null,
         }
       }
-      if (outcome.code === 'unavailable') return refused(503, 'unavailable', outcome.message)
-      return refused(409, 'conflict', outcome.message)
+      if (!majorsOutcome?.created) return refusedDispatch(majorsOutcome ?? outcome)
+      return {
+        kind: 'created',
+        run: majorsOutcome.run,
+        encoding: majorsOutcome.encoding,
+        omittedStepIds: majorsOutcome.omittedStepIds,
+        majorsRun: null,
+      }
     },
 
     /**

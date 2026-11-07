@@ -22,7 +22,8 @@ import type { RunnerGithub } from './github.js'
 import type { FixRunDispatchOutcome, FixRunDispatchRequest, FixRunner } from './runner.js'
 
 // The GitHub Actions runner: builds the dispatch from the plan (checks and links by the repo's
-// visibility), records the run as pending, then calls workflow_dispatch on the repo's caller
+// visibility; for a majors run only the major upgrades, with the agent on), records the run as
+// pending, then calls workflow_dispatch on the repo's caller
 // workflow with `return_run_details`, so the run id is stored before the API answers.
 
 /** Longest failure reason stored on a run. */
@@ -103,7 +104,11 @@ export class GithubActionsRunner implements FixRunner {
     this.#options = options
   }
 
-  async dispatch({ repo, plan }: FixRunDispatchRequest): Promise<FixRunDispatchOutcome> {
+  async dispatch({
+    repo,
+    plan,
+    kind = 'fix',
+  }: FixRunDispatchRequest): Promise<FixRunDispatchOutcome> {
     const { repositories } = this.#options
     const now = this.#options.now ?? currentTime
     const github = this.#options.github()
@@ -135,8 +140,16 @@ export class GithubActionsRunner implements FixRunner {
         baseBranch: meta.defaultBranch,
         visibility: meta.visibility,
         now: now(),
+        kind,
       })
-      if (dispatch.steps.length === 0) {
+      if (kind === 'majors' && dispatch.risky.length === 0) {
+        return {
+          created: false,
+          code: 'nothing_to_send',
+          message: 'The plan has no major upgrade the agent can take.',
+        }
+      }
+      if (kind === 'fix' && dispatch.steps.length === 0) {
         return {
           created: false,
           code: 'nothing_to_send',
@@ -156,7 +169,7 @@ export class GithubActionsRunner implements FixRunner {
         repoId: repo.id,
         plan: { fixPlanId: plan.id, scanRunId: plan.scanRunId, version: plan.version },
         runner: this.kind,
-        kind: 'fix',
+        kind,
         correlationId,
         checksMode: encoded.dispatch.options.checks,
       },

@@ -21,6 +21,7 @@ const repo = {
   lastScannedAt: null,
   runnerEnabled: true,
   runnerWorkflow: null,
+  runnerMajorsAgent: 'off' as const,
   createdAt: AT,
   updatedAt: AT,
 }
@@ -74,6 +75,15 @@ describe('targeted findings', () => {
     expect(targetedFindingIds(plan, result)).toEqual([1])
     result.steps[0] = { ...result.steps[0]!, reason: 'too_new' }
     expect(targetedFindingIds(plan, result)).toEqual([])
+  })
+
+  it('takes the major upgrades for a majors run, those whose lockfile the agent changed', () => {
+    expect(targetedFindingIds(plan, null, 'majors')).toEqual([3])
+    const result = runnerResult(plan, 'corr-1')
+    result.steps = [{ id: 's3', status: 'applied', reason: null, detail: null, files: [] }]
+    expect(targetedFindingIds(plan, result, 'majors')).toEqual([3])
+    result.steps = [{ id: 's3', status: 'skipped', reason: null, detail: 'unchanged', files: [] }]
+    expect(targetedFindingIds(plan, result, 'majors')).toEqual([])
   })
 
   it('falls back to every safe step without a result, and to null without a plan', () => {

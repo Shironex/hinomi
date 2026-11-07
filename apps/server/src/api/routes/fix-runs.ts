@@ -50,6 +50,7 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
       repoId: repo.id,
       enabled: updated.runnerEnabled,
       workflow: updated.runnerWorkflow,
+      majorsAgent: updated.runnerMajorsAgent,
     })
     return statusResponse(c, deps, updated)
   })
@@ -103,6 +104,7 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
           state: result.run.state,
           encoding: result.encoding,
           omittedSteps: result.omittedStepIds.length,
+          majorsRunId: result.majorsRun?.id ?? null,
         })
         return send(
           c,
@@ -111,6 +113,7 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
             run: toFixRun(result.run),
             encoding: result.encoding,
             omittedStepIds: result.omittedStepIds,
+            majorsRun: result.majorsRun && toFixRun(result.majorsRun),
           },
           201,
         )

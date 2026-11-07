@@ -351,6 +351,21 @@ describe('POST /api/repos/:id/runner/setup-pr', () => {
     expect(writes).toContain('put')
   })
 
+  it('adds the agent secret to the file and says so when the majors agent is on', async () => {
+    const { call, harbor, repos, requests } = setup({ onMain: WANTED })
+    repos.repos.setRunner(harbor.id, { majorsAgent: 'claude-code' })
+    const res = await post(call, harbor.id)
+    expect(res.status).toBe(201)
+    const put = requests.find((r) => r.method === 'PUT')
+    const content = Buffer.from((put?.body as { content: string }).content, 'base64').toString()
+    expect(content).toBe(
+      renderCallerWorkflow({ sha: NEW, version: VERSION, majorsAgent: 'claude-code' }),
+    )
+    expect(content).toContain('      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}')
+    const pr = requests.find((r) => r.method === 'POST' && r.path === `${REPO}/pulls`)
+    expect((pr?.body as { body: string }).body).toContain('`ANTHROPIC_API_KEY` repository secret')
+  })
+
   it('refuses a classic token without the workflow scope before writing', async () => {
     const { call, harbor, writes } = setup({ scopes: 'repo' })
     const res = await post(call, harbor.id)

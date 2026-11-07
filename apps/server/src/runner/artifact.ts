@@ -1,5 +1,5 @@
 import { crc32, inflateRawSync } from 'node:zlib'
-import { FixPayloadError, parseFixResult, type FixResultV1 } from '@hinomi/shared'
+import { FixPayloadError, parseFixResult, type FixResultV1, type FixRunKind } from '@hinomi/shared'
 
 // The result artifact of a fix run: the `apply` job uploads its `.hinomi/` folder (the result
 // file and fix.patch) as one artifact, which GitHub serves as a zip. Only the result file is
@@ -17,8 +17,12 @@ export const MAX_RESULT_ARTIFACT_BYTES = 4 * 1024 * 1024
 /** Largest result file read out of the zip, after inflating. */
 export const MAX_RESULT_FILE_BYTES = 2 * 1024 * 1024
 
+/** Artifact name prefix of the majors job: `hinomi-majors-<correlation id>`. */
+export const MAJORS_RESULT_ARTIFACT_PREFIX = 'hinomi-majors-'
+
 /** The artifact names a run's result may have, preferred first. */
-export function fixResultArtifactNames(correlationId: string): string[] {
+export function fixResultArtifactNames(correlationId: string, kind: FixRunKind = 'fix'): string[] {
+  if (kind === 'majors') return [`${MAJORS_RESULT_ARTIFACT_PREFIX}${correlationId}`]
   return [`${FIX_RESULT_ARTIFACT_PREFIX}${correlationId}`, LEGACY_FIX_RESULT_ARTIFACT]
 }
 
