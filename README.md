@@ -77,7 +77,7 @@ I built it for my own servers: a dozen apps on Coolify, one person looking after
     <td width="50%"><img src="assets/showcase/setup.webp" alt="Hinomi: Setup" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>Settings: Coolify, GitHub and OSV.dev sources, channels, scans and repo mapping.</sub></td>
+    <td align="center"><sub>Settings: Coolify, several GitHub sources and OSV.dev, channels, runners, scans and repo mapping.</sub></td>
     <td align="center"><sub>Setup: four steps from an empty instance to the first scan.</sub></td>
   </tr>
 </table>
@@ -120,7 +120,7 @@ Every name, host and advisory in these images is invented. They are captured fro
 | Source | What Hinomi reads |
 |---|---|
 | **Coolify** | Applications, services and databases: git repo and branch, domains, server, status, image and last deploy. A read only API token is enough. |
-| **GitHub** | Repos, whether Dependabot alerts are switched on, and the Dependabot alerts themselves (severity, CVSS, runtime or development scope, vulnerable range, first patched version). Connect with a personal access token or a GitHub App, see [docs/github.md](docs/github.md). |
+| **GitHub** | Repos, whether Dependabot alerts are switched on, and the Dependabot alerts themselves (severity, CVSS, runtime or development scope, vulnerable range, first patched version). Connect with a personal access token or a GitHub App, one source per account or organization, see [docs/github.md](docs/github.md). |
 | **OSV.dev** | An independent check of the lockfiles in each repo, which also covers repos where Dependabot is off. Only package names and versions are sent. It can be switched off in Settings. |
 
 A scan runs on a schedule (every 6 hours by default, from 15 minutes to 7 days) and whenever you press Scan now. Repos are mapped to deployments from the Coolify git repository field, with manual overrides in Settings for monorepos and renamed repos.
@@ -150,7 +150,7 @@ New or reopened critical and high findings on deployed repos, and new blind spot
 
 ## Quick start
 
-Hinomi is one container with a SQLite database in `/data`. Images for `linux/amd64` and `linux/arm64` are published to `ghcr.io/shironex/hinomi` on every release, tagged `X.Y.Z`, `X.Y` and `latest`. Until the first release is tagged there is nothing to pull; [build from source](#build-from-source) meanwhile.
+Hinomi is one container with a SQLite database in `/data`. Images for `linux/amd64` and `linux/arm64` are published to `ghcr.io/shironex/hinomi` on every release, tagged `X.Y.Z`, `X.Y` and `latest`.
 
 It has no login yet, so read [Access](#access) before you connect a token. The full guide, with Coolify, tokens, upgrades and backups, is [docs/self-hosting.md](docs/self-hosting.md).
 
@@ -162,7 +162,7 @@ docker compose up -d
 curl localhost:3000/api/health
 ```
 
-Then open `http://localhost:3000`; setup starts there. Pin a release with `HINOMI_VERSION=0.1.0 docker compose up -d`. Without it Compose follows `latest`; run `docker compose pull` to update.
+Then open `http://localhost:3000`; setup starts there. Pin a release with `HINOMI_VERSION=0.2.0 docker compose up -d`. Without it Compose follows `latest`; run `docker compose pull` to update.
 
 The container runs as uid 10001 and keeps its database in the `hinomi-data` volume. Migrations run on boot. Each image carries an SBOM and build provenance:
 
@@ -201,6 +201,8 @@ No environment variables are required; see [.env.example](.env.example).
 | `HINOMI_CF_ACCESS_AUD` | unset | Application Audience (AUD) tag of the Access application. Set both Cloudflare variables or neither. |
 | `HINOMI_WEBHOOK_PORT` | unset | A second port that serves only the optional GitHub webhook path, so a tunnel pointed at it reaches nothing else. Must differ from `PORT`. See [docs/github-webhook.md](docs/github-webhook.md). |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | `25` | How long a stop (SIGTERM or SIGINT) waits for a running scan before it is marked interrupted. Whole seconds from 0 to 3600. Keep it below the stop grace of your platform, or the container is killed first. |
+| `HINOMI_LOCAL_RUNNER` | unset | `1` allows the opt in [local runner](docs/runners.md#the-local-runner), which applies fix plans on this host. Read its risks first. |
+| `HINOMI_LOCAL_RUNNER_CHECKS` | unset | `1` also runs install scripts and checks on the host during a local run. |
 
 Tokens and GitHub App private keys are never logged and never sent to the browser; the API only says whether one is set. GitHub connects with a personal access token or a GitHub App, see [docs/github.md](docs/github.md).
 
@@ -210,12 +212,12 @@ On a stop the server waits for the running scan (up to `HINOMI_SHUTDOWN_TIMEOUT_
 
 ## Roadmap
 
-Hinomi is in its first release. What comes next is planned in milestones:
+What comes next is planned in milestones:
 
-- [v0.1.0](https://github.com/Shironex/hinomi/milestone/1): the redesign, repo setup, GHCR images and the installable web app. The first release.
-- [v0.2.0](https://github.com/Shironex/hinomi/milestone/2): phase 1, fix runs. A "Run fix agent" button per finding opens a dependency bump pull request through a GitHub Actions runner, then tracks it until a rescan verifies the fix. The button is already in the UI, but disabled until then.
 - [v0.3.0](https://github.com/Shironex/hinomi/milestone/3): phase 2, drift guards (containers running as root, shared networks, outdated frameworks, watch paths), an image scan for deployments with no repo, a desktop tier for shipped apps, and built in auth.
 - [Later](https://github.com/Shironex/hinomi/milestone/4): ideas worth doing after phase 2.
+
+Released so far: [v0.1.0](https://github.com/Shironex/hinomi/milestone/1), the redesign, GHCR images and the installable web app, and [v0.2.0](https://github.com/Shironex/hinomi/milestone/2), phase 1, fix runs. See the [changelog](CHANGELOG.md).
 
 The reasoning behind all of it is in [docs/spec.md](docs/spec.md).
 
