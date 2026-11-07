@@ -4,6 +4,8 @@ run-name: hinomi fix selftest
 # Runs the reusable fix workflow against fixture projects inside this repo (an npm and a pnpm
 # project under actions/fix-runner/fixtures, both bumping a real package), with a dry run
 # publish: the patch is verified, applied and committed, never pushed. Public repo, so free.
+# A second call runs the majors jobs on a majors dispatch with the `stub` agent preset, which
+# calls no model and needs no secret (the action accepts it only in a dry run).
 on:
   workflow_dispatch:
   pull_request:
@@ -11,6 +13,7 @@ on:
       - .github/workflows/fix.yml
       - .github/workflows/fix-selftest.yml
       - actions/fix-runner/**
+      - actions/fix-toolchain/**
 
 permissions: {}
 
@@ -23,6 +26,7 @@ jobs:
       contents: read
     outputs:
       plan: ${{ steps.read.outputs.plan }}
+      majors_plan: ${{ steps.read.outputs.majors_plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,6 +38,8 @@ jobs:
         run: |
           plan=$(jq -c . actions/fix-runner/fixtures/selftest-dispatch.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
+          majors_plan=$(jq -c . actions/fix-runner/fixtures/selftest-majors-dispatch.json)
+          echo "majors_plan=$majors_plan" >> "$GITHUB_OUTPUT"
 
   fix:
     name: Fix
@@ -67,3 +73,40 @@ jobs:
           [[ "$PATCH_SHA256" =~ ^[a-f0-9]{64}$ ]]
           test "$BRANCH" = hinomi/fix-plan
           test "$PUSHED" = false
+
+  majors:
+    name: Majors
+    needs: plan
+    uses: $/.github/workflows/fix.yml
+    # majors-publish asks for contents: write; with dry_run it never pushes. No secret is passed:
+    # the stub preset needs none.
+    permissions:
+      contents: write
+    with:
+      run_id: selftest-majors
+      plan: ${{ needs.plan.outputs.majors_plan }}
+      encoding: json
+      dry_run: true
+
+  verify-majors:
+    name: Check the majors outcome
+    needs: majors
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Expect no fix patch, a majors patch and an unpushed majors commit
+        env:
+          HAS_CHANGES: ${{ needs.majors.outputs.has_changes }}
+          MAJORS_HAS_CHANGES: ${{ needs.majors.outputs.majors_has_changes }}
+          MAJORS_PATCH_SHA256: ${{ needs.majors.outputs.majors_patch_sha256 }}
+          MAJORS_BRANCH: ${{ needs.majors.outputs.majors_branch }}
+          MAJORS_PUSHED: ${{ needs.majors.outputs.majors_pushed }}
+        run: |
+          echo "has_changes=$HAS_CHANGES majors_has_changes=$MAJORS_HAS_CHANGES"
+          echo "majors_patch_sha256=$MAJORS_PATCH_SHA256 branch=$MAJORS_BRANCH pushed=$MAJORS_PUSHED"
+          test "$HAS_CHANGES" != true
+          test "$MAJORS_HAS_CHANGES" = true
+          [[ "$MAJORS_PATCH_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          test "$MAJORS_BRANCH" = hinomi/majors
+          test "$MAJORS_PUSHED" = false

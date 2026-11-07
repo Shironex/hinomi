@@ -1,7 +1,8 @@
 # zizmor runs in CI (scripts/lint-workflows.sh) with this config.
 rules:
-  # fix.yml installs the yarn version a repo's packageManager field names, with npm, at that
-  # exact version and without scripts (corepack is no longer bundled with current Node).
+  # The fix toolchain action installs the yarn version a repo's packageManager field names,
+  # with npm, at that exact version and without scripts (corepack is no longer bundled with
+  # current Node).
   adhoc-packages:
     ignore:
-      - fix.yml
+      - action.yml
