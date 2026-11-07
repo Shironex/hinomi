@@ -43,6 +43,7 @@ function itemLabel(item: FindingListItem | undefined, id: number): string {
   if (!item) return `finding ${id}`
   if (item.kind === 'blind_spot') return `blind spot on ${blindSpotSubject(item)}`
   if (item.kind === 'coverage_note') return `image only note on ${blindSpotSubject(item)}`
+  if (item.kind === 'guard') return `${item.guard?.title ?? 'guard'} on ${findingName(item)}`
   return `${item.advisory?.packageName ?? 'advisory'}${item.repo ? ` in ${item.repo.fullName}` : ''}`
 }
 

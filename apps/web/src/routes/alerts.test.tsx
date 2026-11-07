@@ -143,7 +143,7 @@ describe('all alerts', () => {
     const user = userEvent.setup()
     const { router } = await renderApp('/alerts')
     await screen.findByText('Tier 2: Deployed, internal only')
-    await user.click(screen.getByRole('button', { name: '4 more filters' }))
+    await user.click(screen.getByRole('button', { name: '7 more filters' }))
     await user.selectOptions(screen.getByLabelText('Source'), 'Reported by both')
     await waitFor(() => {
       const search = api.called('GET', '/findings').at(-1)?.search
@@ -159,6 +159,35 @@ describe('all alerts', () => {
     await user.selectOptions(screen.getByLabelText('Source'), 'Reported by OSV')
     await waitFor(() =>
       expect(api.called('GET', '/findings').at(-1)?.search.has('sourceMatch')).toBe(false),
+    )
+  })
+
+  it('filters on guards by kind, level and check, and on released desktop apps', async () => {
+    const api = mockViews({ 'GET /findings': grouped })
+    const user = userEvent.setup()
+    const { router } = await renderApp('/alerts')
+    await screen.findByText('Tier 2: Deployed, internal only')
+    await user.click(screen.getByRole('button', { name: '7 more filters' }))
+
+    await user.selectOptions(screen.getByLabelText('Kind'), 'Guards')
+    await user.selectOptions(screen.getByLabelText('Guard level'), 'Fail')
+    await user.selectOptions(screen.getByLabelText('Guard check'), 'Container runs as root')
+    await waitFor(() => {
+      const search = api.called('GET', '/findings').at(-1)?.search
+      expect(search?.get('kind')).toBe('guard')
+      expect(search?.get('level')).toBe('fail')
+      expect(search?.get('check')).toBe('root_user')
+    })
+    expect(router.state.location.search).toMatchObject({
+      kind: ['guard'],
+      level: ['fail'],
+      check: ['root_user'],
+    })
+    expect(screen.getByRole('button', { name: '3 more on' })).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Deployment'), 'Released desktop apps')
+    await waitFor(() =>
+      expect(api.called('GET', '/findings').at(-1)?.search.get('tier')).toBe('released'),
     )
   })
 

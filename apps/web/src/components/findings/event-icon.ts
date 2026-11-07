@@ -4,6 +4,9 @@ import {
   IconClockExclamation,
   IconClockPause,
   IconDatabase,
+  IconPower,
+  IconTrendingDown,
+  IconTrendingUp,
   IconPoint,
   IconRefresh,
   IconShieldCheck,
@@ -24,6 +27,9 @@ const ICONS: Record<string, Icon> = {
   dismissed_upstream: IconShieldOff,
   dismissal_noted: IconShieldOff,
   reporters_changed: IconDatabase,
+  escalated: IconTrendingUp,
+  level_changed: IconTrendingDown,
+  turned_off: IconPower,
 }
 
 export function eventIcon(type: string): Icon {
@@ -32,7 +38,8 @@ export function eventIcon(type: string): Icon {
 
 /** Expiries and fixes deserve a tone in a feed. */
 export function eventTone(type: string): string | undefined {
-  if (type === 'snooze_expired' || type === 'acceptance_expired') return 'text-sev-high'
+  if (type === 'snooze_expired' || type === 'acceptance_expired' || type === 'escalated')
+    return 'text-sev-high'
   if (type === 'fixed' || type === 'resolved') return 'text-success'
   return undefined
 }

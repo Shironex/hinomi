@@ -1,5 +1,6 @@
 import type { FindingListItem, FixItem } from '@hinomi/shared'
 import { blindSpotSubject } from './finding-meta'
+import { guardSubject } from './guard-meta'
 import type { FixRequestRepo } from './fix-request'
 
 /** Helpers of the triage lists and detail panes (Exposure, All alerts, By fix). */
@@ -21,8 +22,9 @@ export function joinAnd(items: readonly string[], max = 3): string {
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
 
-/** Package name, or what the blind spot or note is on. */
+/** Package name, or what the blind spot, note or guard is on. */
 export function findingName(item: FindingListItem): string {
+  if (item.kind === 'guard') return guardSubject(item)
   if (item.kind !== 'advisory') return blindSpotSubject(item)
   return item.advisory?.packageName ?? 'Advisory'
 }

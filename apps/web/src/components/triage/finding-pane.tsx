@@ -7,12 +7,14 @@ import {
   IconCircleCheck,
   IconClockExclamation,
   IconClockPause,
+  IconPower,
   IconShieldCheck,
   IconShieldOff,
   IconShieldSearch,
   type Icon,
 } from '@tabler/icons-react'
 import { DeferForm } from '@/components/findings/defer-form'
+import { TurnOffDialog, type TurnOffTarget } from '@/components/guards/turn-off-dialog'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
 import { Button } from '@/components/ui/button'
@@ -23,8 +25,9 @@ import { TAB_QUERY, useMediaQuery } from '@/hooks/use-media-query'
 import { ApiError } from '@/lib/api'
 import type { DeferExpiry } from '@/lib/defer'
 import { describeError } from '@/lib/errors'
-import { decisionLabel } from '@/lib/finding-meta'
+import { decisionLabel, formatDate } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
+import { isRepoCheck } from '@/lib/guard-meta'
 import { isTypingTarget } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 import {
@@ -40,6 +43,8 @@ import {
   DetailsList,
   FindingHead,
   FixCard,
+  GuardEvidenceSection,
+  GuardExplanation,
   HistorySection,
   NotificationsSection,
   PaneSection,
@@ -90,12 +95,34 @@ function StateBanner({
   onReopen,
   reopening,
   reopenError,
+  onEditOverride,
 }: {
   f: FindingDetail
   onReopen: () => void
   reopening: boolean
   reopenError: string | null
+  onEditOverride: () => void
 }) {
+  const override = f.guard?.override
+  if (override && f.state === 'accepted') {
+    return (
+      <Banner
+        icon={IconPower}
+        title={`Turned off for ${override.scope === 'repo' ? 'the whole repo' : 'this deployment'}, ${formatDate(override.createdAt)}`}
+      >
+        <span className="text-foreground-2">{override.reason}</span>
+        <span className="text-xs text-muted-foreground">
+          The check keeps running and this finding stays listed as accepted, with its level and
+          evidence kept current. It is never sent as a notification.
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={onEditOverride} aria-haspopup="dialog">
+            Edit reason or turn back on
+          </Button>
+        </span>
+      </Banner>
+    )
+  }
   if (f.state === 'snoozed' || f.state === 'accepted') {
     const by = f.history.find((e) => e.type === f.state)
     return (
@@ -219,6 +246,7 @@ export function FindingPane({
   const tabWide = useMediaQuery(TAB_QUERY)
   const [deferOpen, setDeferOpen] = useState<DeferKind | null>(null)
   const [notice, setNotice] = useState('')
+  const [turnOff, setTurnOff] = useState<TurnOffTarget | null>(null)
   const formRef = useRef<HTMLDivElement>(null)
 
   const defer = useMutation({
@@ -313,12 +341,35 @@ export function FindingPane({
 
   const f = query.data
   const two = layout === 'two'
+  const guard = f.guard
+  const openTurnOff = guard
+    ? () => {
+        const app = f.deployments[0]
+        if (guard.override) {
+          setTurnOff({
+            mode: 'edit',
+            check: guard.check,
+            override: guard.override,
+            subject:
+              (guard.override.scope === 'repo' ? f.repo?.fullName : app?.name) ?? 'this subject',
+          })
+          return
+        }
+        setTurnOff({
+          mode: 'create',
+          check: guard.check,
+          deployment: !isRepoCheck(guard.check) && app ? { id: app.id, name: app.name } : null,
+          repo: f.repo ? { id: f.repo.id, fullName: f.repo.fullName } : null,
+        })
+      }
+    : undefined
   const banner = (
     <StateBanner
       f={f}
       onReopen={() => reopen.mutate()}
       reopening={reopen.isPending}
       reopenError={reopen.error ? describeError(reopen.error) : null}
+      onEditOverride={() => openTurnOff?.()}
     />
   )
   const form =
@@ -347,13 +398,23 @@ export function FindingPane({
       actions={{
         deferOpen,
         onDefer: (kind) => (deferOpen === kind ? setDeferOpen(null) : openDefer(kind)),
+        onTurnOff: openTurnOff,
       }}
     />
   )
   const status = (
-    <p role="status" className="sr-only">
-      {notice}
-    </p>
+    <>
+      <p role="status" className="sr-only">
+        {notice}
+      </p>
+      {guard ? (
+        <TurnOffDialog
+          target={turnOff}
+          onOpenChange={(open) => !open && setTurnOff(null)}
+          onDone={setNotice}
+        />
+      ) : null}
+    </>
   )
 
   if (two) {
@@ -365,6 +426,8 @@ export function FindingPane({
         <div className="grid items-start gap-8 desk:grid-cols-[minmax(0,1fr)_340px]">
           <div className="flex min-w-0 flex-col gap-8">
             <WhyItRanks f={f} rank={rank} />
+            <GuardExplanation f={f} />
+            <GuardEvidenceSection f={f} />
             <FixCard f={f} />
             <StillSees f={f} />
             <AdvisorySection f={f} />
@@ -394,6 +457,8 @@ export function FindingPane({
       {banner}
       {form}
       <WhyItRanks f={f} rank={rank} />
+      <GuardExplanation f={f} />
+      <GuardEvidenceSection f={f} />
       <FixCard f={f} compact={!tabWide} />
       {f.kind === 'blind_spot' ? <StillSees f={f} /> : null}
       <AffectedApps f={f} />

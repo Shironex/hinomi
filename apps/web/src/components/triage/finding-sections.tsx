@@ -12,11 +12,13 @@ import {
   IconGitPullRequest,
   IconLock,
   IconPlugConnected,
+  IconPower,
   IconServer2,
   IconWorld,
 } from '@tabler/icons-react'
 import { eventIcon, eventTone } from '@/components/findings/event-icon'
 import { StatusText } from '@/components/findings/finding-state'
+import { GuardEvidenceView } from '@/components/guards/guard-evidence-view'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { KeyValues } from '@/components/views/panel'
@@ -42,6 +44,7 @@ import {
   VERSION_UNKNOWN_HINT,
 } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
+import { codeParts, GUARD_LEVEL_LABEL, guardSubject } from '@/lib/guard-meta'
 import { cn } from '@/lib/utils'
 import { findingsQuery } from '@/lib/view-api'
 import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
@@ -137,6 +140,9 @@ export function Bump({
 
 /** Snoozes, expiries and fixes in a few words, for the meta line of the head. */
 function stateLine(f: FindingDetail): ReactNode {
+  if (f.guard?.override && f.state === 'accepted') {
+    return <StatusText icon={IconPower}>Turned off</StatusText>
+  }
   const decided = decisionLabel(f)
   if (decided) return <StatusText icon={IconClockPause}>{decided}</StatusText>
   if (f.state === 'fixing') {
@@ -186,6 +192,8 @@ function reachLine(f: FindingDetail): { icon: typeof IconWorld; text: string } {
 export interface HeadActions {
   onDefer: (kind: 'snooze' | 'accept') => void
   deferOpen: 'snooze' | 'accept' | null
+  /** Guards: opens the turn off dialog, or the override's edit dialog when it is off. */
+  onTurnOff?: () => void
 }
 
 function githubLabel(url: string): string {
@@ -283,7 +291,11 @@ export function FindingHead({
           </>
         ) : (
           <span className="text-xs text-muted-foreground">
-            {f.kind === 'blind_spot' ? 'ranked like a critical' : 'ranked low'}
+            {f.kind === 'blind_spot'
+              ? 'ranked like a critical'
+              : f.kind === 'guard' && f.guard?.level !== 'unknown'
+                ? `counts as ${SEVERITY_LABEL[f.factors.severity].toLowerCase()}`
+                : 'ranked low'}
           </span>
         )}
       </div>
@@ -333,14 +345,21 @@ export function FindingHead({
       <div className="mt-1 flex flex-wrap gap-2">
         {f.kind === 'advisory' ? (
           <FixWithHinomi repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
+        ) : f.kind === 'guard' ? (
+          actions.onTurnOff && (canDefer || f.guard?.override) ? (
+            <Button variant="outline" onClick={actions.onTurnOff} aria-haspopup="dialog">
+              <IconPower aria-hidden="true" />
+              {f.guard?.override ? 'Turned off, edit' : 'Turn off'}
+            </Button>
+          ) : null
         ) : (
           <PrimaryGapAction f={f} />
         )}
-        {canDefer ? deferButton('snooze', 'Snooze', IconClockPause) : null}
-        {canDefer
+        {canDefer && !f.guard?.override ? deferButton('snooze', 'Snooze', IconClockPause) : null}
+        {canDefer && !f.guard?.override
           ? deferButton(
               'accept',
-              f.kind === 'advisory' ? 'Accept risk' : 'Accept the gap',
+              f.kind === 'advisory' || f.kind === 'guard' ? 'Accept risk' : 'Accept the gap',
               IconCheck,
             )
           : null}
@@ -373,6 +392,10 @@ function attackVector(vector: string | null): string | null {
 }
 
 function severityText(f: FindingDetail): string {
+  if (f.kind === 'guard' && f.guard) {
+    if (f.guard.level === 'unknown') return 'Unknown: the source cannot give this signal'
+    return `${GUARD_LEVEL_LABEL[f.guard.level]}, counts as ${SEVERITY_LABEL[f.factors.severity].toLowerCase()}`
+  }
   if (f.kind === 'coverage_note') return 'Unknown until the image scan reads it'
   if (f.kind === 'blind_spot') {
     return f.blindSpotType === 'alerts_disabled'
@@ -392,6 +415,12 @@ function severityText(f: FindingDetail): string {
 }
 
 function runtimeText(f: FindingDetail): string {
+  if (f.kind === 'guard') {
+    if (!f.deployments.length) return 'Nothing runs it'
+    return f.stopped
+      ? 'Every deployment is stopped'
+      : `${joinAnd(f.deployments.map((d) => d.name))} runs`
+  }
   if (f.kind === 'coverage_note') return 'Unknown without a repo or lockfile'
   if (f.kind === 'blind_spot') {
     return f.blindSpotType?.startsWith('alerts') ? 'Unknown without alerts' : 'Unknown'
@@ -438,7 +467,7 @@ function FactorBox({ on }: { on: boolean | null }) {
 }
 
 function whyTitle(f: FindingDetail, rank: number | undefined): string {
-  if (f.kind === 'coverage_note') return 'Why it ranks low'
+  if (f.kind === 'coverage_note' || f.guard?.level === 'unknown') return 'Why it ranks low'
   if (f.kind === 'blind_spot') return 'Why it ranks like a critical'
   if (f.patchedInLockfile) return 'Why it ranks below every open advisory'
   if (rank !== undefined) return `Why it ranks #${rank}`
@@ -450,14 +479,14 @@ export function WhyItRanks({ f, rank }: { f: FindingDetail; rank?: number }) {
   const flags = factorFlags(f)
   const rows: [string, boolean | null, string][] = [
     ['Severity', flags[0], severityText(f)],
-    ['Runtime', flags[1], runtimeText(f)],
+    [f.kind === 'guard' ? 'Running' : 'Runtime', flags[1], runtimeText(f)],
     ['Deployed', flags[2], deployedText(f)],
     ['Public', flags[3], publicText(f)],
   ]
   const on = flags.filter((x) => x === true).length
   const top = f.tier === 'exposed' || f.tier === 'blind_spot'
   const aside =
-    f.kind !== 'advisory'
+    f.kind !== 'advisory' && f.kind !== 'guard'
       ? undefined
       : on === 4
         ? 'All four exposure factors are on'
@@ -514,6 +543,19 @@ function clearsText(f: FindingDetail): string {
 /** The bump that fixes an advisory and how much it clears; the steps that close a gap. */
 export function FixCard({ f, compact = false }: { f: FindingDetail; compact?: boolean }) {
   const pkg = f.advisory?.packageName ?? 'the package'
+  if (f.kind === 'guard') {
+    if (!f.guard?.fixText) return null
+    return (
+      <FixBox>
+        <h2 className="text-base">
+          {f.guard.level === 'unknown' ? 'What you can do' : 'How to fix it'}
+        </h2>
+        <p className="max-w-[68ch] text-sm leading-relaxed text-foreground-2">
+          <CodeText text={f.guard.fixText} />
+        </p>
+      </FixBox>
+    )
+  }
   if (f.kind !== 'advisory') {
     const info = gapInfo(f)
     if (!info) return null
@@ -920,10 +962,60 @@ export function DetailsList({ f, className }: { f: FindingDetail; className?: st
       mono: true,
     })
   }
+  if (f.kind === 'guard' && f.guard) {
+    items.push({ label: 'Check', value: f.guard.title })
+    items.push({ label: 'Level', value: GUARD_LEVEL_LABEL[f.guard.level] })
+    if (f.guard.override) {
+      items.push({
+        label: 'Turned off',
+        value: `For the ${f.guard.override.scope}, ${formatDate(f.guard.override.createdAt)}`,
+      })
+    }
+  }
   if (f.repo) items.push({ label: 'Repo', value: f.repo.fullName, mono: true })
-  if (f.kind !== 'advisory') items.push({ label: 'On', value: blindSpotSubject(f), mono: true })
+  if (f.kind === 'guard') items.push({ label: 'On', value: guardSubject(f), mono: true })
+  else if (f.kind !== 'advisory')
+    items.push({ label: 'On', value: blindSpotSubject(f), mono: true })
   items.push({ label: 'Tier', value: TIER_INFO[f.tier].name })
   items.push({ label: 'First seen', value: formatDate(f.firstSeenAt) })
   items.push({ label: 'Last seen', value: formatRelative(f.lastSeenAt) })
   return <KeyValues items={items} className={className} />
+}
+
+// ---------------------------------------------------------------------------
+// Guards
+
+/** Copy with `backtick` spans, the spans drawn as code. */
+export function CodeText({ text }: { text: string }) {
+  return codeParts(text).map((part, i) =>
+    part.code ? (
+      <code key={i} className={CODE}>
+        {part.text}
+      </code>
+    ) : (
+      <span key={i}>{part.text}</span>
+    ),
+  )
+}
+
+/** Why a guard finding matters, from the check's copy for its level. */
+export function GuardExplanation({ f }: { f: FindingDetail }) {
+  if (!f.guard) return null
+  return (
+    <PaneSection title="Why it matters">
+      <p className="max-w-[68ch] text-foreground-2">
+        <CodeText text={f.guard.explanation} />
+      </p>
+    </PaneSection>
+  )
+}
+
+/** What the check read, per check, so the level can be checked by hand. */
+export function GuardEvidenceSection({ f }: { f: FindingDetail }) {
+  if (!f.guard) return null
+  return (
+    <PaneSection title="What Hinomi read" aside={`Last checked ${formatRelative(f.lastSeenAt)}`}>
+      <GuardEvidenceView evidence={f.guard.evidence} level={f.guard.level} />
+    </PaneSection>
+  )
 }
