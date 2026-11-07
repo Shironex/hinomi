@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { GithubClient } from './client.js'
 import { GithubError } from './errors.js'
+import { conditionalGet, type ConditionalRead } from './runs.js'
 import { parsePayload } from './schemas.js'
 
 // GitHub calls that open and update the fix pull request (mode A of the runner design): list the
@@ -46,6 +47,7 @@ const restPullSchema = z.object({
   title: z.string(),
   body: z.string().nullable(),
   merged_at: z.string().nullable().optional(),
+  merge_commit_sha: z.string().nullable().optional(),
   closed_at: z.string().nullable().optional(),
   labels: z.array(z.object({ name: z.string() })).optional(),
   head: z.object({ ref: z.string(), sha: z.string() }),
@@ -62,6 +64,8 @@ export interface GithubPull {
   title: string
   body: string
   merged: boolean
+  /** The commit the merge made on the base branch, once merged. */
+  mergeSha: string | null
   closedAt: string | null
   labels: string[]
   headRef: string
@@ -79,6 +83,7 @@ function toPull(raw: z.infer<typeof restPullSchema>): GithubPull {
     title: raw.title,
     body: raw.body ?? '',
     merged: Boolean(raw.merged_at),
+    mergeSha: raw.merged_at ? (raw.merge_commit_sha ?? null) : null,
     closedAt: raw.closed_at ?? null,
     labels: (raw.labels ?? []).map((label) => label.name),
     headRef: raw.head.ref,
@@ -116,6 +121,28 @@ export async function listBranchPulls(
     `${repoPath(query.owner, query.name)}/pulls?${params.toString()}`,
   )
   return parsePayload(z.array(restPullSchema), result.data, 'pull requests').map(toPull)
+}
+
+/**
+ * GET /repos/{owner}/{repo}/pulls/{number} with the last ETag. Null when the PR is gone (the
+ * repo was deleted or is no longer visible).
+ */
+export async function fetchPull(
+  client: GithubClient,
+  input: { owner: string; name: string; number: number },
+  etag?: string | null,
+): Promise<ConditionalRead<GithubPull> | null> {
+  try {
+    return await conditionalGet(
+      client,
+      `${repoPath(input.owner, input.name)}/pulls/${input.number}`,
+      etag,
+      (result) => toPull(parsePayload(restPullSchema, result.data, 'pull request')),
+    )
+  } catch (error) {
+    if (error instanceof GithubError && error.kind === 'not_found') return null
+    throw error
+  }
 }
 
 export interface CreatePullInput {
