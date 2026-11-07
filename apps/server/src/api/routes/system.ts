@@ -42,7 +42,7 @@ import {
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
+import { latestPlanRefs, tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
 const RECENT_ACTIVITY = 20
 
@@ -215,6 +215,7 @@ export function overviewRoutes(deps: ApiDeps) {
     const ranked = listRankedFindings(repositories)
     const counts = countFindings(ranked, deps.now())
     const lastScan = repositories.scanRuns.latest()
+    const planOf = latestPlanRefs(repositories)
     return send(c, overviewResponseSchema, {
       funnel: counts.advisories,
       blindSpots: counts.blindSpots,
@@ -228,7 +229,7 @@ export function overviewRoutes(deps: ApiDeps) {
       topFixes: groupFixes(ranked)
         .filter((fix) => fix.target !== null)
         .slice(0, TOP_FIXES)
-        .map(toFixItem),
+        .map((fix) => toFixItem(fix, planOf)),
     })
   })
 

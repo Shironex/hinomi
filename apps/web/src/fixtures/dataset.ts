@@ -406,6 +406,7 @@ export function detailFor(item: FindingListItem): FindingDetail {
       pathSource: a ? 'lockfile' : 'package',
     },
     sameFixClears: a && item.state === 'open' ? (SAME_FIX[a.packageName] ?? 1) : 0,
+    plan: null,
     history: lead
       ? [
           event(4, 1, 'snooze_expired', 2, { fromState: 'snoozed', toState: 'open' }),
@@ -466,8 +467,8 @@ export const FIXES: FixItem[] = [
     },
     findingIds: [1, 7],
     repos: [
-      { repo: REPOS.storefront, target: '14.2.9', findings: 2 },
-      { repo: REPOS.admin, target: '14.2.9', findings: 3 },
+      { repo: REPOS.storefront, target: '14.2.9', findings: 2, plan: null },
+      { repo: REPOS.admin, target: '14.2.9', findings: 3, plan: null },
     ],
     apps: [APPS.storefront, APPS.admin],
   }),
@@ -477,7 +478,7 @@ export const FIXES: FixItem[] = [
     target: '3.1.4',
     findings: { total: 1, byTier: tiers({ exposed: 1 }), bySeverity: severity(1, 0) },
     findingIds: [3],
-    repos: [{ repo: REPOS.auth, target: '3.1.4', findings: 1 }],
+    repos: [{ repo: REPOS.auth, target: '3.1.4', findings: 1, plan: null }],
     apps: [APPS.auth],
   }),
   fixItem({
@@ -488,8 +489,8 @@ export const FIXES: FixItem[] = [
     findings: { total: 3, byTier: tiers({ exposed: 1, internal: 2 }), bySeverity: severity(0, 3) },
     findingIds: [6],
     repos: [
-      { repo: REPOS.billing, target: '1.4.6', findings: 1 },
-      { repo: REPOS.ingest, target: '1.4.6', findings: 2 },
+      { repo: REPOS.billing, target: '1.4.6', findings: 1, plan: null },
+      { repo: REPOS.ingest, target: '1.4.6', findings: 2, plan: null },
     ],
     apps: [APPS.billing, APPS.ingest],
   }),
@@ -501,8 +502,8 @@ export const FIXES: FixItem[] = [
     findings: { total: 2, byTier: tiers({ exposed: 1, internal: 1 }), bySeverity: severity(0, 2) },
     findingIds: [5],
     repos: [
-      { repo: REPOS.docs, target: '2.0.7', findings: 1 },
-      { repo: REPOS.admin, target: '2.0.7', findings: 1 },
+      { repo: REPOS.docs, target: '2.0.7', findings: 1, plan: null },
+      { repo: REPOS.admin, target: '2.0.7', findings: 1, plan: null },
     ],
     apps: [APPS.docs, APPS.admin],
   }),
@@ -512,7 +513,7 @@ export const FIXES: FixItem[] = [
     target: null,
     findings: { total: 1, byTier: tiers({ exposed: 1 }), bySeverity: severity(1, 0) },
     findingIds: [4],
-    repos: [{ repo: REPOS.search, target: null, findings: 1 }],
+    repos: [{ repo: REPOS.search, target: null, findings: 1, plan: null }],
     apps: [APPS.search],
   }),
 ]

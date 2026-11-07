@@ -270,6 +270,7 @@ export function findingDetail(over: Partial<FindingDetail> = {}): FindingDetail 
     },
     notifications: [],
     sameFixClears: 0,
+    plan: null,
     history: [
       {
         id: 1,
@@ -346,8 +347,8 @@ export function fixItem(over: Partial<FixItem> = {}): FixItem {
     bestTier: 'exposed',
     exposedCritical: true,
     repos: [
-      { repo: repoRef(), target: '14.2.9', findings: 1 },
-      { repo: repoRef({ id: 4, name: 'ledger' }), target: '14.2.9', findings: 2 },
+      { repo: repoRef(), target: '14.2.9', findings: 1, plan: null },
+      { repo: repoRef({ id: 4, name: 'ledger' }), target: '14.2.9', findings: 2, plan: null },
     ],
     apps: [deploymentRef()],
     ...over,

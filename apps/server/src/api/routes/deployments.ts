@@ -4,6 +4,9 @@ import {
   deploymentDeploysResponseSchema,
   deploymentDetailSchema,
   deploymentsResponseSchema,
+  fixPlanQuerySchema,
+  fixPlanSchema,
+  fixPlansResponseSchema,
   idParamSchema,
   repoOverrideParamsSchema,
   repoOverridesResponseSchema,
@@ -26,7 +29,13 @@ import {
 import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { toDeploymentRef, toFindingListItem, toRepoRef } from '../serialize.js'
+import {
+  toDeploymentRef,
+  toFindingListItem,
+  toFixPlan,
+  toFixPlanRef,
+  toRepoRef,
+} from '../serialize.js'
 
 function alertsCoverage(repos: RepoRow[]): DeploymentItem['coverage']['alerts'] {
   if (repos.length === 0) return 'none'
@@ -190,8 +199,39 @@ export function deploymentsRoutes(deps: ApiDeps) {
 
 export function reposRoutes(deps: ApiDeps) {
   const app = new Hono()
+  const { repositories } = deps
   app.get('/', (c) =>
-    send(c, reposResponseSchema, { items: deps.repositories.repos.list().map(toRepoRef) }),
+    send(c, reposResponseSchema, { items: repositories.repos.list().map(toRepoRef) }),
   )
+
+  app.get('/:id/plan', (c) => {
+    const { id } = readParams(c, idParamSchema)
+    const { scan } = readQuery(c, fixPlanQuerySchema)
+    const repo = repositories.repos.get(id)
+    if (!repo) throw notFound('Repo')
+    const row = repositories.fixPlans.forRepo(id, scan)
+    if (!row) throw notFound('Fix plan')
+    return send(c, fixPlanSchema, toFixPlan(row, toRepoRef(repo)))
+  })
+
+  return app
+}
+
+/** GET /api/plans: the latest plan summary of every repo, most findings cleared first. */
+export function plansRoutes(deps: ApiDeps) {
+  const app = new Hono()
+  const { repositories } = deps
+  app.get('/', (c) => {
+    const items = repositories.fixPlans.latestPerRepo().flatMap((row) => {
+      const repo = repositories.repos.get(row.repoId)
+      return repo ? [{ ...toFixPlanRef(row), repo: toRepoRef(repo) }] : []
+    })
+    items.sort(
+      (a, b) =>
+        b.summary.findings.cleared - a.summary.findings.cleared ||
+        a.repo.fullName.localeCompare(b.repo.fullName),
+    )
+    return send(c, fixPlansResponseSchema, { items })
+  })
   return app
 }

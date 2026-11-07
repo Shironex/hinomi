@@ -5,7 +5,7 @@ import type { Repositories } from '../repository/index.js'
 import type { Scheduler } from '../scheduler/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
-import { deploymentsRoutes, reposRoutes } from './routes/deployments.js'
+import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
 import { fixesRoutes } from './routes/fixes.js'
 import { onboardingRoutes } from './routes/onboarding.js'
@@ -61,6 +61,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   api.route('/fixes', fixesRoutes(deps))
   api.route('/deployments', deploymentsRoutes(deps))
   api.route('/repos', reposRoutes(deps))
+  api.route('/plans', plansRoutes(deps))
   api.route('/sources', sourcesRoutes(deps))
   api.route('/settings', settingsRoutes(deps))
   api.route('/scans', scansRoutes(deps))

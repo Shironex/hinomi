@@ -8,12 +8,20 @@ import {
   type FindingNotification,
   type FindingTier,
   type FixItem,
+  type FixPlan,
+  type FixPlanRef,
   type ScanRun,
   type SeverityCounts,
   type SourceDto,
 } from '@hinomi/shared'
-import type { AdvisoryRow, DeploymentRow, FindingEventRow, ScanRunRow } from '../db/schema.js'
-import type { Source } from '../repository/index.js'
+import type {
+  AdvisoryRow,
+  DeploymentRow,
+  FindingEventRow,
+  FixPlanRow,
+  ScanRunRow,
+} from '../db/schema.js'
+import type { Repositories, Source } from '../repository/index.js'
 import { tierOf, toRepoRef, type Fix, type RankedFinding } from '../scan/index.js'
 
 export { toRepoRef }
@@ -114,6 +122,7 @@ export function toFindingDetail(
   events: FindingEventRow[],
   notifications: FindingNotification[] = [],
   sameFixClears = 0,
+  plan: FixPlanRef | null = null,
 ): FindingDetail {
   const { advisory, finding } = ranked
   return {
@@ -136,6 +145,7 @@ export function toFindingDetail(
     },
     dependency: dependencyOf(finding),
     sameFixClears,
+    plan,
     history: events.map(toFindingEvent),
     notifications,
   }
@@ -176,8 +186,34 @@ export function toSourceDto(source: Source): SourceDto {
   }
 }
 
+/** A stored plan as a link with its summary. */
+export function toFixPlanRef(row: FixPlanRow): FixPlanRef {
+  return {
+    repoId: row.repoId,
+    scanRunId: row.scanRunId,
+    createdAt: iso(row.createdAt),
+    summary: row.plan.summary,
+  }
+}
+
+/** Repo id to the link of its latest plan. */
+export type PlanRefs = (repoId: number) => FixPlanRef | null
+
+/** Links to every repo's latest plan, read once per request. */
+export function latestPlanRefs(repositories: Repositories): PlanRefs {
+  const refs = new Map(
+    repositories.fixPlans.latestPerRepo().map((r) => [r.repoId, toFixPlanRef(r)]),
+  )
+  return (repoId) => refs.get(repoId) ?? null
+}
+
+/** A stored plan as served: the repo ref is read fresh, the rest is the stored contract. */
+export function toFixPlan(row: FixPlanRow, repo: FixPlan['repo']): FixPlan {
+  return { ...row.plan, repo }
+}
+
 /** A fix as the API serves it: counts by tier and severity, repos with their own target. */
-export function toFixItem(fix: Fix): FixItem {
+export function toFixItem(fix: Fix, planOf: PlanRefs = () => null): FixItem {
   const byTier = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0])) as Record<FindingTier, number>
   const bySeverity: SeverityCounts = { critical: 0, high: 0, moderate: 0, low: 0 }
   for (const finding of fix.findings) {
@@ -198,6 +234,7 @@ export function toFixItem(fix: Fix): FixItem {
       repo: toRepoRef(r.repo),
       target: r.target,
       findings: r.findings.length,
+      plan: planOf(r.repo.id),
     })),
     apps: fix.apps.map(toDeploymentRef),
   }
