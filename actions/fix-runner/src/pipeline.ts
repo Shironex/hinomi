@@ -14,6 +14,7 @@ import type { Logger } from './actions-io.js'
 import {
   APPLIERS,
   type Applier,
+  type InstallOptions,
   type ProjectContext,
   type StepPackageManager,
 } from './appliers/index.js'
@@ -107,6 +108,15 @@ export function groupProjects(steps: FixDispatchStep[]): Project[] {
   return [...projects.values()]
 }
 
+/** The lockfile install commands of an applier as a list, in the order they run. */
+export async function installCommands(
+  applier: Applier,
+  ctx: ProjectContext,
+  options: InstallOptions,
+): Promise<Command[]> {
+  return [await applier.lockfileInstall(ctx, options)].flat()
+}
+
 type Verdict = { apply: true } | Omit<FixResultStep, 'id' | 'files'>
 
 /** Compares a step with what the live lockfile resolves. */
@@ -180,13 +190,21 @@ class ApplyRun {
     )
   }
 
-  async lockfileInstall(entry: ProjectRun, repoGate: RepoGate | null): Promise<Attempt> {
-    const command = entry.applier.lockfileInstall(entry.ctx, { repoGate })
-    const result = await this.run(command, entry.project.root, INSTALL_TIMEOUT_MS)
+  async lockfileInstall(
+    entry: ProjectRun,
+    repoGate: RepoGate | null,
+    steps: readonly FixDispatchStep[],
+  ): Promise<Attempt> {
+    const commands = await installCommands(entry.applier, entry.ctx, { repoGate, steps })
     this.install.ran = true
-    this.install.durationMs += result.durationMs
-    const ok = result.code === 0
-    return { ok, output: result.output }
+    const outputs: string[] = []
+    for (const command of commands) {
+      const result = await this.run(command, entry.project.root, INSTALL_TIMEOUT_MS)
+      this.install.durationMs += result.durationMs
+      outputs.push(result.output)
+      if (result.code !== 0) return { ok: false, output: outputs.join('\n') }
+    }
+    return { ok: true, output: outputs.join('\n') }
   }
 
   /** Opens a project: detection, applier, tool version. Null when its steps cannot run. */
@@ -278,7 +296,7 @@ class ApplyRun {
   }
 
   async installProject(entry: ProjectRun, repoGate: RepoGate | null, edited: FixDispatchStep[]) {
-    const first = await this.lockfileInstall(entry, repoGate)
+    const first = await this.lockfileInstall(entry, repoGate, edited)
     if (first.ok) {
       entry.applied = edited.map((step) => step.id)
       return
@@ -292,11 +310,9 @@ class ApplyRun {
     const result = await bisectInstall([...byId.keys()], first, {
       attempt: async (ids) => {
         await snapshot.restore()
-        for (const id of ids) {
-          const step = byId.get(id)
-          if (step) await entry.applier.applyStep(entry.ctx, step)
-        }
-        return this.lockfileInstall(entry, repoGate)
+        const steps = ids.flatMap((id) => byId.get(id) ?? [])
+        for (const step of steps) await entry.applier.applyStep(entry.ctx, step)
+        return this.lockfileInstall(entry, repoGate, steps)
       },
     })
     for (const [id, detail] of result.failed) {

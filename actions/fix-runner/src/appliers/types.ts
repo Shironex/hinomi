@@ -41,7 +41,12 @@ export interface CheckSpec {
 export interface InstallOptions {
   /** The repo's own gate, so an applier can pass it to a tool that would not honour it. */
   repoGate: RepoGate | null
+  /** The steps applied in this attempt, in plan order (a subset while bisecting). */
+  steps: readonly FixDispatchStep[]
 }
+
+/** One command, or several the pipeline runs in order and stops at the first failure. */
+export type InstallCommands = Command | Command[]
 
 export interface Applier {
   readonly packageManager: StepPackageManager
@@ -62,8 +67,14 @@ export interface Applier {
    * subsets of the steps again.
    */
   applyStep(ctx: ProjectContext, step: FixDispatchStep): Promise<EditOutcome>
-  /** Updates only the lockfile after the edits. Must not run install scripts. */
-  lockfileInstall(ctx: ProjectContext, options: InstallOptions): Command
+  /**
+   * Updates only the lockfile after the edits. Must not run install scripts. Cargo returns
+   * one `cargo update` per step; no command at all counts as a passing install.
+   */
+  lockfileInstall(
+    ctx: ProjectContext,
+    options: InstallOptions,
+  ): InstallCommands | Promise<InstallCommands>
   /** The frozen install that precedes the checks in `full` mode. */
   fullInstall(ctx: ProjectContext): Command
   /** Checks the project defines, in the order they run. */
