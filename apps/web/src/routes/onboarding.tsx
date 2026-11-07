@@ -85,10 +85,9 @@ export function OnboardingPage() {
     (run: ScanRun) => {
       const ok = run.status !== 'failed'
       setScanDone(ok)
-      if (ok && !finishSent.current) {
-        finishSent.current = true
-        finishOnboarding({ finished: true })
-      }
+      if (!ok || finishSent.current) return
+      finishSent.current = true
+      finishOnboarding({ finished: true })
     },
     [finishOnboarding],
   )

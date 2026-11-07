@@ -116,10 +116,9 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
     },
     onError: (error) => {
       // The server checks the URL shape (Discord host, http or https); put that by the URL field.
-      if (kind !== 'email' && isInputError(error) && /url/i.test(error.message)) {
-        setUrlError(mutationMessage(error))
-        urlRef.current?.focus()
-      }
+      if (kind === 'email' || !isInputError(error) || !/url/i.test(error.message)) return
+      setUrlError(mutationMessage(error))
+      urlRef.current?.focus()
     },
   })
 

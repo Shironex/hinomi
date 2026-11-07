@@ -259,10 +259,9 @@ function DeliverySettings() {
       setDraft(null)
     },
     onError: (error) => {
-      if (isInputError(error)) {
-        setUrlError(mutationMessage(error))
-        urlRef.current?.focus()
-      }
+      if (!isInputError(error)) return
+      setUrlError(mutationMessage(error))
+      urlRef.current?.focus()
     },
   })
 

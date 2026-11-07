@@ -258,10 +258,9 @@ function OverrideForm({
       onDone()
     },
     onError: (error) => {
-      if (isInputError(error) || (error instanceof Error && /repo/i.test(error.message))) {
-        setRepoError(mutationMessage(error))
-        repoRef.current?.focus()
-      }
+      if (!isInputError(error) && !(error instanceof Error && /repo/i.test(error.message))) return
+      setRepoError(mutationMessage(error))
+      repoRef.current?.focus()
     },
   })
 
