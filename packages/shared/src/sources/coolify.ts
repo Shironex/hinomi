@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { deploymentFactsSchema } from './deployment-facts.js'
 
 export const deploymentKindSchema = z.enum(['application', 'service', 'database'])
 export type DeploymentKind = z.infer<typeof deploymentKindSchema>
@@ -32,6 +33,16 @@ export const deploymentRecordSchema = z.object({
   lastDeployAt: z.string().nullable(),
   /** Watch paths for monorepos, null when the source does not expose them. */
   watchPaths: z.array(z.string()).nullable(),
+  /**
+   * Container configuration (see deployment-facts.ts). Left out when the source did not
+   * read facts this time: the stored facts are then kept as they are.
+   */
+  facts: deploymentFactsSchema.nullable().optional(),
+  /**
+   * The source's change marker the facts were read at (Coolify: the resource's
+   * `updated_at`). Facts are read again only when it moves. Null forces a read next time.
+   */
+  factsVersion: z.string().nullable().optional(),
 })
 export type DeploymentRecord = z.infer<typeof deploymentRecordSchema>
 
