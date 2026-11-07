@@ -39,9 +39,9 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | `GET /api/health` | `{ status: "ok", version }`, the running version (`0.3.0`, or `dev`) |
 | `GET /api/version` | The running build: `version` (`dev` for a build without a release version), `commit` (full sha or null), `buildDate` (ISO or null), `isDev`, `prerelease`, `imageTag` and `releaseNotesUrl` (null for a dev build), and `update`: null, or `{ version, url, imageTag }` when the daily check found a newer release. Values come from the `HINOMI_BUILD_*` build args, see [self-hosting.md](self-hosting.md#version-and-update-check) |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
-| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below) |
+| `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below), `guardCounts` (guard findings not fixed per check and level, turned off ones included) |
 | `GET /api/support/status` | The endoflife.date cache the support checks read: `source` (`live` when the last check succeeded in this run, `cache` for the stored copy of an earlier run, `none` before the first fetch), `fetchedAt` and `ageSeconds` (when the copy was last confirmed current, a 200 or a 304), `stale` (older than `staleAfterDays`, 7), `generatedAt` and `schemaVersion` (the API's own), `counts` (`products`, `releases`, `purls`), `runtimes` (per Node, Bun and Rust: the endoflife.date `product`, whether the copy has it, the support `basis` and the number of release `lines`), `lastAttemptAt`, `lastError` (null when the last try worked) and `nextRefreshAt`. See Support data below |
-| `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
+| `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (advisories and blind spots not fixed), `activeFixRuns` (fix runs not in a terminal state), `guards` (guard findings at `warn` or `fail` on a running deployment, not snoozed, accepted or turned off) |
 | `GET /api/shell/scan-status` | One of the states below |
 
 Every access state has `address` (the client address it is based on, or null) and `forwarded` (true when a trusted proxy supplied that address). The schema is in [`packages/shared/src/access.ts`](../packages/shared/src/access.ts).
@@ -90,7 +90,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 | `level` | Guard levels: `warn`, `fail`, `unknown`; only guard findings match |
 | `release` | `true`: only desktop release findings; `false`: none of them |
 | `repo`, `deployment` | Ids |
-| `q` | Case-insensitive search over package, advisory ids, summary, repo, deployment and blind spot type |
+| `q` | Case-insensitive search over package, advisory ids, summary, repo, deployment, blind spot type and guard title |
 | `group` | `none` (default), `tier`, `repo`, `advisory`: rows are ordered group by group and `groups` holds every group's size |
 | `offset`, `limit` | Paging, `limit` 1 to 200 (default 50). `nextOffset` is null on the last page |
 
@@ -98,7 +98,7 @@ A coverage note (`kind: coverage_note`, `coverageNote: image_only`, tier `covera
 
 Each item has its rank, tier, the four factors (`severity`, `runtime`, `deployed`, `public`), `unscored`, `stopped`, state with reason and expiry (`stateUntilNewAdvisory` when it waits for a new advisory instead of a date), reporting sources, an advisory summary, the repo and the deployments it reaches. Guard findings also carry `guard: { check, level, evidence, title, explanation, fixText, override }` (null on every other kind), and desktop release advisories carry `releaseTag` (null otherwise).
 
-The phase 2 additions are in the contract ahead of the server: the `guard` kind, the `released` tier, the `image` reporter, the `release_lockfile_missing` and `requirements_unpinned` coverage notes and the `check`, `level` and `release` filters validate today, but no finding uses them and the filters match nothing special until the guard framework lands (see [design/phase-2.md](design/phase-2.md)).
+Guard findings take the reach tiers like advisories (`exposed` for a `fail` or `warn` that counts as high or critical on a public app, then `public_low`, `internal`, `not_deployed`); level `unknown` goes to `coverage`. Desktop release advisories (`releaseTag` set) on a repo nothing deploys go to `released` (dev scope to `dev`). The `image` reporter, the `release_lockfile_missing` and `requirements_unpinned` coverage notes and release findings are in the contract ahead of the slices that write them (see [design/phase-2.md](design/phase-2.md)).
 
 | Method and path | Does |
 |---|---|
@@ -118,19 +118,19 @@ A transition the current state does not allow (snoozing a fixed finding, reopeni
 
 ### Guards and check overrides
 
-Planned in [design/phase-2.md](design/phase-2.md); the schemas are in [`packages/shared/src/api.ts`](../packages/shared/src/api.ts), the checks, levels and copy in [`guards.ts`](../packages/shared/src/guards.ts) and the evidence per check in [`guard-evidence.ts`](../packages/shared/src/guard-evidence.ts). The server does not serve these routes yet.
+The schemas are in [`packages/shared/src/api.ts`](../packages/shared/src/api.ts), the checks, levels and copy in [`guards.ts`](../packages/shared/src/guards.ts) and the evidence per check in [`guard-evidence.ts`](../packages/shared/src/guard-evidence.ts). How checks run, rank and notify is in [guards.md](guards.md).
 
 A guard is a configuration or support check that writes a finding of kind `guard`. Checks: `root_user`, `shared_network`, `docker_socket`, `watch_paths_skip`, `framework_support`, `runtime_support`, `runtime_pins_disagree`, `action_runtime`. Levels: `warn`, `fail`, and `unknown` when the source cannot give the signal (shown in the `coverage` tier, never sent). `evidence` is one shape per check, told apart by `check`, and always has `reason` (why the level is `unknown`, or a note on a partial signal). Runtime checks cover `node`, `bun` and `rust`; one finding per check per repo lists every runtime in `evidence.runtimes`.
 
 | Method and path | Does |
 |---|---|
-| `GET /api/guards` | The check registry: `{ items: [{ check, title, reads, levels, capabilities, counts, overrides }] }`. `capabilities` maps each source kind to `full`, `partial` or `unknown`; `counts` has open findings per level |
+| `GET /api/guards` | The check registry, every check in `GUARD_CHECKS` order: `{ items: [{ check, title, reads, levels, capabilities, counts, overrides }] }`. `capabilities` maps each connected source kind to `full`, `partial` or `unknown` as the registered check declares it (`{}` for a check no scan runs yet); `counts` has findings not fixed per level; `overrides` counts active overrides |
 | `GET /api/overrides?check=&deployment=&repo=` | Checks turned off: `{ items: [{ id, check, deployment, repo, reason, createdAt, updatedAt }] }`, exactly one of `deployment` and `repo` set |
-| `POST /api/overrides` | `{ check, deploymentId \| repoId, reason }`: turns a check off for one deployment or one repo. `check` is a guard check or a blind spot type (so `archived_deployed` can be turned off too); `reason` 1 to 500 characters |
-| `PATCH /api/overrides/:id` | `{ reason }` |
-| `DELETE /api/overrides/:id` | Turns the check back on |
+| `POST /api/overrides` | `{ check, deploymentId \| repoId, reason }`: turns a check off for one deployment or one repo, 201 with the override. `check` is a guard check or a blind spot type (so `archived_deployed` can be turned off too); `reason` 1 to 500 characters. 404 for an unknown subject, 409 when the check is already off for it |
+| `PATCH /api/overrides/:id` | `{ reason }`, returns the override; turned off findings take the new reason |
+| `DELETE /api/overrides/:id` | Turns the check back on, 204 |
 
-A turned off check still runs: its finding is stored as `accepted` with the override's reason and a `turned_off` event, and `guard.override` holds `{ id, scope, reason, createdAt }`. Guards add the event types `escalated` (the level got worse) and `level_changed` (it got better).
+A turned off check still runs: its finding is stored as `accepted` with the override's reason and a `turned_off` event (applied right away, not at the next scan), and `guard.override` holds `{ id, scope, reason, createdAt }`. A repo override covers the repo's own findings and those of every deployment that runs it; a repo finding (like `archived_deployed`) is also covered when every deployment that runs the repo has the check off. Deleting the override reopens what it turned off. Guards add the event types `escalated` (the level got worse, `reason` like `warn -> fail`) and `level_changed` (it got better). Snoozing a guard until a new advisory is refused (400).
 
 ### Fixes
 
@@ -283,7 +283,7 @@ The run detail adds:
 | Method and path | Does |
 |---|---|
 | `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered, `imageOnly`), open advisory findings by severity, `exposed` (exposed advisories on it) and `openBlindSpots` |
-| `GET /api/deployments/:id` | The same plus watch paths, manual overrides and the open findings that reach it |
+| `GET /api/deployments/:id` | The same plus watch paths, manual overrides, the open findings that reach it, and `guards`: one entry per guard check (`{ check, result, evidence, findingId, override }`, from findings on the deployment or on a repo it runs; `result` is the open level, `pass` for a registered check with nothing open, null for a check no scan runs yet), then `archived_deployed` and any other blind spot type open on it or turned off for it (`result` `fail` when open) |
 | `GET /api/deployments/:id/deploys?limit=` | Recent deploys read live from Coolify (`limit` 1 to 50, default 10): `{ available, reason, items: [{ id, status, commit, commitMessage, startedAt, finishedAt, webhook, rollback }] }`. Applications only; for services, databases or a source that cannot answer, `available` is false and `reason` says why |
 | `GET /api/deployments/:id/overrides` | Manual repo mappings |
 | `POST /api/deployments/:id/overrides` | `{ repo: "owner/name", note? }`. Overrides replace the automatic repo; blind spots follow on the next scan |
