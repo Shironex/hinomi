@@ -9,7 +9,7 @@ describe('onboarding alerts step', () => {
 
   it('can add an email channel', async () => {
     const api = mockApi({
-      'GET /health': { status: 'ok' },
+      'GET /health': { status: 'ok', version: '0.3.0' },
       'GET /shell/nav-counts': {
         needsAction: null,
         deployments: null,
@@ -20,7 +20,12 @@ describe('onboarding alerts step', () => {
       'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
       'GET /notifications/channels': { items: [] },
       'GET /scans': { items: [] },
-      'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
+      'GET /settings': {
+        scanIntervalMinutes: 360,
+        osvEnabled: true,
+        includeAccountRepos: false,
+        updateCheckEnabled: true,
+      },
       'POST /notifications/channels': () =>
         reply(201, { id: '7c1a2f4e-5b0d-4c6e-9a3b-2d8e1f0a4b5c' }),
     })

@@ -15,6 +15,7 @@ import type {
   RunnerCallbackReceiver,
   WebhookRunnerTransport,
 } from '../webhook/index.js'
+import type { UpdateChecker } from '../version/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
 import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
@@ -46,6 +47,8 @@ export interface ApiOptions {
   notifications?: NotificationsApiOptions
   /** Runner settings and fix run dispatch. Defaults to the GitHub Actions runner on `sourceFetch`. */
   fixRuns?: FixRunService
+  /** The daily update check, looked at again when the Settings switch is turned on. */
+  updates?: Pick<UpdateChecker, 'check'>
   /** The fix run tracker, for the tracking state on GET /api/fix-runs/:id. */
   fixRunTracking?: Pick<FixRunTracker, 'status'>
   /**
@@ -76,6 +79,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     now,
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
     ...(options.fixRunTracking && { fixRunTracking: options.fixRunTracking }),
+    ...(options.updates && { updates: options.updates }),
     fixRuns:
       options.fixRuns ??
       createFixRunService({

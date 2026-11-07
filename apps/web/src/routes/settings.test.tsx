@@ -203,7 +203,12 @@ describe('settings', () => {
   it('saves the scan interval when it changes', async () => {
     const api = mockApi({
       ...configuredRoutes(),
-      'PATCH /settings': { scanIntervalMinutes: 60, osvEnabled: true, includeAccountRepos: false },
+      'PATCH /settings': {
+        scanIntervalMinutes: 60,
+        osvEnabled: true,
+        includeAccountRepos: false,
+        updateCheckEnabled: true,
+      },
     })
     const user = userEvent.setup()
     await renderApp('/settings?sel=scans')

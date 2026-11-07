@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { readBuildInfo, type BuildInfo } from './version/build-info.js'
 import { createIpMatcher, InvalidCidrError, normalizeTeamDomain } from './access/index.js'
 
 export interface Config {
@@ -38,6 +39,8 @@ export interface Config {
    * bundled fix runner action it spawns, `path` the PATH its children get.
    */
   localRunner: { enabled: boolean; checks: boolean; entry: string; path: string }
+  /** The running build, from the Docker build args (HINOMI_BUILD_VERSION, _COMMIT, _DATE). */
+  build: BuildInfo
 }
 
 const DEFAULT_PORT = 3000
@@ -205,5 +208,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       entry: defaultFixRunnerEntry,
       path: parsed.PATH ?? '/usr/local/bin:/usr/bin:/bin',
     },
+    build: readBuildInfo(env),
   }
 }

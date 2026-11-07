@@ -29,6 +29,7 @@ import {
   webhookRunnerSettingsSchema,
   rotateGithubWebhookSecretResponseSchema,
   settingsSchema,
+  versionResponseSchema,
   sourcesResponseSchema,
   FIX_RUN_DEPLOY_STATUSES,
   FIX_RUN_VERIFY_AFTER,
@@ -58,6 +59,7 @@ function expectShape(path: string, schema: z.ZodType, scenario?: FixtureScenario
 describe('fixture API', () => {
   const routes: [string, z.ZodType][] = [
     ['/health', healthResponseSchema],
+    ['/version', versionResponseSchema],
     ['/access', accessStatusSchema],
     ['/onboarding', onboardingStateSchema],
     ['/shell/nav-counts', navCountsSchema],
@@ -80,6 +82,14 @@ describe('fixture API', () => {
   it.each(routes)('answers %s in the contract shape', (path, schema) => {
     expectShape(path, schema)
     expectShape(path, schema, 'setup')
+  })
+
+  it('shows a fixed version, and a newer release only in the update scenario', () => {
+    const version = (scenario?: FixtureScenario) =>
+      versionResponseSchema.parse(get('/version', scenario).body)
+    expect(version()).toMatchObject({ version: '0.3.0', isDev: false, update: null })
+    expect(version('update').update?.version).toBe('0.3.1')
+    expectShape('/version', versionResponseSchema, 'update')
   })
 
   it('answers every repo with the GitHub source that reads it', () => {

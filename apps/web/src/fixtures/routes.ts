@@ -16,6 +16,7 @@ import {
 } from './dataset'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
+import { FIXTURE_VERSION, versionFor } from './version'
 import { repoDetailFor } from './repo-sources'
 import {
   RUNNER_SECRET,
@@ -27,15 +28,20 @@ import {
 
 /**
  * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
- * and GitHub not yet, so setup opens on its second step. The `webhook-*` scenarios are the
+ * and GitHub not yet, so setup opens on its second step. `update` is the default instance with
+ * a newer release available (see ./version). The `webhook-*` scenarios are the
  * default instance with the GitHub webhook in one state (see ./webhook). The `runner-*` and
  * `local-off` scenarios are the default instance with the webhook runner in one state, or a
  * host without the local runner (see ./webhook-runner).
  */
-export type FixtureScenario = 'default' | 'setup' | WebhookScenario | RunnerScenario
+export type FixtureScenario = 'default' | 'setup' | 'update' | WebhookScenario | RunnerScenario
 
 export const isFixtureScenario = (value: string | null): value is FixtureScenario =>
-  value === 'default' || value === 'setup' || isWebhookScenario(value) || isRunnerScenario(value)
+  value === 'default' ||
+  value === 'setup' ||
+  value === 'update' ||
+  isWebhookScenario(value) ||
+  isRunnerScenario(value)
 
 export interface FixtureReply {
   status: number
@@ -187,7 +193,9 @@ export function fixtureRoute(
 
   switch (path) {
     case '/health':
-      return ok({ status: 'ok' })
+      return ok({ status: 'ok', version: FIXTURE_VERSION })
+    case '/version':
+      return ok(versionFor(scenario === 'update'))
     case '/access':
       return ok(ACCESS)
     case '/onboarding':
@@ -230,7 +238,12 @@ export function fixtureRoute(
     case '/sources':
       return ok({ sources: setup ? SOURCES.slice(0, 1) : SOURCES, canStoreTokens: true })
     case '/settings':
-      return ok({ scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false })
+      return ok({
+        scanIntervalMinutes: 360,
+        osvEnabled: true,
+        includeAccountRepos: false,
+        updateCheckEnabled: true,
+      })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))
     case '/settings/webhook-runner':

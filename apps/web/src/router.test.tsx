@@ -24,7 +24,7 @@ describe('routes', () => {
   ])('%s renders its page inside the shell', async (path, heading) => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(Response.json({ status: 'ok' }))),
+      vi.fn(() => Promise.resolve(Response.json({ status: 'ok', version: '0.3.0' }))),
     )
     await renderApp(path)
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
@@ -35,7 +35,7 @@ describe('routes', () => {
   it('draws setup on its own, without the rail', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(Response.json({ status: 'ok' }))),
+      vi.fn(() => Promise.resolve(Response.json({ status: 'ok', version: '0.3.0' }))),
     )
     await renderApp('/onboarding')
     expect(await screen.findByRole('heading', { level: 1, name: 'Set up Hinomi' })).toBeVisible()
@@ -92,7 +92,9 @@ describe('routes', () => {
   })
 
   it('shows the API health from /api/health on settings', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(Response.json({ status: 'ok' })))
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(Response.json({ status: 'ok', version: '0.3.0' })),
+    )
     vi.stubGlobal('fetch', fetchMock)
     await renderApp('/settings?sel=access')
     expect(await screen.findByText('Healthy')).toBeInTheDocument()
@@ -149,7 +151,7 @@ describe('routes', () => {
   it('loads a lazy route on navigation and keeps its search validation and static data', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(Response.json({ status: 'ok' }))),
+      vi.fn(() => Promise.resolve(Response.json({ status: 'ok', version: '0.3.0' }))),
     )
     const { router } = await renderApp('/settings')
     await screen.findByRole('heading', { level: 1, name: 'Settings' })

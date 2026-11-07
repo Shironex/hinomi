@@ -10,6 +10,7 @@
  *
  * `?fixture=setup` in the first URL serves a first run instead of a configured instance, and
  * `?fixture=webhook-on` (and the other `webhook-*` names) the GitHub webhook in that state.
+ * `?fixture=update` shows a newer release available next to the running version.
  * `?fixture=runner-new`, `runner-error` and `local-off` show the webhook runner settings and the
  * local runner in those states.
  */

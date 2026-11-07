@@ -1136,6 +1136,8 @@ export const settingsSchema = z.object({
     .max(SCAN_INTERVAL_MAX_MINUTES),
   osvEnabled: z.boolean(),
   includeAccountRepos: z.boolean(),
+  /** The daily look at the latest GitHub release. On unless switched off. */
+  updateCheckEnabled: z.boolean(),
 })
 export type SettingsDto = z.infer<typeof settingsSchema>
 
@@ -1143,6 +1145,38 @@ export const updateSettingsRequestSchema = z
   .strictObject(settingsSchema.partial().shape)
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>
+
+// ---------------------------------------------------------------------------
+// Version
+
+/** A newer final release than the running build (or a newer pre-release, for a pre-release build). */
+export const availableUpdateSchema = z.object({
+  /** Without the leading v, like `version`. */
+  version: z.string(),
+  /** The release notes page. */
+  url: z.string(),
+  /** The image tag to pull, for example `ghcr.io/shironex/hinomi:0.3.1`. */
+  imageTag: z.string(),
+})
+export type AvailableUpdate = z.infer<typeof availableUpdateSchema>
+
+/**
+ * GET /api/version. `version` is `dev` for a build without a release version; `commit` is the full
+ * git sha and `buildDate` an ISO timestamp, both null when the build did not say. `imageTag` and
+ * `releaseNotesUrl` are null for a dev build. `update` is null when the check is off, found
+ * nothing newer, or could not reach GitHub.
+ */
+export const versionResponseSchema = z.object({
+  version: z.string(),
+  commit: z.string().nullable(),
+  buildDate: z.string().nullable(),
+  isDev: z.boolean(),
+  prerelease: z.boolean(),
+  imageTag: z.string().nullable(),
+  releaseNotesUrl: z.string().nullable(),
+  update: availableUpdateSchema.nullable(),
+})
+export type VersionResponse = z.infer<typeof versionResponseSchema>
 
 // ---------------------------------------------------------------------------
 // Scans

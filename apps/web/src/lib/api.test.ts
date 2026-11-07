@@ -21,8 +21,13 @@ describe('api', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('prefixes /api and returns the parsed body', async () => {
-    const fetchMock = stubFetch(() => Promise.resolve(Response.json({ status: 'ok' })))
-    await expect(api.get('/health', healthResponseSchema)).resolves.toEqual({ status: 'ok' })
+    const fetchMock = stubFetch(() =>
+      Promise.resolve(Response.json({ status: 'ok', version: '0.3.0' })),
+    )
+    await expect(api.get('/health', healthResponseSchema)).resolves.toEqual({
+      status: 'ok',
+      version: '0.3.0',
+    })
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/health',
       expect.objectContaining({ method: 'GET' }),

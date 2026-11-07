@@ -18,7 +18,7 @@ const appSource = {
 }
 
 const base = (over: Record<string, unknown> = {}) => ({
-  'GET /health': { status: 'ok' },
+  'GET /health': { status: 'ok', version: '0.3.0' },
   'GET /shell/nav-counts': {
     needsAction: null,
     deployments: null,
@@ -27,7 +27,12 @@ const base = (over: Record<string, unknown> = {}) => ({
   },
   'GET /shell/scan-status': { state: 'unconfigured' },
   'GET /notifications/channels': { items: [] },
-  'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
+  'GET /settings': {
+    scanIntervalMinutes: 360,
+    osvEnabled: true,
+    includeAccountRepos: false,
+    updateCheckEnabled: true,
+  },
   ...over,
 })
 
