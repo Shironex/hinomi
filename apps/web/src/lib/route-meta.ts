@@ -30,6 +30,7 @@ export interface RouteMeta {
 
 /** The breadcrumb name of a finding: package and advisory id, or the blind spot or note. */
 export function findingCrumb(item: FindingListItem): string {
+  if (item.kind === 'guard') return item.guard?.title ?? 'Guard check'
   if (item.kind !== 'advisory') return gapInfo(item)?.title ?? 'Blind spot'
   const a = item.advisory
   return a ? `${a.packageName} ${a.advisoryKey}` : 'Advisory'

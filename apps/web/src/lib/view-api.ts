@@ -57,6 +57,11 @@ export interface FindingsParams {
   sourceMatch?: 'any' | 'all'
   scope?: readonly string[]
   kind?: readonly string[]
+  /** Guard checks and levels; only guard findings match them. */
+  check?: readonly string[]
+  level?: readonly string[]
+  /** true: only desktop release findings; false: none of them. */
+  release?: boolean
   repo?: readonly number[]
   deployment?: readonly number[]
   q?: string
@@ -67,11 +72,21 @@ export interface FindingsParams {
 /** Builds the query string; empty filters are left out so the server applies its defaults. */
 export function findingsSearch(params: FindingsParams, offset = 0): string {
   const search = new URLSearchParams()
-  for (const key of ['tier', 'state', 'severity', 'source', 'scope', 'kind'] as const) {
+  for (const key of [
+    'tier',
+    'state',
+    'severity',
+    'source',
+    'scope',
+    'kind',
+    'check',
+    'level',
+  ] as const) {
     const values = params[key]
     if (values?.length) search.set(key, values.join(','))
   }
   if (params.sourceMatch === 'all' && params.source?.length) search.set('sourceMatch', 'all')
+  if (params.release !== undefined) search.set('release', String(params.release))
   if (params.repo?.length) search.set('repo', params.repo.join(','))
   if (params.deployment?.length) search.set('deployment', params.deployment.join(','))
   const q = params.q?.trim()

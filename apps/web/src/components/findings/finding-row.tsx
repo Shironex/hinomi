@@ -1,6 +1,8 @@
 import type { FindingListItem } from '@hinomi/shared'
 import { Link } from '@tanstack/react-router'
 import { IconClock, IconLock, IconServer2, IconWorld } from '@tabler/icons-react'
+import { GuardKindChip, GuardLevelBadge } from '@/components/guards/guard-badges'
+import { evidenceSummary, guardSubject } from '@/lib/guard-meta'
 import { FindingStateText } from './finding-state'
 import { RankMarker } from './rank-marker'
 import { BlindSpotBadge, ImageOnlyBadge, PatchedBadge, SeverityBadge } from './severity-badge'
@@ -83,7 +85,16 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
       />
       <div className="flex min-w-0 flex-col gap-[5px]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {item.kind === 'coverage_note' ? (
+          {item.kind === 'guard' && item.guard ? (
+            <>
+              <GuardLevelBadge level={item.guard.level} severity={item.factors.severity} />
+              <GuardKindChip />
+              <span className="font-mono text-sm font-medium">{guardSubject(item)}</span>
+              <span className="text-xs text-muted-foreground">
+                {evidenceSummary(item.guard.evidence, item.guard.level)}
+              </span>
+            </>
+          ) : item.kind === 'coverage_note' ? (
             <>
               <ImageOnlyBadge />
               <span className="font-mono text-sm font-medium">{blindSpotSubject(item)}</span>

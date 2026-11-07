@@ -3,10 +3,12 @@ import {
   IconClockPause,
   IconEyeOff,
   IconGitPullRequest,
+  IconPower,
   IconShieldCheck,
   IconShieldOff,
 } from '@tabler/icons-react'
 import { StatusText } from '@/components/findings/finding-state'
+import { GuardKindChip, GuardLevelBadge } from '@/components/guards/guard-badges'
 import {
   BlindSpotBadge,
   ImageOnlyBadge,
@@ -15,11 +17,23 @@ import {
 } from '@/components/findings/severity-badge'
 import { decisionLabel, findingTitle, formatAge, gapInfo, isDecided } from '@/lib/finding-meta'
 import { formatRelative } from '@/lib/format'
+import { evidenceSummary } from '@/lib/guard-meta'
 import { findingName } from '@/lib/triage'
 import { cn } from '@/lib/utils'
 
-/** The finding's badge: severity as icon and word, or what kind of gap it is. */
+/**
+ * The finding's badge: severity as icon and word, what kind of gap it is, or a guard's level in
+ * the look of the severity it counts as, with the Guard chip beside it.
+ */
 export function FindingBadge({ item }: { item: FindingListItem }) {
+  if (item.kind === 'guard' && item.guard) {
+    return (
+      <>
+        <GuardLevelBadge level={item.guard.level} severity={item.factors.severity} />
+        <GuardKindChip />
+      </>
+    )
+  }
   if (item.kind === 'coverage_note') return <ImageOnlyBadge />
   if (item.kind === 'blind_spot') return <BlindSpotBadge />
   if (item.patchedInLockfile) return <PatchedBadge />
@@ -43,6 +57,13 @@ function where(item: FindingListItem): string {
 export function RowState({ item, plain = false }: { item: FindingListItem; plain?: boolean }) {
   const decided = decisionLabel(item)
   const title = item.stateReason ? `${decided ?? ''}: ${item.stateReason}` : undefined
+  if (item.guard?.override && item.state === 'accepted') {
+    return (
+      <StatusText icon={IconPower} title={`Turned off: ${item.guard.override.reason}`}>
+        Turned off
+      </StatusText>
+    )
+  }
   switch (item.state) {
     case 'snoozed':
     case 'accepted':
@@ -75,6 +96,14 @@ export function RowState({ item, plain = false }: { item: FindingListItem; plain
           <StatusText icon={IconEyeOff} className="text-blind">
             {gapInfo(item)?.short ?? 'Open'}
           </StatusText>
+        )
+      }
+      if (item.kind === 'guard' && item.guard) {
+        const text = evidenceSummary(item.guard.evidence, item.guard.level)
+        return (
+          <span className="truncate text-xs text-muted-foreground" title={text}>
+            {text}
+          </span>
         )
       }
       if (item.kind === 'coverage_note') {

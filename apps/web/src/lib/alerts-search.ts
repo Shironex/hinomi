@@ -2,9 +2,12 @@ import {
   type FindingListItem,
   type FindingsResponse,
   findingGroupSchema,
+  findingKindSchema,
   findingScopeSchema,
   findingStateSchema,
   findingTierSchema,
+  guardCheckSchema,
+  guardLevelSchema,
   reporterSchema,
   severitySchema,
 } from '@hinomi/shared'
@@ -26,6 +29,10 @@ export const alertsSearchSchema = z.object({
   /** `all`: reported by every listed source ("both" with GitHub and OSV). */
   sourceMatch: z.enum(['any', 'all']).optional().catch(undefined),
   state: list(findingStateSchema),
+  /** `guard` with the Guards chip; the check and level filters only match guard findings. */
+  kind: list(findingKindSchema),
+  check: list(guardCheckSchema),
+  level: list(guardLevelSchema),
   repo: ids,
   deployment: ids,
   q: z.string().max(200).optional().catch(undefined),
@@ -45,6 +52,9 @@ export function alertsParams(search: AlertsSearch, limit: number): FindingsParam
     source: search.source,
     sourceMatch: search.sourceMatch,
     state: search.state,
+    kind: search.kind,
+    check: search.check,
+    level: search.level,
     repo: search.repo,
     deployment: search.deployment,
     q: search.q,
@@ -61,6 +71,9 @@ export function hasFilters(search: AlertsSearch): boolean {
     search.scope?.length ||
     search.source?.length ||
     search.state?.length ||
+    search.kind?.length ||
+    search.check?.length ||
+    search.level?.length ||
     search.repo?.length ||
     search.deployment?.length ||
     search.q?.trim(),

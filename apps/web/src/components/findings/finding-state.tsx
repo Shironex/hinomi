@@ -4,6 +4,7 @@ import {
   IconClockPause,
   IconEyeOff,
   IconGitPullRequest,
+  IconPower,
   IconShieldCheck,
   IconShieldOff,
   type Icon,
@@ -66,13 +67,24 @@ export function FindingStateText({
   item: Pick<
     FindingListItem,
     'state' | 'stateUntil' | 'stateReason' | 'kind' | 'blindSpotType' | 'coverageNote'
-  >
+  > & { guard?: FindingListItem['guard'] }
   className?: string
   /** Table cells say a plain "Open"; ranked rows say what is missing. */
   table?: boolean
 }) {
   const decided = decisionLabel(item)
   const title = item.stateReason ? `${decided ?? ''}: ${item.stateReason}` : undefined
+  if (item.guard?.override && item.state === 'accepted') {
+    return (
+      <StatusText
+        icon={IconPower}
+        title={`Turned off: ${item.guard.override.reason}`}
+        className={className}
+      >
+        Turned off
+      </StatusText>
+    )
+  }
   switch (item.state) {
     case 'snoozed':
     case 'accepted':
@@ -118,7 +130,9 @@ export function FindingStateText({
           </StatusText>
         )
       }
-      if (table) return <span className={cn('text-xs text-muted-foreground', className)}>Open</span>
+      if (table || item.kind === 'guard') {
+        return <span className={cn('text-xs text-muted-foreground', className)}>Open</span>
+      }
       return (
         <StatusText tone="wait" className={className}>
           No fix started

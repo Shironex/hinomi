@@ -72,8 +72,8 @@ export const TIER_INFO: Record<FindingTier, { name: string; hint: string; number
     number: 0,
   },
   coverage: {
-    name: 'Image only',
-    hint: 'Services and apps deployed from an image, with no git source. Not a blind spot: the image scan (phase 2) will cover them.',
+    name: 'Coverage notes',
+    hint: 'Apps deployed from an image with no git source, and guard checks a source cannot answer (level unknown). Not blind spots: ranked last, never alerted.',
     number: 0,
   },
 }
@@ -254,9 +254,21 @@ export function isDecided(state: FindingState): boolean {
 
 const FACTOR_NAMES = ['Critical or high', 'Runtime dependency', 'Deployed', 'Public'] as const
 
-/** Which of the four rank factors are on; blind spots and coverage notes have unknown severity and runtime. */
-export function factorFlags(item: Pick<FindingListItem, 'kind' | 'factors'>) {
+/**
+ * Which of the four rank factors are on; blind spots and coverage notes have unknown severity and
+ * runtime. For a guard, runtime means the deployment runs, and an unknown level has no severity.
+ */
+export function factorFlags(item: Pick<FindingListItem, 'kind' | 'factors' | 'guard'>) {
   const { factors } = item
+  if (item.kind === 'guard') {
+    const severe = factors.severity === 'critical' || factors.severity === 'high'
+    return [
+      item.guard?.level === 'unknown' ? null : severe,
+      factors.runtime,
+      factors.deployed,
+      factors.public,
+    ] as const
+  }
   if (item.kind !== 'advisory') {
     return [null, null, factors.deployed, factors.public] as const
   }
@@ -279,6 +291,7 @@ export function factorsText(flags: readonly (boolean | null)[]): string {
 
 /** Package and advisory, or the blind spot or coverage note, in one line. */
 export function findingTitle(item: FindingListItem): string {
+  if (item.kind === 'guard') return item.guard?.title ?? 'Guard check'
   if (item.kind !== 'advisory') return gapInfo(item)?.title ?? 'Blind spot'
   return item.advisory?.summary ?? item.advisory?.advisoryKey ?? 'Advisory'
 }
@@ -394,6 +407,12 @@ export function eventSentence(event: FindingEvent): string {
       return 'Dismissed on GitHub, but OSV still reports it'
     case 'reporters_changed':
       return 'The sources reporting it changed'
+    case 'escalated':
+      return 'The level got worse'
+    case 'level_changed':
+      return 'The level got better'
+    case 'turned_off':
+      return event.actor === 'user' ? 'Check turned off by you' : 'Check turned off'
     default:
       return event.type.replaceAll('_', ' ')
   }
