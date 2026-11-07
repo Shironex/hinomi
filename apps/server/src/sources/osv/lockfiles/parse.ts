@@ -6,6 +6,7 @@ import { parseComposerLock } from './composer.js'
 import { parsePackageLock } from './npm.js'
 import { parsePnpmLock } from './pnpm.js'
 import { parseRequirementsTxt } from './requirements.js'
+import { parsePoetryLock, parseUvLock } from './python.js'
 import { parseYarnLock } from './yarn.js'
 
 /** Lockfile names Hinomi can read, in order of preference when a folder has several. */
@@ -64,6 +65,8 @@ const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
   'requirements.txt': (text, options) => parseRequirementsTxt(text, { filename: options.filename }),
   'go.mod': (text) => parseGoMod(text),
   'composer.lock': (text) => parseComposerLock(text),
+  'uv.lock': (text) => parseUvLock(text),
+  'poetry.lock': (text) => parsePoetryLock(text),
 }
 
 /** Whether `parseLockfile` can read a file of this name (a path is fine). */
