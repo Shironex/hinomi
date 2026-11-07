@@ -18,7 +18,7 @@ export interface FetchLockfilesOptions {
 /** Folders whose direct children are searched for lockfiles too. */
 const MONOREPO_FOLDERS = ['apps', 'packages']
 
-interface ContentEntry {
+export interface ContentEntry {
   name: string
   path: string
   type: string
@@ -34,18 +34,21 @@ export class GitHubContentsError extends Error {
   }
 }
 
-/**
- * Finds lockfiles at the repo root and one level inside `apps/` and
- * `packages/`, and downloads their text through the GitHub contents API.
- * `token` may be null for public repos.
- */
-export async function fetchLockfiles(
+/** Reads one repo at one ref through the GitHub contents API. */
+export interface RepoContents {
+  /** The entries of a folder (`''` is the root); empty when it does not exist. */
+  list(path: string): Promise<ContentEntry[]>
+  /** The text of a file, or null when it does not exist. */
+  readText(path: string): Promise<string | null>
+}
+
+export function createRepoContents(
   owner: string,
   repo: string,
   ref: string,
   token: string | null,
   options: FetchLockfilesOptions = {},
-): Promise<FetchedLockfile[]> {
+): RepoContents {
   const doFetch = options.fetch ?? fetch
   const apiUrl = (options.apiUrl ?? 'https://api.github.com').replace(/\/$/, '')
   const timeoutMs = options.timeoutMs ?? 20_000
@@ -72,25 +75,51 @@ export async function fetchLockfiles(
     return res
   }
 
-  const list = async (path: string): Promise<ContentEntry[]> => {
-    const res = await get(path, false)
-    if (!res) return []
-    const body: unknown = await res.json()
-    return Array.isArray(body) ? (body as ContentEntry[]) : []
+  return {
+    async list(path) {
+      const res = await get(path, false)
+      if (!res) return []
+      const body: unknown = await res.json()
+      return Array.isArray(body) ? (body as ContentEntry[]) : []
+    },
+    async readText(path) {
+      return (await get(path, true))?.text() ?? null
+    },
   }
+}
 
-  const root = await list('')
+/**
+ * The walk every repo file read shares: the root, and one level inside `apps/` and `packages/`
+ * (so `apps/web/` is listed). Returns every entry found, files and folders.
+ */
+export async function listRepoTree(contents: RepoContents): Promise<ContentEntry[]> {
+  const root = await contents.list('')
   const folders = root.filter((e) => e.type === 'dir' && MONOREPO_FOLDERS.includes(e.name))
-  const children = (await mapLimit(folders, 4, (f) => list(f.path)))
+  const children = (await mapLimit(folders, 4, (f) => contents.list(f.path)))
     .flat()
     .filter((e) => e.type === 'dir')
-  const nested = (await mapLimit(children, 4, (c) => list(c.path))).flat()
+  const nested = (await mapLimit(children, 4, (c) => contents.list(c.path))).flat()
+  return [...root, ...nested]
+}
 
-  const listed = [...root, ...nested]
+/**
+ * Finds lockfiles at the repo root and one level inside `apps/` and
+ * `packages/`, and downloads their text through the GitHub contents API.
+ * `token` may be null for public repos.
+ */
+export async function fetchLockfiles(
+  owner: string,
+  repo: string,
+  ref: string,
+  token: string | null,
+  options: FetchLockfilesOptions = {},
+): Promise<FetchedLockfile[]> {
+  const contents = createRepoContents(owner, repo, ref, token, options)
+  const listed = await listRepoTree(contents)
   const lockfiles = listed.filter((e) => e.type === 'file' && isLockfileName(e.name))
   const files = new Set(listed.filter((e) => e.type === 'file').map((e) => e.path))
 
-  const readText = async (path: string) => (await get(path, true))?.text() ?? null
+  const readText = (path: string) => contents.readText(path)
 
   const fetched = await mapLimit(lockfiles, 4, async (entry): Promise<FetchedLockfile | null> => {
     const text = await readText(entry.path)

@@ -8,8 +8,13 @@ export {
 export { compareVersions, formatRange, isComparableVersion, rangeIntervals } from './semver.js'
 export type { RangeHit } from './semver.js'
 export type { OsvClient, OsvClientOptions } from './client.js'
-export { fetchLockfiles, GitHubContentsError } from './github.js'
-export type { FetchedLockfile, FetchLockfilesOptions } from './github.js'
+export { createRepoContents, fetchLockfiles, GitHubContentsError, listRepoTree } from './github.js'
+export type {
+  ContentEntry,
+  FetchedLockfile,
+  FetchLockfilesOptions,
+  RepoContents,
+} from './github.js'
 export {
   dedupeDependencies,
   hasLockfileParser,
