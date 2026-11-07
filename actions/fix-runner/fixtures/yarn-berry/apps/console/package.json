@@ -1,0 +1,8 @@
+{
+  "name": "@kestrel/console",
+  "private": true,
+  "dependencies": {
+    "plover-parse": "~1.2.0",
+    "tern-stream": "^3.0.1"
+  }
+}
