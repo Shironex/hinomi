@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm'
 import { SecretKeyMissingError, type SecretBox } from '../crypto/secret-box.js'
 import type { Db } from '../db/client.js'
 import { sources, type SourceRow } from '../db/schema.js'
+import { releaseSource } from './repo-sources.js'
 import { currentTime } from '@hinomi/shared'
 
 /**
@@ -131,9 +132,13 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
       return toSource(row)
     },
 
+    /** Switching a source off moves the repos it reads to another source that sees them. */
     update(id: number, input: UpdateSourceInput): Source | undefined {
-      const row = db.update(sources).set(input).where(eq(sources.id, id)).returning().get()
-      return row && toSource(row)
+      return db.transaction(() => {
+        const row = db.update(sources).set(input).where(eq(sources.id, id)).returning().get()
+        if (row && input.enabled === false) releaseSource(db, id)
+        return row && toSource(row)
+      })
     },
 
     /**
@@ -147,12 +152,15 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
     },
 
     clearToken(id: number): boolean {
-      const result = db
-        .update(sources)
-        .set({ tokenEncrypted: null })
-        .where(eq(sources.id, id))
-        .run()
-      return result.changes > 0
+      return db.transaction(() => {
+        const result = db
+          .update(sources)
+          .set({ tokenEncrypted: null })
+          .where(eq(sources.id, id))
+          .run()
+        if (result.changes > 0) releaseSource(db, id)
+        return result.changes > 0
+      })
     },
 
     /**
@@ -188,9 +196,15 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
         .run()
     },
 
-    /** Deletes the source and, through cascades, its deployments. */
+    /**
+     * Deletes the source and, through cascades, its deployments. The repos it read move to
+     * another GitHub source that sees them, or are left with no reader; their history stays.
+     */
     remove(id: number): boolean {
-      return db.delete(sources).where(eq(sources.id, id)).run().changes > 0
+      return db.transaction(() => {
+        releaseSource(db, id)
+        return db.delete(sources).where(eq(sources.id, id)).run().changes > 0
+      })
     },
   }
 }

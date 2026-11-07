@@ -5,6 +5,7 @@ import { createDeploymentsRepository } from './deployments.js'
 import { createFindingsRepository } from './findings.js'
 import { createFixRunsRepository } from './fix-runs.js'
 import { createFixPlansRepository } from './plans.js'
+import { createRepoSourcesRepository } from './repo-sources.js'
 import { createReposRepository } from './repos.js'
 import { createScanRunsRepository } from './scan-runs.js'
 import { createSettingsRepository } from './settings.js'
@@ -23,6 +24,7 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
     db,
     sources: createSourcesRepository(db, secretBox),
     repos: createReposRepository(db),
+    repoSources: createRepoSourcesRepository(db),
     deployments: createDeploymentsRepository(db),
     advisories: createAdvisoriesRepository(db),
     findings: createFindingsRepository(db),
