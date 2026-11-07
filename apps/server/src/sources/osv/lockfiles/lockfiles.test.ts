@@ -508,7 +508,6 @@ describe('parseLockfile', () => {
       'go.sum',
       'uv.lock',
       'poetry.lock',
-      'requirements.txt',
       'composer.lock',
       'Gemfile.lock',
     ]) {

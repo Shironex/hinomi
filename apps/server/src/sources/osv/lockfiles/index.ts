@@ -12,4 +12,11 @@ export {
   type ParseLockfileOptions,
 } from './parse.js'
 export { parsePnpmLock } from './pnpm.js'
+export {
+  normalizePypiName,
+  parseRequirementsTxt,
+  parseRequirementsTxtDetailed,
+  type ParsedRequirements,
+  type RequirementsNotChecked,
+} from './requirements.js'
 export { parseYarnLock } from './yarn.js'
