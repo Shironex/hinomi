@@ -8,6 +8,7 @@ import {
   IconPlug,
   IconServer2,
   IconShieldCheck,
+  IconWebhook,
   type Icon,
 } from '@tabler/icons-react'
 import { AccessCallout } from '@/components/access-callout'
@@ -19,6 +20,7 @@ import {
   type SettingsSectionKey,
 } from '@/components/settings/section-summaries'
 import { SetBox, SettingsSection, SetRow } from '@/components/settings/settings-section'
+import { WebhookSection } from '@/components/settings/webhook-section'
 import { SourcesSection } from '@/components/settings/sources-section'
 import { ThemeSwitch } from '@/components/shell/theme-switch'
 import { SplitListHeader } from '@/components/split/split-parts'
@@ -41,6 +43,7 @@ const SECTIONS: readonly SectionMeta[] = [
   { key: 'notifications', label: 'Notification channels', icon: IconBell },
   { key: 'scans', label: 'Scans', icon: IconClock },
   { key: 'mapping', label: 'Repo mapping', icon: IconPlug },
+  { key: 'webhook', label: 'GitHub webhook', icon: IconWebhook },
   { key: 'access', label: 'Access', icon: IconLock },
   { key: 'appearance', label: 'Appearance', icon: IconPalette },
 ]
@@ -134,6 +137,17 @@ function SectionDetail({
           intro="Hinomi matches each app to its git source in Coolify. Override it when an app builds from another repo."
         >
           <MappingSection />
+        </SettingsSection>
+      )
+    case 'webhook':
+      return (
+        <SettingsSection
+          id="settings-webhook"
+          title="GitHub webhook"
+          note="Optional"
+          intro="Lets GitHub tell Hinomi a fix run changed, so it polls that run at once. Polling stays the source of truth, so leaving this off loses nothing."
+        >
+          <WebhookSection />
         </SettingsSection>
       )
     case 'access':
