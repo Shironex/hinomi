@@ -4,7 +4,9 @@ import type {
   DeploymentRecord,
   DependabotAlertsResult,
   RepoHealth,
+  RuntimePinRecord,
 } from '@hinomi/shared'
+import { scanRuntimePins } from '../pins/index.js'
 import { cachedFactsOf, type Repositories, type Source } from '../repository/index.js'
 import {
   createCoolifyClient,
@@ -94,7 +96,24 @@ export interface ScanSources {
     ref: string,
     sourceId: number,
   ): Promise<string | null>
+  /**
+   * Reads the runtime pins of a repo at `ref` through the given GitHub source (anonymously when
+   * it is null) and stores them, replacing the pins stored for that ref. Throws on a GitHub error
+   * before anything is replaced. Absent in hand-built sources: no pins are read.
+   */
+  scanRuntimePins?(input: ScanPinsInput): Promise<RuntimePinRecord[]>
   settings: ScanSettings
+}
+
+export interface ScanPinsInput {
+  repoId: number
+  owner: string
+  name: string
+  ref: string
+  sourceId: number | null
+  /** Repo relative paths of the Dockerfiles the repo's deployments build. */
+  productionDockerfiles?: ReadonlySet<string>
+  now: Date
 }
 
 export interface BuildScanSourcesOptions {
@@ -240,6 +259,15 @@ export function buildScanSources(
     fetchLockfiles: async (owner, name, ref, sourceId) => {
       const gh = sourceId === null ? undefined : github.get(sourceId)
       return fetchLockfiles(owner, name, ref, gh ? await gh.token() : null, {
+        ...(options.fetch && { fetch: options.fetch }),
+        ...(gh?.apiUrl && { apiUrl: gh.apiUrl }),
+      })
+    },
+    scanRuntimePins: async ({ sourceId, ...input }) => {
+      const gh = sourceId === null ? undefined : github.get(sourceId)
+      return scanRuntimePins(repositories.runtimePins, {
+        ...input,
+        token: gh ? await gh.token() : null,
         ...(options.fetch && { fetch: options.fetch }),
         ...(gh?.apiUrl && { apiUrl: gh.apiUrl }),
       })

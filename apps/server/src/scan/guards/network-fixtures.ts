@@ -124,6 +124,7 @@ export function context(
     now: AT,
     support: null,
     supportWindowDays: 90,
+    behindReleases: { rust: 4, bun: 4 },
   }
 }
 

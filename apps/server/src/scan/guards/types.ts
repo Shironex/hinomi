@@ -41,7 +41,10 @@ export interface GuardContext {
   repos: readonly RepoRow[]
   /** Deployments by repo (manual mappings honoured) and the unmapped ones. */
   index: DeploymentIndex
-  /** This scan's results per repo id: health, alerts and the lockfiles OSV read. */
+  /**
+   * This scan's results per repo id: health, alerts, the lockfiles OSV read and the runtime pins
+   * (`pins`, read at the deployed branch with the deployed Dockerfiles as production).
+   */
   scans: ReadonlyMap<number, RepoScan>
   /** The endoflife.date lookups; null until a copy exists (checks then leave their rows alone). */
   support: SupportIndex | null
@@ -49,6 +52,11 @@ export interface GuardContext {
   supportWindowDays: number
   /** Reads a file of a repo at a ref through its GitHub source (cached by commit sha). */
   repoFiles: RepoFileReader
+  /**
+   * The "behind latest" rule of Rust and Bun (Q12a): a pin warns once it is more than this many
+   * releases behind (settings rustBehindReleases and bunBehindReleases).
+   */
+  behindReleases: { rust: number; bun: number }
   now: Date
 }
 

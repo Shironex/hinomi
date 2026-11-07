@@ -129,6 +129,7 @@ function ctxFor(
     support,
     supportWindowDays: 90,
     repoFiles: noRepoFiles(),
+    behindReleases: { rust: 4, bun: 4 },
     now: NOW,
     ...over,
   }

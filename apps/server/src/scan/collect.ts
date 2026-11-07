@@ -3,8 +3,11 @@ import type {
   LockfileDependency,
   OsvAdvisoryMatch,
   RepoHealth,
+  RuntimePinRecord,
 } from '@hinomi/shared'
 import type { DeploymentRow, RepoRow } from '../db/schema.js'
+import { deployedDockerfiles } from '../pins/index.js'
+import type { RuntimePinsRepository } from '../repository/index.js'
 import {
   dedupeDependencies,
   hasLockfileParser,
@@ -31,12 +34,27 @@ export interface OsvRepoResult {
   dependencies?: LockfileDependency[]
 }
 
+/** The runtime pins of a repo the runtime checks read. */
+export interface RepoPins {
+  /** Branch the pins were read at: the deployed branch, else the default one. */
+  ref: string
+  pins: RuntimePinRecord[]
+  /** Set when this scan's read failed and `pins` are the ones an earlier scan stored. */
+  error: string | null
+}
+
 export interface RepoScan {
   repo: RepoRow
   deployed: boolean
   health: SourceOutcome<RepoHealth>
   alerts: SourceOutcome<DependabotAlertsResult>
   osv: SourceOutcome<OsvRepoResult>
+  /**
+   * Runtime pins: null when nothing is known (no branch, or a failed first read), undefined when
+   * the scan does not read pins (a repo rescan, hand-built sources). The runtime checks leave the
+   * repo's findings alone in both cases.
+   */
+  pins?: RepoPins | null
   /** The GitHub source that read the repo in this scan. Undefined in hand-built scans. */
   sourceId?: number | null
   /** What each GitHub source asked said. Undefined in hand-built scans. */
@@ -128,6 +146,46 @@ export async function scanLockfilesAt(
   const { all, deps, lockfiles, unparseable } = parseAll(files)
   const matches = await scanDependencies(deps, osv.client)
   return { matches, lockfiles, unparseable, dependencies: all }
+}
+
+/**
+ * Reads and stores the runtime pins of one repo at the branch its lockfiles are read at, with the
+ * Dockerfiles its deployments build as production. A failed read falls back to the pins an
+ * earlier scan stored for that branch. Never throws.
+ */
+export async function collectPins(
+  sources: ScanSources,
+  pinsRepository: Pick<RuntimePinsRepository, 'list'>,
+  repo: RepoRow,
+  deployments: readonly DeploymentRow[],
+  health: SourceOutcome<RepoHealth>,
+  sourceId: number | null,
+  now: Date,
+): Promise<RepoPins | null | undefined> {
+  if (!sources.scanRuntimePins) return undefined
+  const ref = lockfileRef(
+    repo,
+    deployments,
+    health.status === 'ok' ? health.value.defaultBranch : null,
+  )
+  if (!ref) return null
+  const productionDockerfiles = deployedDockerfiles(deployments)
+  try {
+    const pins = await sources.scanRuntimePins({
+      repoId: repo.id,
+      owner: repo.owner,
+      name: repo.name,
+      ref,
+      sourceId,
+      ...(productionDockerfiles && { productionDockerfiles }),
+      now,
+    })
+    return { ref, pins, error: null }
+  } catch (error) {
+    // The last good read, or nothing: an empty list could also mean "never read".
+    const stored = pinsRepository.list(repo.id, ref)
+    return stored.length > 0 ? { ref, pins: stored, error: errorMessage(error) } : null
+  }
 }
 
 export interface GithubRepoScan {
