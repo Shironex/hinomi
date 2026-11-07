@@ -11,6 +11,7 @@ import {
   scanRun,
 } from '@/test/mock-api'
 import { renderApp } from '@/test/render-app'
+import { currentTime } from '@hinomi/shared'
 
 const unconfigured = (over: Record<string, unknown> = {}) => ({
   'GET /health': { status: 'ok' },
@@ -210,7 +211,7 @@ describe('onboarding', () => {
   it('shows the first scan as starting while it is queued', async () => {
     mockApi(
       unconfigured({
-        'GET /shell/scan-status': { state: 'queued', nextScanAt: new Date().toISOString() },
+        'GET /shell/scan-status': { state: 'queued', nextScanAt: currentTime().toISOString() },
         'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
         'GET /onboarding': { finished: false, alertsSkipped: true },
         'GET /scans': { items: [] },

@@ -12,6 +12,7 @@ import type {
   FindingTier,
   Reporter,
 } from '@hinomi/shared'
+import { nowMs } from '@hinomi/shared'
 
 /**
  * Words for the finding model, shared by every view so a tier, state or blind spot reads the
@@ -304,7 +305,7 @@ export function formatDateTime(iso: string): string {
 }
 
 /** Compact age for table cells: "3d", "5h", "2mo". */
-export function formatAge(iso: string, now: number = Date.now()): string {
+export function formatAge(iso: string, now: number = nowMs()): string {
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return ''
   const minutes = Math.max(0, Math.round((now - then) / 60_000))

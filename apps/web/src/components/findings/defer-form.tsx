@@ -12,6 +12,7 @@ import {
 } from '@/lib/defer'
 import { cn } from '@/lib/utils'
 import type { DeferKind } from '@/lib/view-api'
+import { nowMs } from '@hinomi/shared'
 
 export interface DeferFormProps {
   /** Shows the snooze or accept switch. Without it the kind is fixed. */
@@ -50,8 +51,8 @@ export function DeferForm({
   const id = useId()
   const [reason, setReason] = useState('')
   const [choice, setChoice] = useState<ExpiryChoice>('30')
-  const [date, setDate] = useState(() => localDay(Date.now() + 14 * DAY_MS))
-  const [minDay] = useState(() => localDay(Date.now() + DAY_MS))
+  const [date, setDate] = useState(() => localDay(nowMs() + 14 * DAY_MS))
+  const [minDay] = useState(() => localDay(nowMs() + DAY_MS))
   const [touched, setTouched] = useState(false)
 
   const reasonMissing = reason.trim() === ''
@@ -72,7 +73,7 @@ export function DeferForm({
       onSubmit={(event) => {
         event.preventDefault()
         setTouched(true)
-        const expiry = expiryOf(choice, date, Date.now())
+        const expiry = expiryOf(choice, date, nowMs())
         if (reasonMissing || expiry === null || pending) return
         onSubmit(kind, { reason: reason.trim(), ...expiry })
       }}

@@ -12,6 +12,7 @@ import {
 } from '@/test/fixtures'
 import { renderApp } from '@/test/render-app'
 import { wideScreen } from '@/test/screen'
+import { nowMs } from '@hinomi/shared'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -210,7 +211,7 @@ describe('all alerts', () => {
     expect(body.action).toBe('snooze')
     expect(body.ids.sort()).toEqual([4, 5])
     expect(body.reason).toBe('Internal only, behind the VPN')
-    expect(Date.parse(body.until)).toBeGreaterThan(Date.now())
+    expect(Date.parse(body.until)).toBeGreaterThan(nowMs())
     // Only the failed row stays selected.
     expect(within(bar).getByText('1 selected')).toBeInTheDocument()
   })
