@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
 import { Section } from '@/components/views/panel'
 import { PlanDiff } from '@/components/views/plan-diff'
-import { planQuery } from '@/lib/fix-api'
+import { planQuery, runnerQuery } from '@/lib/fix-api'
 import { previewPlan, RISK_REASON_LABEL, type PlanPreview } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -19,15 +19,20 @@ import { RunnerPanel } from './runner-panel'
 const number = new Intl.NumberFormat('en-US')
 const plural = (n: number, word: string) => `${number.format(n)} ${word}${n === 1 ? '' : 's'}`
 
-type StepFate = 'sent' | 'not_sent' | 'risky'
+type StepFate = 'sent' | 'not_sent' | 'risky' | 'majors'
 
-const FATE: Record<StepFate, { label: string; variant: 'success' | 'default' | 'high' }> = {
+const FATE: Record<
+  StepFate,
+  { label: string; variant: 'success' | 'default' | 'high' | 'accent' }
+> = {
   sent: { label: 'In the fix PR', variant: 'success' },
   not_sent: { label: 'Not sent', variant: 'default' },
   risky: { label: 'Risky, listed only', variant: 'high' },
+  majors: { label: 'Majors agent, draft PR', variant: 'accent' },
 }
 
-function fateOf(step: FixPlanStep, preview: PlanPreview): StepFate {
+function fateOf(step: FixPlanStep, preview: PlanPreview, agent: boolean): StepFate {
+  if (agent && preview.majors.includes(step)) return 'majors'
   if (step.risk === 'risky') return 'risky'
   return preview.sent.includes(step) ? 'sent' : 'not_sent'
 }
@@ -65,7 +70,7 @@ function StepRow({ step, fate }: { step: FixPlanStep; fate: StepFate }) {
   )
 }
 
-function Steps({ plan, preview }: { plan: FixPlan; preview: PlanPreview }) {
+function Steps({ plan, preview, agent }: { plan: FixPlan; preview: PlanPreview; agent: boolean }) {
   const steps = [...plan.steps].sort((a, b) => a.order - b.order)
   if (!steps.length) {
     return (
@@ -80,7 +85,7 @@ function Steps({ plan, preview }: { plan: FixPlan; preview: PlanPreview }) {
       className="m-0 list-none overflow-hidden rounded-lg border border-border bg-card p-0"
     >
       {steps.map((step) => (
-        <StepRow key={step.id} step={step} fate={fateOf(step, preview)} />
+        <StepRow key={step.id} step={step} fate={fateOf(step, preview, agent)} />
       ))}
     </ul>
   )
@@ -137,7 +142,8 @@ function RepoRuns({ runs }: { runs: readonly FixRun[] }) {
           >
             <RunStateText run={run} />
             <span className="text-xs text-muted-foreground">
-              Run {run.id}, {formatRelative(run.at.created)}
+              {run.kind === 'majors' ? 'Majors run' : 'Run'} {run.id},{' '}
+              {formatRelative(run.at.created)}
             </span>
           </Link>
         </li>
@@ -166,6 +172,8 @@ export function PlanPane({
   focused: boolean
 }) {
   const query = useQuery(planQuery(repo.id))
+  const runner = useQuery(runnerQuery(repo.id))
+  const agent = (runner.data?.settings.majorsAgent ?? 'off') !== 'off'
   const plan = query.data
   const preview = plan ? previewPlan(plan) : null
   const latest = runs[0]
@@ -192,6 +200,9 @@ export function PlanPane({
             {preview.sent.length
               ? `One pull request with ${plural(preview.sent.length, 'safe step')} clears ${plural(preview.findings, 'finding')}. Risky upgrades are listed in its body, never applied.`
               : 'No safe step the runner can apply. Risky upgrades and unfixed packages are listed below.'}
+            {agent && preview.majors.length
+              ? ` The majors agent takes ${plural(preview.majors.length, 'major upgrade')} into ${preview.sent.length ? 'a second, ' : 'one '}draft pull request.`
+              : ''}
           </p>
         ) : null}
         <div className="mt-1 flex flex-wrap items-center gap-3">
@@ -235,7 +246,7 @@ export function PlanPane({
             title="Steps"
             description={`${plural(plan.summary.steps.safe, 'safe step')}, ${plural(plan.summary.steps.risky, 'risky step')}`}
           >
-            <Steps plan={plan} preview={preview} />
+            <Steps plan={plan} preview={preview} agent={agent} />
           </Section>
           <Unfixed plan={plan} />
         </>

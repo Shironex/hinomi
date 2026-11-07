@@ -347,3 +347,66 @@ describe('Fix with Hinomi', () => {
     expect(await within(dialog).findByText(/2 safe steps clear 4 of 4 open findings/)).toBeVisible()
   })
 })
+
+describe('the majors agent', () => {
+  const agentSwitch = () => screen.findByRole('switch', { name: 'Majors agent' })
+
+  it('is off by default, says what it does and turns on through the runner settings', async () => {
+    wideScreen()
+    const calls = fixtureApi({
+      'PATCH /repos/1/runner': (body: unknown) => ({
+        ...runnerFor(1),
+        settings: { ...runnerFor(1)!.settings, ...(body as object) },
+      }),
+    })
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    const toggle = await agentSwitch()
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(toggle).toHaveAccessibleDescription(/draft\s+pull request on hinomi\/majors/)
+    expect(toggle).toHaveAccessibleDescription(/costs money/)
+    expect(screen.getByRole('link', { name: /How it works/ })).toHaveAttribute(
+      'href',
+      expect.stringContaining('docs/github.md#the-optional-majors-agent'),
+    )
+    expect(screen.queryByText('The caller does not pass the agent key')).toBeNull()
+    await user.click(toggle)
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ majorsAgent: 'claude-code' }),
+    )
+    // The plan now says which steps the agent takes.
+    expect(await screen.findByText('Majors agent, draft PR')).toBeVisible()
+  })
+
+  it('warns when it is on and the caller passes no key, and not when it does', async () => {
+    wideScreen()
+    const calls = fixtureApi({
+      'PATCH /repos/18/runner': (body: unknown) => ({
+        ...runnerFor(18),
+        settings: { ...runnerFor(18)!.settings, ...(body as object) },
+      }),
+    })
+    const { user } = await setup('/fix-runs?sel=plan-17')
+    expect(await screen.findByText('The caller does not pass the agent key')).toBeVisible()
+    expect(await agentSwitch()).toHaveAttribute('aria-checked', 'true')
+    cleanup()
+    await renderApp('/fix-runs?sel=plan-18')
+    const toggle = await agentSwitch()
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText('The caller does not pass the agent key')).toBeNull()
+    await user.click(toggle)
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ majorsAgent: 'off' }),
+    )
+  })
+
+  it('works from the keyboard', async () => {
+    wideScreen()
+    fixtureApi()
+    const { user } = await setup('/fix-runs?sel=plan-18')
+    const toggle = await agentSwitch()
+    toggle.focus()
+    expect(toggle).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('alert')).toBeVisible()
+  })
+})

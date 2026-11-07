@@ -15,7 +15,10 @@ import {
   IconCircleX,
   IconClockHour4,
   IconCopy,
+  IconExternalLink,
+  IconKey,
   IconLoader2,
+  IconRobot,
 } from '@tabler/icons-react'
 import { Field } from '@/components/form/field'
 import { StatusText } from '@/components/findings/finding-state'
@@ -28,7 +31,7 @@ import { Switch } from '@/components/ui/switch'
 import { KeyValues, Panel, PanelBody, PanelHeader } from '@/components/views/panel'
 import { describeError } from '@/lib/errors'
 import { fixKeys, runnerQuery, updateRunner } from '@/lib/fix-api'
-import { CALLER_STATE_INFO } from '@/lib/fix-run-meta'
+import { CALLER_STATE_INFO, MAJORS_BRANCH_NAME, MAJORS_DOCS_URL } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { SetupPrButton } from './setup-pr-button'
 
@@ -163,6 +166,69 @@ function CallerPin({ status }: { status: RunnerStatus }) {
   return null
 }
 
+/**
+ * The optional majors agent: off until turned on, with what it does, what it costs and what the
+ * caller workflow must pass for it to run.
+ */
+function MajorsAgent({
+  status,
+  repoId,
+  pending,
+  onChange,
+}: {
+  status: RunnerStatus
+  repoId: number
+  pending: boolean
+  onChange: (on: boolean) => void
+}) {
+  const on = (status.settings.majorsAgent ?? 'off') !== 'off'
+  const headingId = `majors-${repoId}`
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h3 id={headingId} className="flex items-center gap-1.5 text-sm font-semibold">
+          <IconRobot aria-hidden="true" className="size-4 text-accent-ink" stroke={1.75} />
+          Majors agent
+        </h3>
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-foreground-2">{on ? 'On' : 'Off'}</span>
+          <Switch
+            checked={on}
+            disabled={pending}
+            aria-labelledby={headingId}
+            aria-describedby={`${headingId}-note`}
+            onCheckedChange={onChange}
+          />
+        </span>
+      </div>
+      <p id={`${headingId}-note`} className="max-w-[68ch] text-sm text-foreground-2">
+        An agent edits your code for the major upgrades of the plan and opens a separate{' '}
+        <b className="font-semibold">draft</b> pull request on{' '}
+        <span className="font-mono">{MAJORS_BRANCH_NAME}</span>. It needs the caller workflow to
+        pass <span className="font-mono">ANTHROPIC_API_KEY</span>, it costs money (each run is
+        capped on turns, time and spend) and a person reviews the draft: Hinomi never merges.{' '}
+        <a
+          href={MAJORS_DOCS_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex items-center gap-1 text-accent-ink hover:underline"
+        >
+          How it works
+          <IconExternalLink aria-hidden="true" className="size-3.5" />
+          <span className="sr-only">(opens in a new tab)</span>
+        </a>
+      </p>
+      {on && status.caller.passesAgentSecret === false ? (
+        <Callout icon={IconKey} variant="warn" title="The caller does not pass the agent key">
+          The agent cannot run until {status.caller.path} passes{' '}
+          <span className="font-mono">ANTHROPIC_API_KEY</span> to Hinomi. Open the setup PR or paste
+          the workflow below: both add the secrets lines. Then add the key as a secret of the repo.
+        </Callout>
+      ) : null}
+    </section>
+  )
+}
+
 function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
@@ -213,6 +279,13 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
           status={status}
           pending={mutation.isPending}
           onSave={(workflow) => mutation.mutate({ workflow })}
+        />
+
+        <MajorsAgent
+          status={status}
+          repoId={repoId}
+          pending={mutation.isPending}
+          onChange={(on) => mutation.mutate({ majorsAgent: on ? 'claude-code' : 'off' })}
         />
 
         <section aria-labelledby={`caller-${repoId}`} className="flex flex-col gap-2.5">
