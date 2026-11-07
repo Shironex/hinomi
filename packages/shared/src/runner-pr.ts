@@ -203,6 +203,33 @@ function riskySection({ plan }: RenderContext): string | null {
   ].join('\n')
 }
 
+/** What the target check found per step: advisories a target avoids or still has. */
+function targetsSection({ plan }: RenderContext): string | null {
+  const steps = [...plan.steps].sort((a, b) => a.order - b.order)
+  const lines: string[] = []
+  for (const step of steps) {
+    const check = step.targetCheck
+    if (!check) continue
+    const subject = `${code(step.packageName)} ${cell(step.to)}`
+    if (check.avoids.length > 0) {
+      const moved = check.minimum !== step.to ? ` (${cell(check.minimum)} is affected)` : ''
+      lines.push(`- ${subject}: target avoids ${check.avoids.map(code).join(', ')}${moved}.`)
+    }
+    if (check.stillAffected.length > 0) {
+      lines.push(
+        `- ${subject}: target still affected by ${check.stillAffected.map(code).join(', ')}; no clean version in the same semver line is known.`,
+      )
+    }
+  }
+  const unchecked = steps.filter((s) => s.targetCheck?.status === 'unchecked')
+  if (unchecked.length > 0) {
+    const list = unchecked.map((s) => `${code(s.packageName)} ${cell(s.to)}`).join(', ')
+    lines.push(`- Not checked against OSV: ${list}.`)
+  }
+  if (lines.length === 0) return null
+  return ['### Target versions', '', ...lines].join('\n')
+}
+
 function unfixedSection({ plan }: RenderContext): string | null {
   if (plan.unfixed.length === 0) return null
   const rows = plan.unfixed.map((entry) => [
@@ -267,6 +294,7 @@ function renderBody(context: RenderContext, applied: FixPlanStep[]): string {
     clearedSection(applied),
     stepsSection(context),
     riskySection(context),
+    targetsSection(context),
     unfixedSection(context),
     checksSection(context),
     failuresSection(context),
@@ -277,7 +305,8 @@ function renderBody(context: RenderContext, applied: FixPlanStep[]): string {
 
 /**
  * Renders the fix PR from the plan and the runner's result: title, findings cleared by tier,
- * the steps with their outcome, risky upgrades (always listed, never applied), unfixed
+ * the steps with their outcome, risky upgrades (always listed, never applied), what the target
+ * check found (advisories a target avoids or still has, targets OSV did not check), unfixed
  * advisories, checks, and failure output when the PR is a draft. Links back to Hinomi only
  * when `linksAllowed`. Throws FixPayloadError `mismatch` when the result is for another plan.
  */

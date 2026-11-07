@@ -657,6 +657,50 @@ describe('renderFixPrBody', () => {
     expect(pr.body).not.toMatch(new RegExp(String.fromCharCode(0x2013, 0x7c, 0x2014)))
   })
 
+  it('says which advisories each target avoids or still has', () => {
+    const checked = plan([
+      {
+        ...harborSteps[0]!,
+        targetCheck: { status: 'clean', minimum: '1.3.0', avoids: [], stillAffected: [] },
+      },
+      {
+        ...harborSteps[1]!,
+        targetCheck: {
+          status: 'clean',
+          minimum: '2.1.3',
+          avoids: ['GHSA-wren-0009-ffff'],
+          stillAffected: [],
+        },
+      },
+      {
+        ...harborSteps[2]!,
+        targetCheck: { status: 'unchecked', minimum: '0.2.3', avoids: [], stillAffected: [] },
+      },
+      {
+        ...harborSteps[3]!,
+        targetCheck: {
+          status: 'affected',
+          minimum: '4.0.1',
+          avoids: [],
+          stillAffected: ['GHSA-hern-0002-gggg'],
+        },
+      },
+    ])
+    const body = renderFixPrBody(checked, result(), { linksAllowed: false }).body
+    expect(body).toContain('### Target versions')
+    expect(body).toContain(
+      '- `wren-dom` 2.1.4: target avoids `GHSA-wren-0009-ffff` (2.1.3 is affected).',
+    )
+    expect(body).toContain(
+      '- `heron-ui` 4.0.1: target still affected by `GHSA-hern-0002-gggg`; no clean version in the same semver line is known.',
+    )
+    expect(body).toContain('- Not checked against OSV: `gull-log` 0.2.3.')
+    expect(body).not.toContain('`plover-parse` 1.3.0: target')
+    expect(renderFixPrBody(harbor, result(), { linksAllowed: false }).body).not.toContain(
+      '### Target versions',
+    )
+  })
+
   it('links back to Hinomi only when links are allowed', () => {
     const url = 'https://hinomi.example.dev/fix-runs/1'
     expect(
