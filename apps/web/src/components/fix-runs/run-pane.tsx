@@ -24,11 +24,13 @@ import {
   parseStepId,
   planKey,
   RUN_STATE_INFO,
+  runNext,
   runTimeline,
   STEP_REASON_LABEL,
 } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { RunAgent } from './run-agent'
 import { RunDeployments } from './run-deployments'
 import { RunStateText } from './run-state-text'
 import { RunTimeline } from './run-timeline'
@@ -48,6 +50,7 @@ const CHECK_STATUS = {
 /** The callout of a run that ended or waits for a person. */
 function StateCallout({ run }: { run: FixRun }) {
   const info = RUN_STATE_INFO[run.state]
+  const next = runNext(run)
   const reason = run.stateReason ? `${run.stateReason}. ` : ''
   switch (run.state) {
     case 'failed':
@@ -56,19 +59,19 @@ function StateCallout({ run }: { run: FixRun }) {
       return (
         <Callout icon={info.icon} variant="danger" title={info.label}>
           {reason}
-          {info.next}
+          {next}
         </Callout>
       )
     case 'checks_failing':
       return (
         <Callout icon={IconCircleX} variant="danger" title="Checks failing on the pull request">
-          {info.next}
+          {next}
         </Callout>
       )
     case 'closed_unmerged':
       return (
         <Callout icon={IconGitPullRequestClosed} variant="warn" title="Pull request closed">
-          {info.next}
+          {next}
         </Callout>
       )
     case 'cancelled':
@@ -76,7 +79,7 @@ function StateCallout({ run }: { run: FixRun }) {
       return (
         <Callout icon={info.icon} title={info.label}>
           {reason}
-          {info.next}
+          {next}
         </Callout>
       )
     default:
@@ -132,6 +135,14 @@ function Checks({ run }: { run: FixRun }) {
           : run.state === 'checks_none'
             ? 'The repo reported no checks on the pull request.'
             : null
+  if (run.kind === 'majors') {
+    return (
+      <p className="text-sm text-foreground-2">
+        The runner runs no checks for a majors run: the draft pull request&apos;s own CI does.
+        {prChecks ? ` ${prChecks}` : ''}
+      </p>
+    )
+  }
   if (!result) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -176,13 +187,13 @@ function Checks({ run }: { run: FixRun }) {
   )
 }
 
-function StepResults({ result }: { result: FixResultV1 }) {
+function StepResults({ result, majors }: { result: FixResultV1; majors: boolean }) {
   const applied = result.steps.filter((s) => s.status === 'applied').length
   const tooNew = new Map(result.releaseAge.map((r) => [r.stepId, r]))
   return (
     <Section
-      title="Steps"
-      description={`${applied} of ${result.steps.length} applied${result.patch ? `, ${plural(result.patch.files.length, 'file')} changed (${result.patch.insertions} lines added, ${result.patch.deletions} removed)` : ''}`}
+      title={majors ? 'Major upgrades' : 'Steps'}
+      description={`${applied} of ${result.steps.length} ${majors ? 'changed by the agent' : 'applied'}${result.patch ? `, ${plural(result.patch.files.length, 'file')} changed (${result.patch.insertions} lines added, ${result.patch.deletions} removed)` : ''}`}
     >
       <ul className="m-0 list-none overflow-hidden rounded-lg border border-border bg-card p-0">
         {result.steps.map((step) => {
@@ -324,7 +335,7 @@ export function RunPane({
         <h1 className={focused ? 'text-lg tab:text-xl' : 'text-lg'}>
           {info.label} on <span className="font-mono">{repo.fullName}</span>
         </h1>
-        <p className="max-w-[68ch] text-foreground-2">{info.next}</p>
+        <p className="max-w-[68ch] text-foreground-2">{runNext(run)}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {run.pr ? (
             <Button asChild>
@@ -378,7 +389,9 @@ export function RunPane({
         </div>
       </div>
 
-      {run.result ? <StepResults result={run.result} /> : null}
+      {run.kind === 'majors' ? <RunAgent run={run} /> : null}
+
+      {run.result ? <StepResults result={run.result} majors={run.kind === 'majors'} /> : null}
 
       <div className="grid items-start gap-4 desk:grid-cols-2">
         <Panel>
@@ -404,7 +417,12 @@ export function RunPane({
                 { label: 'Plan', value: `Scan ${run.plan.scanRunId}` },
                 {
                   label: 'Checks in the runner',
-                  value: run.checksMode === 'full' ? 'Install and checks' : 'Install only',
+                  value:
+                    run.kind === 'majors'
+                      ? "None, the draft PR's CI"
+                      : run.checksMode === 'full'
+                        ? 'Install and checks'
+                        : 'Install only',
                 },
                 { label: 'Correlation id', value: run.correlationId, mono: true },
               ]}
