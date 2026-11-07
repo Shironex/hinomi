@@ -9,7 +9,7 @@ export type {
   ScanSummary,
 } from './run.js'
 export { errorMessage } from './collect.js'
-export { indexDeployments, isImageOnly, needsRepoMapping } from './deployments.js'
+export { indexDeployments, isImageOnly, lockfileRef, needsRepoMapping } from './deployments.js'
 export {
   cachedInstallerAssets,
   isReleaseFinding,
@@ -60,6 +60,7 @@ export {
   GUARDS,
   applyGuards,
   evaluateGuards,
+  repoRuntimeView,
   runGuards,
   toOutcomes,
   type Guard,

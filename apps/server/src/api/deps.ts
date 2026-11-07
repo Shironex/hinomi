@@ -19,7 +19,7 @@ export interface ApiDeps {
   /** Runner settings, status and dispatch of fix runs. */
   fixRuns: FixRunService
   /** The endoflife.date data and its cache state. */
-  support: Pick<SupportData, 'status'>
+  support: Pick<SupportData, 'status' | 'index'>
   /** The update check; absent when none runs (tests). */
   updates?: Pick<UpdateChecker, 'check'>
   /** The registered guard checks (GUARDS): capabilities and which checks run. */

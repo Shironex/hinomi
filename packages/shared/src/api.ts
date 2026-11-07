@@ -12,7 +12,7 @@ import {
   sourceAuthSchema,
   sourceKindSchema,
 } from './model.js'
-import { guardEvidenceSchema } from './guard-evidence.js'
+import { guardEvidenceSchema, runtimeSupportEntrySchema } from './guard-evidence.js'
 import { imageScanModeSchema } from './image-scan.js'
 import {
   guardCapabilitySchema,
@@ -26,6 +26,7 @@ import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
 import { nowMs } from './clock.js'
+import { runtimePinRecordSchema } from './runtime-pins.js'
 import {
   RUNTIME_BEHIND_MAX_RELEASES,
   RUNTIME_BEHIND_MIN_RELEASES,
@@ -1246,11 +1247,32 @@ export const repoReleaseSchema = z.object({
   lockfileMissing: z.boolean(),
 })
 export type RepoRelease = z.infer<typeof repoReleaseSchema>
+/** A runtime pin of the repo as the last scan read it (docs/design/phase-2.md section 5). */
+export const repoRuntimePinSchema = runtimePinRecordSchema.extend({
+  /** Branch the files were read at. */
+  ref: z.string(),
+  scannedAt: isoDate,
+  /** The pin names another line than the rest of its runtime (the `runtime_pins_disagree` rule). */
+  disagrees: z.boolean(),
+})
+export type RepoRuntimePin = z.infer<typeof repoRuntimePinSchema>
+
+/** Where each runtime of the repo stands, judged like the `runtime_support` check does. */
+export const repoSupportLinesSchema = z.object({
+  /** False before the first endoflife.date copy exists: `runtimes` is then empty. */
+  available: z.boolean(),
+  /** One entry per runtime with a production pin, in `RUNTIMES` order. */
+  runtimes: z.array(runtimeSupportEntrySchema),
+})
+export type RepoSupportLines = z.infer<typeof repoSupportLinesSchema>
 
 /** GET /api/repos/:id. */
 export const repoDetailSchema = repoRefSchema.extend({
   source: repoSourceViewSchema,
   release: repoReleaseSchema,
+  /** Every Node, Bun and Rust pin found at the branch the scan reads, in file order. */
+  runtimePins: z.array(repoRuntimePinSchema),
+  supportLines: repoSupportLinesSchema,
 })
 export type RepoDetail = z.infer<typeof repoDetailSchema>
 

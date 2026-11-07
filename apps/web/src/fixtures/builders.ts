@@ -55,6 +55,8 @@ export function repoDetail(over: Partial<RepoDetail> = {}): RepoDetail {
       fixedOnDefaultBranch: 1,
       lockfileMissing: false,
     },
+    runtimePins: [],
+    supportLines: { available: false, runtimes: [] },
     ...over,
   }
 }
