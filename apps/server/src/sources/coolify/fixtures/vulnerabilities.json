@@ -1,0 +1,85 @@
+{
+  "uuid": "app-docs",
+  "type": "application",
+  "off_reason": null,
+  "security": {
+    "status": "update_now",
+    "label": "Update now",
+    "action": null,
+    "check_reason": null,
+    "problem_count": 2,
+    "exploited_count": 1,
+    "any_exploited": true,
+    "critical_count": 1,
+    "high_count": 0,
+    "medium_count": 1,
+    "eol": null,
+    "checked_at": "2026-11-07T08:00:00+00:00",
+    "actions": []
+  },
+  "images": [
+    {
+      "scan_uuid": "scan-1",
+      "owner_uuid": "app-docs",
+      "image_ref": "ghcr.io/kestrel-co/static-docs:1.4.0",
+      "scan_status": "completed",
+      "error_code": null,
+      "scanned_at": "2026-11-07T07:55:00+00:00",
+      "truncated": false,
+      "security_status": "update_now"
+    },
+    {
+      "scan_uuid": "scan-2",
+      "owner_uuid": "app-docs",
+      "image_ref": "ghcr.io/kestrel-co/static-docs-sidecar:2.0.1",
+      "scan_status": "completed",
+      "error_code": null,
+      "scanned_at": "2026-11-07T07:50:00+00:00",
+      "truncated": true,
+      "security_status": "update_available"
+    }
+  ],
+  "findings": [
+    {
+      "id": "CVE-2026-1001",
+      "display_id": "CVE-2026-1001",
+      "aliases": ["GHSA-x4mq-7p2v-c9hw"],
+      "title": "example-render allows prototype pollution through crafted templates",
+      "severity": "critical",
+      "package": "example-render",
+      "version": "2.1.0",
+      "package_type": "npm",
+      "fixed_in": "2.1.4",
+      "state": "fixed",
+      "ignore": null,
+      "kev": true,
+      "epss": 0.41,
+      "risk": 92.5,
+      "cvss_score": 9.8,
+      "advisory_url": "https://osv.dev/vulnerability/CVE-2026-1001",
+      "image_ref": "ghcr.io/kestrel-co/static-docs:1.4.0",
+      "owner_uuid": "app-docs"
+    },
+    {
+      "id": "DEBIAN-CVE-2026-2002",
+      "display_id": "CVE-2026-2002",
+      "aliases": [],
+      "title": "examplelib: out of bounds read in the decoder",
+      "severity": "medium",
+      "package": "libexample1",
+      "version": "1.2.3-1",
+      "package_type": "deb",
+      "fixed_in": null,
+      "state": "ignored",
+      "ignore": { "reason": "not reachable in this image", "expires_at": null, "team_wide": false },
+      "kev": false,
+      "epss": null,
+      "risk": 12,
+      "cvss_score": 5.3,
+      "advisory_url": "javascript:alert(1)",
+      "image_ref": "ghcr.io/kestrel-co/static-docs-sidecar:2.0.1",
+      "owner_uuid": "app-docs"
+    }
+  ],
+  "pagination": { "page": 1, "per_page": 200, "total": 2 }
+}
