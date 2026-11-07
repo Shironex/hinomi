@@ -16,6 +16,7 @@ import { repoKey } from './ownership.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
 import { readSupportWindowDays, type SupportIndex } from '../support/index.js'
 import { GUARDS, runGuards, type Guard } from './guards/index.js'
+import { createRepoFileReader } from './guards/repo-files.js'
 import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
@@ -495,6 +496,12 @@ export async function runScan(
       scans: result.scans,
       support: options.support?.() ?? null,
       supportWindowDays: readSupportWindowDays(ctx.repositories.settings),
+      repoFiles: createRepoFileReader({
+        sources,
+        httpCache: ctx.repositories.httpCache,
+        scans: result.scans,
+        now,
+      }),
       now: now(),
     }
     const guards = options.guards ?? GUARDS

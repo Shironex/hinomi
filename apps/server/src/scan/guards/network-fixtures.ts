@@ -1,6 +1,7 @@
 import { guardEvidenceSchema, type DeploymentFacts } from '@hinomi/shared'
 import type { DeploymentRow, RepoRow } from '../../db/schema.js'
 import type { RepoScan } from '../collect.js'
+import { noRepoFiles } from './testing.js'
 import type { GuardContext, GuardSubjectResult } from './types.js'
 
 // Test fixtures for the facts based checks. Fictional data only.
@@ -114,6 +115,7 @@ export function context(
     repos,
     index: { deployments, byRepo, unmapped: deployments.filter((d) => d.repoId === null) },
     scans,
+    repoFiles: noRepoFiles(),
     now: AT,
     support: null,
     supportWindowDays: 90,

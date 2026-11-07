@@ -11,6 +11,7 @@ import type { GuardSubject } from '../../repository/index.js'
 import type { SupportIndex } from '../../support/index.js'
 import type { RepoScan } from '../collect.js'
 import type { DeploymentIndex } from '../deployments.js'
+import type { RepoFileReader } from './repo-files.js'
 
 export type { GuardSubject }
 
@@ -46,6 +47,8 @@ export interface GuardContext {
   support: SupportIndex | null
   /** Days before end of support at which a line turns to a warning (setting supportWindowDays). */
   supportWindowDays: number
+  /** Reads a file of a repo at a ref through its GitHub source (cached by commit sha). */
+  repoFiles: RepoFileReader
   now: Date
 }
 

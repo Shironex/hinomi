@@ -7,7 +7,7 @@ import type { Repositories } from '../repository/index.js'
 import type { FindingChange, ScanSummary } from '../scan/index.js'
 import { indexDeployments } from '../scan/deployments.js'
 import { runGuards } from '../scan/guards/index.js'
-import { fakeGuard, rootUserEvidence } from '../scan/guards/testing.js'
+import { fakeGuard, noRepoFiles, rootUserEvidence } from '../scan/guards/testing.js'
 import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
 import { maskWebhookUrl, type ResolvedEmail } from './channels.js'
 import { SmtpError, type MailMessage } from './email.js'
@@ -523,6 +523,7 @@ describe('guard findings', () => {
       scans: new Map(),
       support: null,
       supportWindowDays: 90,
+      repoFiles: noRepoFiles(),
       now: clock,
     }
     return summary(await runGuards(repos, [fake.guard], ctx, { warn: () => {} }))

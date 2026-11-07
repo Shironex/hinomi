@@ -10,6 +10,7 @@ import type { RepoScan } from '../collect.js'
 import { indexDeployments } from '../deployments.js'
 import { runGuards } from './run.js'
 import { frameworkSupportGuard } from './framework-support.js'
+import { noRepoFiles } from './testing.js'
 import type { GuardContext } from './types.js'
 
 // Fictional repos (kestrel-co) against hand written endoflife.date products, "now" 2026-11-08.
@@ -127,6 +128,7 @@ function ctxFor(
     scans: new Map([[repo.id, scan]]),
     support,
     supportWindowDays: 90,
+    repoFiles: noRepoFiles(),
     now: NOW,
     ...over,
   }
