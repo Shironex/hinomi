@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "brand": "node assets/brand/render.js",
+    "showcase": "node scripts/showcase.js",
     "prepare": "husky"
   },
   "devDependencies": {
