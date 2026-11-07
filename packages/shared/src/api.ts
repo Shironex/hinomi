@@ -126,17 +126,20 @@ export const exposureFactorsSchema = z.object({
 export type ExposureFactorsDto = z.infer<typeof exposureFactorsSchema>
 
 /**
- * Display tiers of the alerts list. Blind spots come first, then advisories:
+ * Display tiers of the alerts list. Blind spots come first, then advisories and guards:
  * 1 exposed (critical or high, runtime, public), 2 deployed internal only,
- * 3 deployed and public but moderate or low, 4 deployed dev dependencies,
- * 5 not deployed. Then advisories GitHub still reports although the lockfile is already
- * patched. Coverage notes (image only deployments) come last.
+ * 3 released (runtime dependencies of a desktop app's latest release, no deployment),
+ * 4 deployed and public but moderate or low, 5 deployed dev dependencies,
+ * 6 not deployed. Then advisories GitHub still reports although the lockfile is already
+ * patched. Coverage notes (image only deployments, releases without a lockfile) and guards
+ * at level `unknown` come last.
  * Within a tier rows keep their rank order.
  */
 export const FINDING_TIERS = [
   'blind_spot',
   'exposed',
   'internal',
+  'released',
   'public_low',
   'dev',
   'not_deployed',
@@ -498,7 +501,18 @@ export const fixPlanApplySchema = z.discriminatedUnion('type', [
 ])
 export type FixPlanApply = z.infer<typeof fixPlanApplySchema>
 
-const tierCounts = z.record(findingTierSchema, z.number().int())
+/**
+ * Counts per tier. Plans stored before a tier existed have no key for it, so a missing
+ * tier reads as 0 instead of failing the whole plan.
+ */
+const tierCounts = z.preprocess(
+  (value) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+    const counts: Record<string, unknown> = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0]))
+    return Object.assign(counts, value)
+  },
+  z.record(findingTierSchema, z.number().int()),
+)
 
 /** One project of the repo: a lockfile and the workspaces it covers. */
 export const fixPlanProjectSchema = z.object({

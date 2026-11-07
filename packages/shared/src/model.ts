@@ -17,8 +17,11 @@ export const SOURCE_AUTHS = ['token', 'github_app'] as const
 export const sourceAuthSchema = z.enum(SOURCE_AUTHS)
 export type SourceAuth = z.infer<typeof sourceAuthSchema>
 
-/** Sources that can report an advisory finding. */
-export const REPORTERS = ['github', 'osv'] as const
+/**
+ * Sources that can report an advisory finding. `image` is an image scan of what a
+ * deployment runs (Coolify's own scan results, or an image SBOM checked on OSV).
+ */
+export const REPORTERS = ['github', 'osv', 'image'] as const
 export const reporterSchema = z.enum(REPORTERS)
 export type Reporter = z.infer<typeof reporterSchema>
 
@@ -44,10 +47,12 @@ export type FindingState = z.infer<typeof findingStateSchema>
 
 /**
  * An advisory on a repo, a blind spot (missing coverage) on a repo or
- * deployment, or a coverage note: something Hinomi does not check yet but
- * knows about (see COVERAGE_NOTE_TYPES). Notes rank below every advisory.
+ * deployment, a coverage note: something Hinomi does not check yet but
+ * knows about (see COVERAGE_NOTE_TYPES), or a guard: a configuration or
+ * support check on a deployment or repo (see GUARD_CHECKS in guards.ts).
+ * Notes rank below every advisory.
  */
-export const FINDING_KINDS = ['advisory', 'blind_spot', 'coverage_note'] as const
+export const FINDING_KINDS = ['advisory', 'blind_spot', 'coverage_note', 'guard'] as const
 export const findingKindSchema = z.enum(FINDING_KINDS)
 export type FindingKind = z.infer<typeof findingKindSchema>
 
@@ -68,12 +73,20 @@ export const blindSpotTypeSchema = z.enum(BLIND_SPOT_TYPES)
 export type BlindSpotType = z.infer<typeof blindSpotTypeSchema>
 
 /**
- * Coverage notes. `image_only` is a deployment with no git source (a service
- * from a template, an app deployed from a registry image): there is no repo
- * to map, and the phase 2 image scan will cover what it runs. The type is
- * part of the finding's dedupe key; every coverage note today is `image_only`.
+ * Coverage notes. The type is part of the finding's dedupe key.
+ * - `image_only`: a deployment with no git source (a service from a template,
+ *   an app deployed from a registry image): there is no repo to map, and the
+ *   image scan covers what it runs when it is on.
+ * - `release_lockfile_missing`: a released desktop repo whose latest release
+ *   tag has no lockfile Hinomi reads, so the version in users' hands is not checked.
+ * - `requirements_unpinned`: a `requirements.txt` with lines that pin no exact
+ *   version (ranges, URLs, editable installs); those lines are not checked.
  */
-export const COVERAGE_NOTE_TYPES = ['image_only'] as const
+export const COVERAGE_NOTE_TYPES = [
+  'image_only',
+  'release_lockfile_missing',
+  'requirements_unpinned',
+] as const
 export const coverageNoteTypeSchema = z.enum(COVERAGE_NOTE_TYPES)
 export type CoverageNoteType = z.infer<typeof coverageNoteTypeSchema>
 

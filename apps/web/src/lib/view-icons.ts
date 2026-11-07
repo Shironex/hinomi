@@ -4,6 +4,7 @@ import {
   IconAlertOctagon,
   IconAlertTriangle,
   IconBrandGithub,
+  IconContainer,
   IconDatabase,
   IconEyeOff,
   IconInfoCircle,
@@ -44,6 +45,7 @@ export const SOURCE_ICON: Record<SourceKey, Icon> = {
   both: IconLayersIntersect,
   github: IconBrandGithub,
   osv: IconDatabase,
+  image: IconContainer,
 }
 
 export function sourceKey(sources: readonly Reporter[]): SourceKey {

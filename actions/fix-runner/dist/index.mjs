@@ -2732,6 +2732,9 @@ function handlePipeResult(left, next, ctx) {
 		issues: left.issues
 	}, ctx);
 }
+const $ZodPreprocess = /*@__PURE__*/ $constructor("$ZodPreprocess", (inst, def) => {
+	$ZodPipe.init(inst, def);
+});
 const $ZodReadonly = /*@__PURE__*/ $constructor("$ZodReadonly", (inst, def) => {
 	$ZodType.init(inst, def);
 	defineLazyInternal(inst, "propValues", (zod) => zod.def.innerType._zod.propValues);
@@ -5490,6 +5493,10 @@ function pipe(in_, out) {
 		out
 	});
 }
+const ZodPreprocess = /*@__PURE__*/ $constructor("ZodPreprocess", (inst, def) => {
+	ZodPipe.init(inst, def);
+	$ZodPreprocess.init(inst, def);
+});
 const ZodReadonly = /*@__PURE__*/ $constructor("ZodReadonly", (inst, def) => {
 	$ZodReadonly.init(inst, def);
 	ZodType.init(inst, def);
@@ -5512,6 +5519,13 @@ function refine(fn, _params = {}) {
 }
 function superRefine(fn, params) {
 	return _superRefine(fn, params);
+}
+function preprocess(fn, schema) {
+	return new ZodPreprocess({
+		type: "pipe",
+		in: transform(fn),
+		out: schema
+	});
 }
 
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/iso.js
@@ -5575,7 +5589,11 @@ const SOURCE_KINDS = [
 const sourceKindSchema = _enum(SOURCE_KINDS);
 const SOURCE_AUTHS = ["token", "github_app"];
 const sourceAuthSchema = _enum(SOURCE_AUTHS);
-const REPORTERS = ["github", "osv"];
+const REPORTERS = [
+	"github",
+	"osv",
+	"image"
+];
 const reporterSchema = _enum(REPORTERS);
 const FINDING_SCOPES = [
 	"runtime",
@@ -5595,7 +5613,8 @@ const findingStateSchema = _enum(FINDING_STATES);
 const FINDING_KINDS = [
 	"advisory",
 	"blind_spot",
-	"coverage_note"
+	"coverage_note",
+	"guard"
 ];
 const findingKindSchema = _enum(FINDING_KINDS);
 const BLIND_SPOT_TYPES = [
@@ -5607,7 +5626,11 @@ const BLIND_SPOT_TYPES = [
 	"lockfile_unparseable"
 ];
 const blindSpotTypeSchema = _enum(BLIND_SPOT_TYPES);
-const COVERAGE_NOTE_TYPES = ["image_only"];
+const COVERAGE_NOTE_TYPES = [
+	"image_only",
+	"release_lockfile_missing",
+	"requirements_unpinned"
+];
 const coverageNoteTypeSchema = _enum(COVERAGE_NOTE_TYPES);
 const DEPLOYMENT_REACHES = [
 	"public",
@@ -5934,6 +5957,7 @@ const FINDING_TIERS = [
 	"blind_spot",
 	"exposed",
 	"internal",
+	"released",
 	"public_low",
 	"dev",
 	"not_deployed",
@@ -6180,7 +6204,11 @@ const fixPlanApplySchema = discriminatedUnion("type", [
 	}),
 	object({ type: literal("manual") })
 ]);
-const tierCounts = record(findingTierSchema, number$1().int());
+const tierCounts = preprocess((value) => {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+	const counts = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0]));
+	return Object.assign(counts, value);
+}, record(findingTierSchema, number$1().int()));
 const fixPlanProjectSchema = object({
 	lockfile: string(),
 	root: string(),
