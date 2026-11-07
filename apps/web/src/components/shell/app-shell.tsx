@@ -10,6 +10,7 @@ import { getActiveSplit } from '@/lib/split-nav'
 import { cycleTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { OfflineBanner } from '@/components/states/offline-banner'
+import { FixDialog } from '@/components/views/fix-dialog'
 import { PublicAccessBanner } from './access-status'
 import { IconRail } from './icon-rail'
 import { KeyHintBar } from './key-hint-bar'
@@ -65,6 +66,7 @@ export function AppShell() {
   const dialogs = (
     <>
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <FixDialog />
       <UpdatePrompt />
       <p aria-live="polite" className="sr-only">
         {announcement}
