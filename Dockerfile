@@ -36,6 +36,8 @@ RUN addgroup -S -g 10001 hinomi \
 WORKDIR /app
 COPY --from=build --chown=10001:10001 /out/server apps/server
 COPY --from=build --chown=10001:10001 /repo/apps/web/dist apps/web/dist
+# The fix runner action, spawned by the local runner (HINOMI_LOCAL_RUNNER=1). Inert otherwise.
+COPY --from=build --chown=10001:10001 /repo/actions/fix-runner/dist actions/fix-runner/dist
 
 USER 10001:10001
 EXPOSE 3000
