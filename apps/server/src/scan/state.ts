@@ -1,6 +1,7 @@
 import type { FindingState } from '@hinomi/shared'
 import type { FindingRow } from '../db/schema.js'
 import type { FindingsRepository } from '../repository/index.js'
+import { currentTime } from '@hinomi/shared'
 
 /**
  * Finding state machine on top of `findings.changeState`. Every transition
@@ -101,7 +102,7 @@ function defer(
   state: 'snoozed' | 'accepted',
   input: DeferInput,
 ): FindingRow {
-  const now = input.now ?? new Date()
+  const now = input.now ?? currentTime()
   const finding = load(findings, id)
   requireUserTransition(finding, state)
   const reason = validateDefer(finding, input, now)
@@ -142,7 +143,7 @@ export function reopenFinding(
   return findings.changeState(
     id,
     { state: 'open', reason: input.reason ?? null, actor: 'user', eventType: 'reopened' },
-    input.now ?? new Date(),
+    input.now ?? currentTime(),
   )
 }
 

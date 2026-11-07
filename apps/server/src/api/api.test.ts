@@ -8,13 +8,14 @@ import {
   overviewResponseSchema,
   scanStatusSchema,
   sourcesResponseSchema,
+  nowMs,
 } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { MAX_BODY_BYTES } from './index.js'
 import { createTestApi, seedWorld } from './testing.js'
 
 const TOKEN = 'ghp_fictionalTokenValue0000000000000000'
-const future = (days = 7) => new Date(Date.now() + days * 86_400_000).toISOString()
+const future = (days = 7) => new Date(nowMs() + days * 86_400_000).toISOString()
 
 function errorOf(json: unknown) {
   return (json as { error: { code: string; message: string } }).error
@@ -268,7 +269,7 @@ describe('findings', () => {
     expect(noUntil.status).toBe(400)
     const past = await call('POST', `${path}/snooze`, {
       reason: 'Upgrade planned',
-      until: new Date(Date.now() - 60_000).toISOString(),
+      until: new Date(nowMs() - 60_000).toISOString(),
     })
     expect(past.status).toBe(400)
     expect(errorOf(past.json).message).toContain('future')

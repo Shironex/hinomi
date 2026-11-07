@@ -15,6 +15,7 @@ import {
   type FindingRow,
   type NewFindingEventRow,
 } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 /** Dedupe key of an advisory finding: one row per advisory and repo. */
 export function advisoryFindingKey(advisoryId: number, repoId: number): string {
@@ -144,7 +145,7 @@ export function createFindingsRepository(db: Db) {
      */
     observe(
       input: ObserveFindingInput,
-      seenAt: Date = new Date(),
+      seenAt: Date = currentTime(),
     ): { finding: FindingRow; created: boolean } {
       const dedupeKey = keyFor(input)
       return db.transaction(() => {
@@ -219,7 +220,7 @@ export function createFindingsRepository(db: Db) {
      * Moves a finding to a new state and writes the history event in one
      * transaction. Entering `fixed` sets fixedAt; leaving it clears fixedAt.
      */
-    changeState(id: number, input: ChangeStateInput, at: Date = new Date()): FindingRow {
+    changeState(id: number, input: ChangeStateInput, at: Date = currentTime()): FindingRow {
       return db.transaction(() => {
         const current = get(id)
         if (!current) throw new Error(`Finding ${id} does not exist`)

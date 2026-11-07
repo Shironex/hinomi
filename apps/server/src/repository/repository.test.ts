@@ -4,6 +4,7 @@ import { SecretDecryptError, SecretKeyMissingError } from '../crypto/secret-box.
 import { createTestRepositories } from '../db/test-db.js'
 import type { DatabaseHandle } from '../db/client.js'
 import { deploymentInputFromRecord, type Repositories } from './index.js'
+import { nowMs } from '@hinomi/shared'
 
 const TOKEN = 'fictional-token-0000000000'
 let repos: Repositories
@@ -124,7 +125,7 @@ describe('deployments', () => {
     expect(deployment.domains).toEqual(['shop.example.dev'])
     const again = repos.deployments.upsert(
       { sourceId: source.id, externalId: 'uuid-shop-web', kind: 'application', name: 'shop-web-2' },
-      new Date(Date.now() + 60_000),
+      new Date(nowMs() + 60_000),
     )
     expect(again.id).toBe(deployment.id)
     expect(again.name).toBe('shop-web-2')

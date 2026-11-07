@@ -1,4 +1,9 @@
-import { findingDetailSchema, fixesResponseSchema, overviewResponseSchema } from '@hinomi/shared'
+import {
+  findingDetailSchema,
+  fixesResponseSchema,
+  overviewResponseSchema,
+  currentTime,
+} from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { createTestApi, seedFixWorld } from './testing.js'
 
@@ -117,7 +122,7 @@ describe('overview topFixes', () => {
       })
       repos.findings.observe(
         { kind: 'advisory', advisoryId: advisory.id, repoId: world.ledger.id, reportedBy: ['osv'] },
-        new Date(),
+        currentTime(),
       )
     }
     const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)

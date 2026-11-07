@@ -38,6 +38,7 @@ import {
 } from './items.js'
 import { readNotifySettings } from './settings.js'
 import { isPrimed, pruneState, readState, writeState, type NotifyState } from './state.js'
+import { currentTime } from '@hinomi/shared'
 
 export interface NotifierOptions {
   repositories: Repositories
@@ -102,7 +103,7 @@ function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
  */
 export function createNotifier(options: NotifierOptions) {
   const { repositories } = options
-  const now = options.now ?? (() => new Date())
+  const now = options.now ?? (() => currentTime())
   const log = options.log ?? silent
   const channels = createChannelStore(repositories.settings, options.secretBox ?? null)
   const delivery: DeliverOptions = {

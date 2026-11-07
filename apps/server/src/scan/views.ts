@@ -17,6 +17,7 @@ import {
   type ExposureRank,
   type ExposureReach,
 } from './rank.js'
+import { currentTime } from '@hinomi/shared'
 
 /** A finding joined with what it is about and ranked. What the API (#7) serves. */
 export interface RankedFinding extends ExposureRank {
@@ -98,7 +99,10 @@ export function listRankedFindings(repositories: Repositories): RankedFinding[] 
 }
 
 /** Funnel and blind spot counts over the current findings. */
-export function findingCounts(repositories: Repositories, now: Date = new Date()): FindingCounts {
+export function findingCounts(
+  repositories: Repositories,
+  now: Date = currentTime(),
+): FindingCounts {
   return countFindings(listRankedFindings(repositories), now)
 }
 

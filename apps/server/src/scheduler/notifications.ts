@@ -2,6 +2,7 @@ import { silentLogger, type Logger } from '../log.js'
 import { msUntilNextDigest, readNotifySettings, type Notifier } from '../notify/index.js'
 import type { SettingsRepository } from '../repository/index.js'
 import type { Scheduler } from './scheduler.js'
+import { currentTime } from '@hinomi/shared'
 
 /** Sends every finished scan to the notifier. Returns the unsubscribe function. */
 export function connectNotifier(
@@ -40,7 +41,7 @@ function defaultSetTimer(fn: () => void, ms: number): unknown {
  */
 export function startDigestTimer(options: DigestTimerOptions): DigestTimer {
   const log = options.log ?? silentLogger
-  const now = options.now ?? (() => new Date())
+  const now = options.now ?? (() => currentTime())
   const setTimer = options.setTimer ?? defaultSetTimer
   const clearTimer =
     options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>))

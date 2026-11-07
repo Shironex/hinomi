@@ -13,6 +13,7 @@ import { notificationsRoutes, type NotificationsApiOptions } from './routes/noti
 import { sourcesRoutes } from './routes/sources.js'
 import { overviewRoutes, scansRoutes, settingsRoutes, shellRoutes } from './routes/system.js'
 import { createSourceTesters, type SourceTesters } from './source-testers.js'
+import { currentTime } from '@hinomi/shared'
 
 export type { ApiDeps } from './deps.js'
 export type { NotificationsApiOptions } from './routes/notifications.js'
@@ -43,7 +44,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     scheduler: options.scheduler,
     testers: options.testers ?? createSourceTesters(),
     log: options.log ?? silentLogger,
-    now: options.now ?? (() => new Date()),
+    now: options.now ?? (() => currentTime()),
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
   }
 

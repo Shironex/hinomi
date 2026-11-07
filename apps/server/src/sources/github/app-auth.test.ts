@@ -5,6 +5,7 @@ import { createAppJwt, createGithubAppAuth, readAppPrivateKey } from './app-auth
 import { createGithubClient } from './client.js'
 import { createGithubAppSource } from './index.js'
 import { scriptedFetch, type CannedResponse } from './testing.js'
+import { nowMs } from '@hinomi/shared'
 
 // A throwaway key made for this run only; nothing secret is committed.
 const { privateKey: PRIVATE_KEY, publicKey: PUBLIC_KEY } = generateKeyPairSync('rsa', {
@@ -28,7 +29,7 @@ function decode(part: string | undefined): Record<string, unknown> {
 function tokenResponse(token: string, expiresInMs = 60 * 60_000): CannedResponse {
   return {
     status: 201,
-    body: { token, expires_at: new Date(Date.now() + expiresInMs).toISOString() },
+    body: { token, expires_at: new Date(nowMs() + expiresInMs).toISOString() },
   }
 }
 

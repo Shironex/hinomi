@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createTestRepositories } from '../db/test-db.js'
 import { scriptedFetch } from '../sources/github/testing.js'
 import { buildScanSources } from './sources.js'
+import { nowMs } from '@hinomi/shared'
 
 // A throwaway key made for this run only.
 const { privateKey: PRIVATE_KEY } = generateKeyPairSync('rsa', {
@@ -25,7 +26,7 @@ describe('scan sources with a GitHub App', () => {
     const { fetch, requests } = scriptedFetch([
       {
         status: 201,
-        body: { token: 'ghs_scan', expires_at: new Date(Date.now() + 3_600_000).toISOString() },
+        body: { token: 'ghs_scan', expires_at: new Date(nowMs() + 3_600_000).toISOString() },
       },
       {
         body: {

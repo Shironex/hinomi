@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGithubClient } from './client.js'
 import { GithubError, GithubRateLimitError } from './errors.js'
 import { scriptedFetch } from './testing.js'
+import { nowMs } from '@hinomi/shared'
 
 const BASE = 'https://github.example.dev'
 
@@ -69,7 +70,7 @@ describe('github client', () => {
   })
 
   it('waits until x-ratelimit-reset when the budget is spent', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 10
+    const reset = Math.floor(nowMs() / 1000) + 10
     const { client: c, requests } = client([
       {
         status: 403,
@@ -86,7 +87,7 @@ describe('github client', () => {
   })
 
   it('holds the next request after the last call used the budget', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 5
+    const reset = Math.floor(nowMs() / 1000) + 5
     const { client: c, requests } = client([
       { body: {}, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) } },
       { body: {} },
@@ -101,14 +102,14 @@ describe('github client', () => {
   })
 
   it('throws a rate limit error when the window is longer than maxWaitMs', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 3600
+    const reset = Math.floor(nowMs() / 1000) + 3600
     const { client: c, requests } = client(
       [{ status: 429, headers: { 'x-ratelimit-reset': String(reset) } }],
       { maxWaitMs: 60_000 },
     )
     const error = await c.rest('/x').catch((e: unknown) => e)
     expect(error).toBeInstanceOf(GithubRateLimitError)
-    expect((error as GithubRateLimitError).retryAt).toBeGreaterThan(Date.now())
+    expect((error as GithubRateLimitError).retryAt).toBeGreaterThan(nowMs())
     expect(requests).toHaveLength(1)
   })
 
@@ -166,7 +167,7 @@ describe('github client', () => {
   })
 
   it('backs off on a GraphQL RATE_LIMITED error', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 20
+    const reset = Math.floor(nowMs() / 1000) + 20
     const { client: c, requests } = client([
       {
         headers: { 'x-ratelimit-reset': String(reset) },

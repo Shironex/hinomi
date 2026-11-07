@@ -12,6 +12,7 @@ import {
   type DeploymentKind,
   type Reporter,
   type SourceKind,
+  currentTime,
 } from '@hinomi/shared'
 import { sql } from 'drizzle-orm'
 import {
@@ -37,7 +38,7 @@ const updatedAt = () =>
   timestamp('updated_at')
     .notNull()
     .default(nowMs)
-    .$onUpdate(() => new Date())
+    .$onUpdate(() => currentTime())
 
 /** A connected integration: a Coolify instance, a GitHub account, OSV.dev. */
 export const sources = sqliteTable(
