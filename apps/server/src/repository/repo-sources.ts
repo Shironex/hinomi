@@ -1,3 +1,4 @@
+import type { RepoSourceMode } from '@hinomi/shared'
 import { and, asc, count, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { repoSources, repos, sources, type RepoRow, type RepoSourceRow } from '../db/schema.js'
@@ -6,9 +7,6 @@ import type { Source, SourcesRepository } from './sources.js'
 // Which GitHub source reads and fixes each repo. Scans record every source that saw a repo
 // (repo_sources) and pick one as its reader (repos.source_id); a reader picked by hand
 // (repos.source_override_id) wins while it is enabled. See scan/ownership.ts for the rule.
-
-/** How a repo's GitHub source was chosen. */
-export type RepoSourceMode = 'override' | 'auto' | 'fallback' | 'none'
 
 export interface RepoSourceResolution {
   /** The enabled GitHub source with a credential to use for the repo, or null. */

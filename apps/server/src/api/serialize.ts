@@ -175,7 +175,13 @@ export function toScanRun(run: ScanRunRow): ScanRun {
 }
 
 /** The repository's Source already has no token field; only known fields are copied anyway. */
-export function toSourceDto(source: Source): SourceDto {
+/** What a source holds: the repos it reads (GitHub) and the deployments it reports (Coolify). */
+export interface SourceCounts {
+  repoCount: number
+  deploymentCount: number
+}
+
+export function toSourceDto(source: Source, counts: SourceCounts): SourceDto {
   return {
     id: source.id,
     kind: source.kind,
@@ -189,6 +195,8 @@ export function toSourceDto(source: Source): SourceDto {
     lastOkAt: isoOrNull(source.lastOkAt),
     lastErrorAt: isoOrNull(source.lastErrorAt),
     lastError: source.lastError,
+    repoCount: counts.repoCount,
+    deploymentCount: counts.deploymentCount,
     createdAt: iso(source.createdAt),
     updatedAt: iso(source.updatedAt),
   }

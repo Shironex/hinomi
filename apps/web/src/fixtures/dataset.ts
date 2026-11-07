@@ -851,6 +851,8 @@ const source = (over: Partial<SourceDto>): SourceDto => ({
   lastOkAt: ago(0.25),
   lastErrorAt: null,
   lastError: null,
+  repoCount: 0,
+  deploymentCount: 0,
   createdAt: ago(60 * 24),
   updatedAt: ago(60 * 24),
   ...over,

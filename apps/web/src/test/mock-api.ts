@@ -77,6 +77,8 @@ export const coolifySource = {
   lastOkAt: at,
   lastErrorAt: null,
   lastError: null,
+  repoCount: 0,
+  deploymentCount: 0,
   createdAt: at,
   updatedAt: at,
 }
