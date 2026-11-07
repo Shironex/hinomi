@@ -1,0 +1,8 @@
+# actionlint runs in CI (scripts/lint-workflows.sh) with this config.
+paths:
+  .github/workflows/fix*.yml:
+    ignore:
+      # The self repository reference ($/path, the action or workflow at the running commit)
+      # is newer than actionlint's parser.
+      - '"\$/.+" at "uses" is not following the format'
+      - 'specifying action "\$/.+" in invalid format because ref is missing'
