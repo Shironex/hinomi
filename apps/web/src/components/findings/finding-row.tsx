@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { IconClock, IconLock, IconServer2, IconWorld } from '@tabler/icons-react'
 import { GuardKindChip, GuardLevelBadge } from '@/components/guards/guard-badges'
 import { evidenceSummary, guardSubject } from '@/lib/guard-meta'
+import { FixedOnMainBadge } from './fixed-on-main-badge'
 import { FindingStateText } from './finding-state'
 import { RankMarker } from './rank-marker'
 import { BlindSpotBadge, ImageOnlyBadge, PatchedBadge, SeverityBadge } from './severity-badge'
@@ -137,6 +138,12 @@ export function FindingRow({ item, rank }: { item: FindingListItem; rank?: numbe
               ) : null}
               {item.patchedInLockfile ? (
                 <span className="text-xs text-muted-foreground">GitHub alert still open</span>
+              ) : null}
+              {item.fixedOnDefaultBranch ? <FixedOnMainBadge /> : null}
+              {item.releaseTag ? (
+                <span className="font-mono text-xs text-muted-foreground">
+                  in {item.releaseTag}
+                </span>
               ) : null}
               {item.stopped ? (
                 <span className="text-xs text-muted-foreground">every deployment stopped</span>
