@@ -40,3 +40,15 @@ export {
   type GithubSource,
   type GithubSourceConfig,
 } from './source.js'
+export {
+  dispatchWorkflow,
+  fetchRunnerRepoMeta,
+  probeContentsRead,
+  probePullsRead,
+  probeWorkflowRead,
+  readRepoFile,
+  type ProbeOutcome,
+  type RunnerRepoMeta,
+  type WorkflowDispatchInput,
+  type WorkflowDispatchResult,
+} from './actions.js'

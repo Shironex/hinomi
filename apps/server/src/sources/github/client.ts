@@ -41,6 +41,10 @@ export interface RestResult {
 export interface RestOptions {
   /** Non-2xx statuses returned to the caller instead of thrown. Rate limits are never accepted. */
   acceptStatus?: readonly number[]
+  /** Defaults to GET. */
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  /** Sent as JSON. */
+  body?: unknown
 }
 
 export interface GithubClient {
@@ -174,6 +178,9 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
     init: RequestInit,
     acceptStatus: readonly number[],
   ): Promise<RestResult> {
+    // A write that failed in transit or with a 5xx may still have happened on GitHub's side, so
+    // only reads are retried then. Rate limits are always retried: GitHub did not act on those.
+    const retryTransient = (init.method ?? 'GET') === 'GET' || path === '/graphql'
     let refreshed = false
     for (let attempt = 0; ; attempt++) {
       await waitForBlock()
@@ -189,7 +196,7 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
           error instanceof GithubError &&
           (error.kind === 'network' || error.kind === 'timeout')
         ) {
-          if (final) throw error
+          if (final || !retryTransient) throw error
           const wait = backoffBaseMs * 2 ** attempt
           block(now() + wait)
           continue
@@ -213,7 +220,7 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
       }
 
       if (status >= 500) {
-        if (final) {
+        if (final || !retryTransient) {
           throw new GithubError('http', `GitHub answered ${status}`, { status })
         }
         block(now() + backoffBaseMs * 2 ** attempt)
@@ -248,8 +255,10 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
 
   return {
     baseUrl,
-    rest(path, { acceptStatus = [] } = {}) {
-      return execute(path, { method: 'GET' }, acceptStatus)
+    rest(path, { acceptStatus = [], method = 'GET', body } = {}) {
+      const init: RequestInit = { method }
+      if (body !== undefined) init.body = JSON.stringify(body)
+      return execute(path, init, acceptStatus)
     },
 
     async graphql(query, variables = {}) {
