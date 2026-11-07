@@ -131,6 +131,23 @@ HINOMI_CF_ACCESS_AUD=<Application Audience (AUD) tag>
 
 Set both or neither; one alone is a startup error. The AUD tag is under Access controls, Applications, your app, Basic information. Without these the header is only reported as "seen, not verified". Behind a `cloudflared` tunnel the peer is the tunnel container, so also list its network in `HINOMI_TRUSTED_PROXIES` if you want the client address.
 
+## Install as an app
+
+The web app is an installable PWA: it gets its own window or home screen icon, and it keeps the app shell (not your data) cached so it opens when the server is unreachable. It shows an offline notice then, and loads live data again when the connection is back.
+
+Installing needs HTTPS (or `localhost`). Browsers only offer to install, and only run the service worker, on a secure origin. A plain `http://100.x.y.z:3000` tailnet address is not one, so it cannot install; it still works as a normal web page. Put an HTTPS address in front of Hinomi first:
+
+- `tailscale serve` on the host gives the tailnet a `https://<machine>.<tailnet>.ts.net` address with a real certificate.
+- A Cloudflare Tunnel with an Access application gives a public `https://` hostname behind login.
+
+Then, from that HTTPS address:
+
+- **iOS (Safari):** Share, Add to Home Screen.
+- **Android (Chrome):** menu, Install app (or Add to Home screen).
+- **Desktop (Chrome, Edge):** the install icon in the address bar, or menu, Install Hinomi.
+
+When a new version is deployed, an open app shows "New version available" with a Reload button. It never reloads on its own, so a triage in progress is not lost; a closed app picks the update up the next time it opens. The data endpoints under `/api` are never cached.
+
 ## Tokens
 
 All tokens are entered in the UI (onboarding or Settings, Sources) and stored encrypted under `HINOMI_SECRET_KEY`. Hinomi only reads.
