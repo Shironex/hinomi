@@ -5,7 +5,7 @@ import type { DatabaseHandle } from '../db/client.js'
 import type { FixPlanRow, FixRunRow, RepoRow } from '../db/schema.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
-import { decodeChecksEtag } from './tracker-poll.js'
+import { decodeChecksEtag, majorsFailureReason } from './tracker-poll.js'
 import { createFixRunTracker, type FixRunTrackerOptions } from './tracker.js'
 import {
   connectGithubToken,
@@ -138,6 +138,13 @@ function github() {
     },
     { path: '/artifact.zip?sig=1', reply: () => ({ raw: world.zip }) },
     {
+      path: `${API}/branches/hinomi%2Fmajors`,
+      reply: () =>
+        world.branchHead
+          ? reply({ name: 'hinomi/majors', commit: { sha: world.branchHead } })
+          : { status: 404, body: { message: 'Branch not found' } },
+    },
+    {
       path: `${API}/branches/hinomi%2Ffix-plan`,
       reply: () =>
         world.branchHead
@@ -215,13 +222,15 @@ beforeEach(() => {
 afterEach(() => handle.close())
 
 /** A dispatched run, linked to the workflow run unless `linked` is false. */
-function dispatched(options: { linked?: boolean; correlationId?: string } = {}): FixRunRow {
+function dispatched(
+  options: { linked?: boolean; correlationId?: string; kind?: 'fix' | 'majors' } = {},
+): FixRunRow {
   const { run } = repos.fixRuns.create(
     {
       repoId: harbor.id,
       plan: { fixPlanId: plan.id, scanRunId: plan.scanRunId, version: plan.version },
       runner: 'github_actions',
-      kind: 'fix',
+      kind: options.kind ?? 'fix',
       correlationId: options.correlationId ?? 'corr-1',
       checksMode: 'full',
     },
@@ -775,5 +784,103 @@ describe('ended runs', () => {
     await t.tick()
     expect(requests.length).toBe(count)
     expect(t.status(get(run))).toBeNull()
+  })
+})
+
+describe('majors runs', () => {
+  /** The majors job's result: the risky step handed to the agent, which changed the lockfile. */
+  function majorsResult(
+    agent: Partial<NonNullable<FixResultV1['agent']>> = {},
+    patch: FixResultV1['patch'] = {
+      sha256: 'd'.repeat(64),
+      files: ['pnpm-lock.yaml', 'src/db.ts'],
+      insertions: 12,
+      deletions: 4,
+    },
+  ): FixResultV1 {
+    return {
+      ...runnerResult(plan.plan, 'corr-1', { repo: 'kestrel-co/harbor' }),
+      steps: [{ id: 's3', status: 'applied', reason: null, detail: null, files: [] }],
+      install: { status: 'skipped', durationMs: 0, output: null, truncated: false },
+      checks: [],
+      patch,
+      agent: {
+        preset: 'claude-code',
+        outcome: 'changed',
+        detail: null,
+        summary: 'Moved to the egret-db 3 client API.',
+        durationMs: 600_000,
+        turns: 31,
+        costUsd: 2.4,
+        refusedPaths: [],
+        ...agent,
+      },
+    }
+  }
+
+  beforeEach(() => {
+    world.run = { ...world.run, status: 'completed', conclusion: 'success' }
+    world.artifacts = [{ id: 6, name: 'hinomi-majors-corr-1', size_in_bytes: 1200, expired: false }]
+  })
+
+  it('opens the majors PR as a draft from the majors artifact', async () => {
+    const run = dispatched({ kind: 'majors' })
+    world.zip = resultZip(majorsResult())
+    const { tracker: t, requests } = tracker()
+    await t.tick()
+    expect(get(run)).toMatchObject({ state: 'pr_open', prNumber: 40, prDraft: true })
+    const created = requests.find((r) => r.method === 'POST' && r.path === `${API}/pulls`)
+    const sent = created?.body as { title: string; body: string; draft: boolean; head: string }
+    expect(sent).toMatchObject({ draft: true, head: 'hinomi/majors' })
+    expect(sent.title).toContain('with agent changes')
+    expect(sent.body).toContain('<!-- hinomi:majors repo=')
+    expect(sent.body).not.toMatch(/Generated with|Co-Authored-By/i)
+  })
+
+  it('fails a majors run whose agent left no patch, with the agent detail', async () => {
+    const run = dispatched({ kind: 'majors' })
+    world.zip = resultZip(
+      majorsResult(
+        { outcome: 'failed', detail: 'the caller workflow passes no ANTHROPIC_API_KEY secret' },
+        null,
+      ),
+    )
+    const { tracker: t } = tracker()
+    await t.tick()
+    expect(get(run)).toMatchObject({
+      state: 'failed',
+      stateReason:
+        'The coding agent failed: the caller workflow passes no ANTHROPIC_API_KEY secret.',
+    })
+  })
+
+  it('reads only the majors artifact for a majors run', async () => {
+    const run = dispatched({ kind: 'majors' })
+    world.artifacts = [{ id: 5, name: 'hinomi-fix-corr-1', size_in_bytes: 900, expired: false }]
+    const { tracker: t } = tracker()
+    await t.tick()
+    advance(6 * MINUTE)
+    await t.tick()
+    expect(get(run)).toMatchObject({
+      state: 'failed',
+      stateReason: 'The workflow run finished without its result artifact hinomi-majors-corr-1.',
+    })
+  })
+
+  it('words every agent outcome that leaves no patch', () => {
+    const reason = (agent: Partial<NonNullable<FixResultV1['agent']>>) =>
+      majorsFailureReason(majorsResult(agent, null))
+    expect(reason({ outcome: 'no_changes' })).toBe(
+      'The coding agent finished without changing any file it may change.',
+    )
+    expect(reason({ outcome: 'timeout', detail: 'stopped after 40 minutes' })).toBe(
+      'The coding agent ran out of time and changed nothing: stopped after 40 minutes.',
+    )
+    expect(reason({ outcome: 'refused', detail: 'too many files' })).toBe(
+      "The coding agent's changes were refused: too many files.",
+    )
+    expect(majorsFailureReason({ ...majorsResult({}, null), agent: undefined })).toBe(
+      'The majors job wrote no agent report.',
+    )
   })
 })

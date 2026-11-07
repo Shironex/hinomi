@@ -1,6 +1,7 @@
 import {
   CALLER_WORKFLOW_DIR,
   FIX_WORKFLOW,
+  MAJORS_AGENT_SECRET,
   SETUP_PR_BRANCH,
   renderCallerWorkflow,
   type RunnerPermissions,
@@ -116,6 +117,7 @@ function bodyOf(
   path: string,
   latest: LatestFixWorkflow,
   update: { from: string | null } | null,
+  majorsAgent: boolean,
 ): string {
   const lead = update
     ? `Moves the Hinomi fix runner in \`${path}\` to the latest release${update.from ? ` (from \`${update.from}\`)` : ''}.`
@@ -125,6 +127,12 @@ function bodyOf(
     '',
     `The file declares the dispatch inputs and calls \`${FIX_WORKFLOW}\`, pinned to the commit \`${latest.sha}\` (${latest.version}). It runs only when Hinomi dispatches it. It must be on the default branch for that to work.`,
     '',
+    ...(majorsAgent
+      ? [
+          `The optional majors agent is on in Hinomi, so the file hands the \`${MAJORS_AGENT_SECRET}\` repository secret to the reusable workflow. Add that secret in the repo settings; without it majors runs fail.`,
+          '',
+        ]
+      : []),
     `Setup and permissions: ${DOCS}`,
   ].join('\n')
 }
@@ -154,7 +162,13 @@ export async function openSetupPr(options: OpenSetupPrOptions): Promise<SetupPrR
   const client: GithubClient = github.source.client
   const workflow = callerWorkflowOf(repo)
   const path = `${CALLER_WORKFLOW_DIR}/${workflow}`
-  const text = renderCallerWorkflow({ file: workflow, sha: latest.sha, version: latest.version })
+  // With the majors agent on, the file also hands ANTHROPIC_API_KEY to the reusable workflow.
+  const text = renderCallerWorkflow({
+    file: workflow,
+    sha: latest.sha,
+    version: latest.version,
+    majorsAgent: repo.runnerMajorsAgent,
+  })
 
   let meta: RunnerRepoMeta
   try {
@@ -211,7 +225,7 @@ export async function openSetupPr(options: OpenSetupPrOptions): Promise<SetupPrR
     const update =
       onDefault === null ? null : { from: /@([a-f0-9]{40})\b/.exec(onDefault)?.[1] ?? null }
     const title = titleOf(update !== null)
-    const body = bodyOf(path, latest, update)
+    const body = bodyOf(path, latest, update, repo.runnerMajorsAgent !== 'off')
     const query = { owner: meta.owner, name: meta.name, branch: SETUP_PR_BRANCH, base }
     const open = (await listBranchPulls(client, { ...query, state: 'open' }))[0]
     if (open) {

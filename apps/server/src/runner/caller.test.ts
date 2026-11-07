@@ -33,6 +33,7 @@ describe('renderCallerWorkflow', () => {
       state: 'current',
       ref: NEW,
       missingInputs: [],
+      passesAgentSecret: false,
     })
   })
 })
@@ -65,7 +66,24 @@ describe('inspectCallerWorkflow', () => {
       state: 'current',
       ref: NEW,
       missingInputs: ['encoding'],
+      passesAgentSecret: false,
     })
+  })
+
+  it('sees the majors agent secret when the job passes it or inherits every secret', () => {
+    const on = renderCallerWorkflow({ sha: NEW, majorsAgent: 'claude-code' })
+    expect(inspectCallerWorkflow(on, LATEST)).toMatchObject({
+      state: 'current',
+      passesAgentSecret: true,
+    })
+    const inherit = renderCallerWorkflow({ sha: NEW }).replace(
+      '    with:\n',
+      '    secrets: inherit\n    with:\n',
+    )
+    expect(inherit).toContain('secrets: inherit')
+    expect(inspectCallerWorkflow(inherit, LATEST).passesAgentSecret).toBe(true)
+    const other = on.replace('ANTHROPIC_API_KEY: $', 'OTHER_KEY: $')
+    expect(inspectCallerWorkflow(other, LATEST).passesAgentSecret).toBe(false)
   })
 })
 
@@ -88,6 +106,15 @@ describe('readCaller', () => {
       latestSha: NEW,
     })
     expect(caller.template).toContain(`${FIX_WORKFLOW}@${NEW} # v0.2.0`)
+    expect(caller.template).toContain('# secrets:')
+    expect(caller.passesAgentSecret).toBe(false)
+  })
+
+  it('puts the secret in the template when the majors agent is on', async () => {
+    const caller = await readCaller(client([]), { ...options, majorsAgent: 'claude-code' })
+    expect(caller.template).toContain(
+      '\n    secrets:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
   })
 
   it('reads the file from the default branch', async () => {

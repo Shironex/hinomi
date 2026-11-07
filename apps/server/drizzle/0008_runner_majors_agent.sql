@@ -1,0 +1,1 @@
+ALTER TABLE `repos` ADD `runner_majors_agent` text DEFAULT 'off' NOT NULL;

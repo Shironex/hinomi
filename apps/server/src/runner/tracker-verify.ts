@@ -271,7 +271,7 @@ function finish(
 ): FixRunRow {
   const verification = pendingVerification(run)
   const plan = context.repositories.fixPlans.forRepo(run.repoId, run.planScanRunId)?.plan ?? null
-  const targeted = targetedFindingIds(plan, run.result ?? null)
+  const targeted = targetedFindingIds(plan, run.result ?? null, run.kind)
   if (targeted === null) {
     return save(context, run, {
       verification: {

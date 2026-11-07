@@ -1,11 +1,13 @@
-import type {
-  FindingState,
-  FixPlan,
-  FixResultV1,
-  FixRunDeployment,
-  FixRunVerification,
-  FixRunVerifyAfter,
-  FixRunWarning,
+import {
+  isMajorStep,
+  type FindingState,
+  type FixPlan,
+  type FixResultV1,
+  type FixRunKind,
+  type FixRunDeployment,
+  type FixRunVerification,
+  type FixRunVerifyAfter,
+  type FixRunWarning,
 } from '@hinomi/shared'
 import type { DeploymentRow, FixRunRow } from '../db/schema.js'
 
@@ -76,14 +78,19 @@ const TARGETED_SKIPS = new Set(['already_fixed', 'no_longer_vulnerable'])
 
 /**
  * The findings a run targeted: those of the plan's safe steps the runner applied (or found
- * already fixed). Without a result, every safe step. Null when the plan is gone.
+ * already fixed). Without a result, every safe step. A majors run targets the major upgrades
+ * handed to the agent instead, those whose lockfile its patch changed. Null when the plan is
+ * gone.
  */
 export function targetedFindingIds(
   plan: FixPlan | null,
   result: FixResultV1 | null,
+  kind: FixRunKind = 'fix',
 ): number[] | null {
   if (!plan) return null
-  const safe = plan.steps.filter((step) => step.risk === 'safe')
+  const safe = plan.steps.filter((step) =>
+    kind === 'majors' ? isMajorStep(step) : step.risk === 'safe',
+  )
   const statusOf = new Map(result?.steps.map((step) => [step.id, step]) ?? [])
   const steps = result
     ? safe.filter((step) => {

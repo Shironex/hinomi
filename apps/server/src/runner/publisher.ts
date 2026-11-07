@@ -3,7 +3,10 @@ import {
   currentTime,
   isFixRunTerminal,
   renderFixPrBody,
+  renderMajorsPrBody,
+  type FixPlan,
   type FixPr,
+  type FixPrBodyOptions,
   type FixResultV1,
   type FixRunState,
 } from '@hinomi/shared'
@@ -168,12 +171,24 @@ function hinomiLink(
 
 /** The open PR to update: the one the run tracks, else Hinomi's for this repo, else the first. */
 function pickOpen(open: GithubPull[], run: FixRunRow): GithubPull | undefined {
-  const marker = `<!-- hinomi:fix repo=${run.repoId} `
+  const marker = `<!-- hinomi:${run.kind} repo=${run.repoId} `
   return (
     open.find((pr) => pr.number === run.prNumber) ??
     open.find((pr) => pr.body.includes(marker)) ??
     open[0]
   )
+}
+
+/** The PR of a run: the fix PR, or for a majors run the agent's PR (always a draft). */
+function renderPr(
+  run: FixRunRow,
+  plan: FixPlan,
+  result: FixResultV1,
+  options: FixPrBodyOptions,
+): FixPr {
+  return run.kind === 'majors'
+    ? renderMajorsPrBody(plan, result, options)
+    : renderFixPrBody(plan, result, options)
 }
 
 /** The most recently closed PR of the branch. */
@@ -394,7 +409,7 @@ async function publish(
   const query = { owner: meta.owner, name: meta.name, branch: run.branch, base: meta.defaultBranch }
   const open = pickOpen(await listBranchPulls(client, { ...query, state: 'open' }), run)
   const link = hinomiLink(meta, run, options.publicBaseUrl?.() ?? null)
-  if (open) return updateOpen(context, run, open, renderFixPrBody(plan, result, link))
+  if (open) return updateOpen(context, run, open, renderPr(run, plan, result, link))
 
   const closedPulls = await listBranchPulls(client, { ...query, state: 'closed' })
   if (run.prNumber !== null) return trackedGone(context, run, closedPulls)
@@ -412,7 +427,7 @@ async function publish(
     if (!asked) return endClosed(context, run, closed)
     replaces = closed.number
   }
-  const rendered = renderFixPrBody(plan, result, {
+  const rendered = renderPr(run, plan, result, {
     ...link,
     ...(replaces !== null && { replaces }),
   })

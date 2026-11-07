@@ -46,14 +46,14 @@ function setup(extra: FakeRoute[] = [], options: Parameters<typeof createTestApi
 }
 
 /** A finished run whose fix PR was closed without merging. */
-function closedUnmergedRun(repos: Repositories, repoId: number) {
+function closedUnmergedRun(repos: Repositories, repoId: number, kind: 'fix' | 'majors' = 'fix') {
   const plan = saveRunnerPlan(repos, repos.repos.get(repoId)!, T0)
   const { run } = repos.fixRuns.create(
     {
       repoId,
       plan: { fixPlanId: plan.id, scanRunId: plan.scanRunId, version: 1 },
       runner: 'github_actions',
-      kind: 'fix',
+      kind,
       correlationId: 'run-closed-1',
       checksMode: 'full',
     },
@@ -132,6 +132,33 @@ describe('GET and PATCH /api/repos/:id/runner', () => {
       expect((await call('PATCH', `/repos/${harbor.id}/runner`, { workflow })).status).toBe(400)
     }
     expect((await call('PATCH', `/repos/${harbor.id}/runner`, { other: true })).status).toBe(400)
+  })
+
+  it('turns the majors agent on and warns while the caller passes no secret', async () => {
+    const { call, harbor, repos } = setup()
+    connectGithubToken(repos)
+    const off = runnerStatusSchema.parse((await call('GET', `/repos/${harbor.id}/runner`)).json)
+    expect(off.settings.majorsAgent).toBe('off')
+    expect(off.caller.template).toContain('# secrets:')
+
+    const res = await call('PATCH', `/repos/${harbor.id}/runner`, {
+      enabled: true,
+      majorsAgent: 'claude-code',
+    })
+    const status = runnerStatusSchema.parse(res.json)
+    expect(status).toMatchObject({
+      settings: { enabled: true, majorsAgent: 'claude-code' },
+      ready: true,
+      caller: { state: 'pinned', passesAgentSecret: false },
+    })
+    expect(status.message).toContain('passes no ANTHROPIC_API_KEY secret')
+    expect(status.caller.template).toContain(
+      '      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+    )
+    expect(repos.repos.get(harbor.id)?.runnerMajorsAgent).toBe('claude-code')
+    expect(
+      (await call('PATCH', `/repos/${harbor.id}/runner`, { majorsAgent: 'other-agent' })).status,
+    ).toBe(400)
   })
 })
 
@@ -232,6 +259,82 @@ describe('POST /api/repos/:id/fix-runs', () => {
     const confirmed = await call('POST', `/repos/${harbor.id}/fix-runs`, { confirmReopen: true })
     expect(confirmed.status).toBe(201)
     expect(dispatchFixRunResponseSchema.parse(confirmed.json).run.state).toBe('dispatched')
+  })
+})
+
+describe('POST /api/repos/:id/fix-runs with the majors agent', () => {
+  /** A dispatch route that hands out a new workflow run id per call. */
+  function countingDispatches(): FakeRoute {
+    let next = 7100
+    return {
+      method: 'POST',
+      path: DISPATCHES,
+      reply: () => ({ body: { workflow_run_id: next++ } }),
+    }
+  }
+
+  it('dispatches a majors run beside the fix run', async () => {
+    const { call, harbor, repos, requests } = setup([countingDispatches()])
+    connectGithubToken(repos)
+    repos.repos.setRunner(harbor.id, { enabled: true, majorsAgent: 'claude-code' })
+    saveRunnerPlan(repos, harbor, T0)
+
+    const res = await call('POST', `/repos/${harbor.id}/fix-runs`, {})
+    expect(res.status).toBe(201)
+    const body = dispatchFixRunResponseSchema.parse(res.json)
+    expect(body.run).toMatchObject({ kind: 'fix', state: 'dispatched', github: { runId: 7100 } })
+    expect(body.majorsRun).toMatchObject({
+      kind: 'majors',
+      branch: 'hinomi/majors',
+      state: 'dispatched',
+      github: { runId: 7101 },
+    })
+    expect(requests.filter((r) => r.method === 'POST')).toHaveLength(2)
+  })
+
+  it('sends the majors run alone when the plan has no safe step', async () => {
+    const { call, harbor, repos } = setup([countingDispatches()])
+    connectGithubToken(repos)
+    repos.repos.setRunner(harbor.id, { enabled: true, majorsAgent: 'claude-code' })
+    const saved = saveRunnerPlan(repos, harbor, T0)
+    const scan = repos.scanRuns.start('manual', T0)
+    repos.fixPlans.save(
+      {
+        ...saved.plan,
+        scanRunId: scan.id,
+        steps: saved.plan.steps.filter((s) => s.risk === 'risky'),
+      },
+      T0,
+    )
+    const body = dispatchFixRunResponseSchema.parse(
+      (await call('POST', `/repos/${harbor.id}/fix-runs`, {})).json,
+    )
+    expect(body.run.kind).toBe('majors')
+    expect(body.majorsRun).toBeNull()
+  })
+
+  it('asks before dispatching again after a closed unmerged majors PR', async () => {
+    const { call, harbor, repos } = setup([countingDispatches()])
+    connectGithubToken(repos)
+    repos.repos.setRunner(harbor.id, { enabled: true, majorsAgent: 'claude-code' })
+    closedUnmergedRun(repos, harbor.id, 'majors')
+    const ask = await call('POST', `/repos/${harbor.id}/fix-runs`, {})
+    expect(ask.status).toBe(409)
+    expect(fixRunReopenRequiredSchema.parse(ask.json).previous.pr.number).toBe(14)
+    const confirmed = await call('POST', `/repos/${harbor.id}/fix-runs`, { confirmReopen: true })
+    expect(confirmed.status).toBe(201)
+  })
+
+  it('sends no majors run while the agent is off', async () => {
+    const { call, harbor, repos, requests } = setup([countingDispatches()])
+    connectGithubToken(repos)
+    repos.repos.setRunner(harbor.id, { enabled: true })
+    saveRunnerPlan(repos, harbor, T0)
+    const body = dispatchFixRunResponseSchema.parse(
+      (await call('POST', `/repos/${harbor.id}/fix-runs`, {})).json,
+    )
+    expect(body.majorsRun).toBeNull()
+    expect(requests.filter((r) => r.method === 'POST')).toHaveLength(1)
   })
 })
 

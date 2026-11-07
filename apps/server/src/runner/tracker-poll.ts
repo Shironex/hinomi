@@ -215,8 +215,8 @@ async function followWorkflowRun(
 }
 
 /** The run's result artifact: the newest unexpired one with an expected name. */
-function pickArtifact(artifacts: GithubArtifact[], correlationId: string): GithubArtifact | null {
-  for (const name of fixResultArtifactNames(correlationId)) {
+function pickArtifact(artifacts: GithubArtifact[], run: FixRunRow): GithubArtifact | null {
+  for (const name of fixResultArtifactNames(run.correlationId, run.kind)) {
     const found = artifacts
       .filter((a) => a.name === name && !a.expired)
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || b.id - a.id)[0]
@@ -236,7 +236,7 @@ async function readResult(
   remote: GithubWorkflowRun,
 ): Promise<ResultRead> {
   const artifacts = await listRunArtifacts(context.client, repo.owner, repo.name, remote.id)
-  const artifact = pickArtifact(artifacts, run.correlationId)
+  const artifact = pickArtifact(artifacts, run)
   if (!artifact) return { kind: 'missing' }
   if (artifact.sizeInBytes > MAX_RESULT_ARTIFACT_BYTES) {
     return {
@@ -275,6 +275,23 @@ async function readResult(
   }
 }
 
+/** Why a majors run left no patch, from the agent report. */
+export function majorsFailureReason(result: FixResultV1): string {
+  const agent = result.agent
+  if (!agent) return 'The majors job wrote no agent report.'
+  const detail = agent.detail ? `: ${agent.detail}` : ''
+  switch (agent.outcome) {
+    case 'no_changes':
+      return 'The coding agent finished without changing any file it may change.'
+    case 'timeout':
+      return `The coding agent ran out of time and changed nothing${detail}.`
+    case 'refused':
+      return `The coding agent's changes were refused${detail}.`
+    default:
+      return `The coding agent failed${detail}.`
+  }
+}
+
 /**
  * A completed workflow run: reads the result artifact first (agreed with the state machine:
  * `run_completed` is sent only once the result is known), stores it, then ends the run
@@ -299,7 +316,7 @@ async function completeRun(
   if (read.kind === 'missing') {
     const finished = Date.parse(remote.updatedAt ?? remote.createdAt)
     if (context.now().getTime() - finished < context.config.artifactWaitMs) return false
-    const [name] = fixResultArtifactNames(run.correlationId)
+    const [name] = fixResultArtifactNames(run.correlationId, run.kind)
     apply(context, run, {
       type: 'failed',
       reason: `The workflow run finished without its result artifact ${name}.`,
@@ -308,6 +325,11 @@ async function completeRun(
   }
   if (read.kind === 'unusable') {
     apply(context, run, { type: 'failed', reason: read.reason })
+    return true
+  }
+  if (read.result.patch === null && run.kind === 'majors') {
+    // The agent was asked to change something; no patch is a failure a person should see.
+    apply(context, run, { type: 'failed', reason: majorsFailureReason(read.result) })
     return true
   }
   if (read.result.patch === null) {

@@ -5,6 +5,7 @@ import {
   FINDING_SCOPES,
   FINDING_STATES,
   FIX_RUN_KINDS,
+  RUNNER_MAJORS_AGENTS,
   FIX_RUN_STATES,
   FIX_RUNNER_KINDS,
   SCAN_RUN_STATUSES,
@@ -94,6 +95,10 @@ export const repos = sqliteTable(
     runnerEnabled: integer('runner_enabled', { mode: 'boolean' }).notNull().default(false),
     /** Caller workflow file under .github/workflows. Null means DEFAULT_CALLER_WORKFLOW. */
     runnerWorkflow: text('runner_workflow'),
+    /** The coding agent the optional majors job runs. Off until turned on. */
+    runnerMajorsAgent: text('runner_majors_agent', { enum: RUNNER_MAJORS_AGENTS })
+      .notNull()
+      .default('off'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

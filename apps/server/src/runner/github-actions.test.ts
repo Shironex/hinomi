@@ -220,6 +220,50 @@ describe('GithubActionsRunner.dispatch', () => {
   })
 })
 
+describe('GithubActionsRunner.dispatch of a majors run', () => {
+  it('sends only the major upgrades with the agent on, as a majors run on hinomi/majors', async () => {
+    const plan = saveRunnerPlan(repos, harbor, T0)
+    const { runner, requests } = setup('public', accepted)
+    const outcome = await runner.dispatch({ repo: harbor, plan, kind: 'majors' })
+    expect(outcome).toMatchObject({ created: true })
+    if (!outcome.created) return
+    expect(outcome.run).toMatchObject({ kind: 'majors', branch: 'hinomi/majors' })
+    const dispatch = await sentDispatch(requests)
+    expect(dispatch.steps).toEqual([])
+    expect(dispatch.risky.map((r) => r.id)).toEqual(['s3'])
+    expect(dispatch.options).toMatchObject({ agent: true, agentPreset: 'claude-code' })
+  })
+
+  it('refuses a plan without a major upgrade', async () => {
+    const scan = repos.scanRuns.start('manual', T0)
+    const saved = saveRunnerPlan(repos, harbor, T0)
+    const safeOnly = repos.fixPlans.save(
+      {
+        ...saved.plan,
+        scanRunId: scan.id,
+        steps: saved.plan.steps.filter((s) => s.risk === 'safe'),
+      },
+      T0,
+    )
+    const { runner } = setup('private', accepted)
+    expect(await runner.dispatch({ repo: harbor, plan: safeOnly, kind: 'majors' })).toMatchObject({
+      created: false,
+      code: 'nothing_to_send',
+      message: 'The plan has no major upgrade the agent can take.',
+    })
+  })
+
+  it('keeps the agent off in a fix dispatch', async () => {
+    const plan = saveRunnerPlan(repos, harbor, T0)
+    const { runner, requests } = setup('public', accepted)
+    await runner.dispatch({ repo: harbor, plan })
+    const dispatch = await sentDispatch(requests)
+    expect(dispatch.options.agent).toBe(false)
+    expect(dispatch.options.agentPreset).toBeUndefined()
+    expect(dispatch.risky).toEqual([])
+  })
+})
+
 describe('zlibCompressor', () => {
   it('round trips a gzip plus base64 plan within a small budget', async () => {
     const plan = saveRunnerPlan(repos, harbor, T0)
