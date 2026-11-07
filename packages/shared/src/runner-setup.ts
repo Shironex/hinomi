@@ -1,0 +1,256 @@
+import { z } from 'zod'
+import { apiErrorSchema } from './api.js'
+import { fixRunKindSchema, fixRunSchema } from './fix-runs.js'
+import { fixChecksModeSchema } from './runner.js'
+import { FIX_DISPATCH_ENCODINGS } from './runner-payload.js'
+
+// Setting up the GitHub Actions runner in a repo: the caller workflow each repo adds, the per
+// repo runner settings, the runner status (permissions and caller pin) and the fix run API.
+
+/** File name of the caller workflow under .github/workflows, unless the repo sets another. */
+export const DEFAULT_CALLER_WORKFLOW = 'hinomi-fix.yml'
+export const CALLER_WORKFLOW_DIR = '.github/workflows'
+
+/** The reusable workflow every caller pins by commit SHA (decision 4 of the runner design). */
+export const FIX_WORKFLOW = 'Shironex/hinomi/.github/workflows/fix.yml'
+
+/**
+ * The reusable workflow commit of the latest Hinomi release, which callers should pin. Null
+ * until a release pins one; callers are then reported as pinned without an outdated check.
+ */
+export const LATEST_FIX_WORKFLOW: { sha: string; version: string } | null = null
+
+/**
+ * The workflow_dispatch inputs Hinomi sends. The caller workflow declares exactly these and
+ * hands them to the reusable workflow: `run_id` (the fix run's correlation id, also in the
+ * run name), `plan` (the encoded FixDispatchV1) and `encoding` (`json` or `gzip-base64`).
+ */
+export const FIX_DISPATCH_INPUTS = ['run_id', 'plan', 'encoding'] as const
+export type FixDispatchInputName = (typeof FIX_DISPATCH_INPUTS)[number]
+
+/** A workflow file name: no folders, `.yml` or `.yaml`. */
+export const callerWorkflowSchema = z
+  .string()
+  .min(5)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/, 'Must be a workflow file name ending in .yml')
+
+const SHA_PLACEHOLDER = '<40 char sha>'
+
+/**
+ * The caller workflow to paste into `.github/workflows/<file>` on the default branch, pinned to
+ * `sha` (a placeholder when no release SHA is known yet).
+ */
+export function renderCallerWorkflow(
+  options: { file?: string; sha?: string | null; version?: string | null } = {},
+): string {
+  const file = options.file ?? DEFAULT_CALLER_WORKFLOW
+  const sha = options.sha ?? SHA_PLACEHOLDER
+  const comment = options.version ? ` # ${options.version}` : ''
+  return [
+    `# ${CALLER_WORKFLOW_DIR}/${file}`,
+    'name: Hinomi fix',
+    'run-name: hinomi fix ${{ inputs.run_id }}',
+    '',
+    'on:',
+    '  workflow_dispatch:',
+    '    inputs:',
+    '      run_id:',
+    '        description: Hinomi run id',
+    '        type: string',
+    '        required: true',
+    '      plan:',
+    '        description: Fix plan from Hinomi (JSON, or gzip plus base64)',
+    '        type: string',
+    '        required: true',
+    '      encoding:',
+    '        type: choice',
+    '        options: [json, gzip-base64]',
+    '        default: json',
+    '',
+    'permissions: {}',
+    '',
+    'jobs:',
+    '  fix:',
+    `    uses: ${FIX_WORKFLOW}@${sha}${comment}`,
+    '    permissions:',
+    '      contents: write',
+    '    with:',
+    '      run_id: ${{ inputs.run_id }}',
+    '      plan: ${{ inputs.plan }}',
+    '      encoding: ${{ inputs.encoding }}',
+    '',
+  ].join('\n')
+}
+
+const isoDate = z.iso.datetime({ offset: true })
+const id = z.number().int().positive()
+
+// ---------------------------------------------------------------------------
+// Runner settings and status: GET and PATCH /api/repos/:id/runner
+
+/** Per repo runner settings. The runner is off until turned on. */
+export const runnerSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** The caller workflow file under .github/workflows. */
+  workflow: callerWorkflowSchema,
+})
+export type RunnerSettings = z.infer<typeof runnerSettingsSchema>
+
+/** PATCH body. `workflow: null` goes back to the default file name. */
+export const updateRunnerSettingsRequestSchema = z.strictObject({
+  enabled: z.boolean().optional(),
+  workflow: callerWorkflowSchema.nullable().optional(),
+})
+export type UpdateRunnerSettingsRequest = z.infer<typeof updateRunnerSettingsRequestSchema>
+
+/** How Hinomi signs in to GitHub, as far as the runner cares. */
+export const RUNNER_AUTHS = ['github_app', 'fine_grained_token', 'classic_token'] as const
+export const runnerAuthSchema = z.enum(RUNNER_AUTHS)
+export type RunnerAuth = z.infer<typeof runnerAuthSchema>
+
+/**
+ * `granted` was seen, `missing` was refused, `unverified` cannot be read without a write (a
+ * fine grained token's write access shows only when it is used).
+ */
+export const runnerPermissionStatusSchema = z.enum(['granted', 'missing', 'unverified'])
+export type RunnerPermissionStatus = z.infer<typeof runnerPermissionStatusSchema>
+
+export const runnerPermissionSchema = z.object({
+  /** The GitHub permission or scope: `actions`, `pull_requests`, `repo`, `workflow`. */
+  name: z.string(),
+  /** As GitHub's settings page shows it, with the level: `Actions: write`. */
+  label: z.string(),
+  /** What the runner uses it for. */
+  purpose: z.string(),
+  /** False for permissions only an optional feature needs (the setup PR, check polling). */
+  required: z.boolean(),
+  status: runnerPermissionStatusSchema,
+})
+export type RunnerPermission = z.infer<typeof runnerPermissionSchema>
+
+export const runnerPermissionsSchema = z.object({
+  /** Null when no GitHub source is connected or the probe failed. */
+  auth: runnerAuthSchema.nullable(),
+  /** No required permission is missing (unverified ones count as fine). */
+  ok: z.boolean(),
+  /** The credential can write workflow files, so Hinomi could open the setup PR. */
+  canOpenSetupPr: z.boolean(),
+  items: z.array(runnerPermissionSchema),
+  message: z.string(),
+})
+export type RunnerPermissions = z.infer<typeof runnerPermissionsSchema>
+
+/**
+ * What the caller workflow on the default branch looks like:
+ * - `missing`: no such file.
+ * - `invalid`: not readable as YAML.
+ * - `not_hinomi`: the file does not call the Hinomi reusable workflow.
+ * - `unpinned`: it calls it by a tag or branch instead of a commit SHA.
+ * - `pinned`: by a commit SHA, with no release SHA known to compare against.
+ * - `current` and `outdated`: by a commit SHA, equal to or other than the latest release's.
+ * - `unknown`: it could not be read (no GitHub source, no Contents permission, an error).
+ */
+export const RUNNER_CALLER_STATES = [
+  'missing',
+  'invalid',
+  'not_hinomi',
+  'unpinned',
+  'pinned',
+  'current',
+  'outdated',
+  'unknown',
+] as const
+export const runnerCallerStateSchema = z.enum(RUNNER_CALLER_STATES)
+export type RunnerCallerState = z.infer<typeof runnerCallerStateSchema>
+
+export const runnerCallerSchema = z.object({
+  state: runnerCallerStateSchema,
+  /** `.github/workflows/<file>`. */
+  path: z.string(),
+  /** The ref after `@` in the `uses:` line, when there is one. */
+  ref: z.string().nullable(),
+  /** The release SHA callers should pin, null until one is known. */
+  latestSha: z.string().nullable(),
+  /** workflow_dispatch inputs Hinomi sends that the file does not declare. */
+  missingInputs: z.array(z.string()),
+  message: z.string(),
+  /** The caller workflow to copy, pinned to the latest release SHA (or a placeholder). */
+  template: z.string(),
+})
+export type RunnerCaller = z.infer<typeof runnerCallerSchema>
+
+/** The repo's last fix PR, closed without merging. */
+export const fixRunPreviousPrSchema = z.object({
+  runId: id,
+  pr: z.object({ number: id, url: z.string() }),
+  closedAt: isoDate.nullable(),
+})
+export type FixRunPreviousPr = z.infer<typeof fixRunPreviousPrSchema>
+
+export const runnerStatusSchema = z.object({
+  repoId: id,
+  settings: runnerSettingsSchema,
+  defaultWorkflow: z.string(),
+  /** The runner is on, the credential may dispatch and the caller workflow calls Hinomi. */
+  ready: z.boolean(),
+  /** The repo as GitHub reports it now. Null when it could not be read. */
+  github: z
+    .object({
+      fullName: z.string(),
+      defaultBranch: z.string(),
+      visibility: z.enum(['public', 'private']),
+      /** What a dispatch sends: full checks on public repos, install only on private ones. */
+      checksMode: fixChecksModeSchema,
+    })
+    .nullable(),
+  permissions: runnerPermissionsSchema,
+  caller: runnerCallerSchema,
+  /** The repo's newest fix run. */
+  latestRun: fixRunSchema.nullable(),
+  /** Set when the last fix PR was closed unmerged: a dispatch must confirm reopening. */
+  closedUnmerged: fixRunPreviousPrSchema.nullable(),
+  checkedAt: isoDate,
+  /** One line on what to do next, or that the runner is ready. */
+  message: z.string(),
+})
+export type RunnerStatus = z.infer<typeof runnerStatusSchema>
+
+// ---------------------------------------------------------------------------
+// Fix runs: POST and GET /api/repos/:id/fix-runs, GET /api/fix-runs/:id
+
+/** POST body. `confirmReopen` is needed when the last fix PR was closed unmerged. */
+export const dispatchFixRunRequestSchema = z.strictObject({
+  confirmReopen: z.boolean().optional(),
+})
+export type DispatchFixRunRequest = z.infer<typeof dispatchFixRunRequestSchema>
+
+/**
+ * 201 once the run row exists. A dispatch GitHub refused is still a run, in state `failed`
+ * with the reason in `stateReason`.
+ */
+export const dispatchFixRunResponseSchema = z.object({
+  run: fixRunSchema,
+  /** How the plan input was encoded. */
+  encoding: z.enum(FIX_DISPATCH_ENCODINGS),
+  /** Plan step ids the payload budget left out; they wait for the next run. */
+  omittedStepIds: z.array(z.string()),
+})
+export type DispatchFixRunResponse = z.infer<typeof dispatchFixRunResponseSchema>
+
+/** 409 when the last fix PR was closed unmerged and the request did not confirm reopening. */
+export const fixRunReopenRequiredSchema = apiErrorSchema.extend({
+  previous: fixRunPreviousPrSchema,
+})
+export type FixRunReopenRequired = z.infer<typeof fixRunReopenRequiredSchema>
+
+export const fixRunsQuerySchema = z.strictObject({
+  kind: fixRunKindSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+})
+
+export const fixRunsResponseSchema = z.object({
+  /** Newest first. */
+  items: z.array(fixRunSchema),
+})
+export type FixRunsResponse = z.infer<typeof fixRunsResponseSchema>
