@@ -26,6 +26,8 @@ import { queryKeys as shellKeys } from './queries'
 export const fixKeys = {
   plans: ['plans'] as const,
   plan: (repoId: number) => ['plans', repoId] as const,
+  /** Every repo's runner status: a GitHub source change can move any repo to another source. */
+  runners: ['runner'] as const,
   runner: (repoId: number) => ['runner', repoId] as const,
   runs: ['fix-runs'] as const,
   repoRuns: (repoId: number) => ['fix-runs', 'repo', repoId] as const,

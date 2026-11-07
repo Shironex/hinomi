@@ -19,6 +19,7 @@ import { createSource, testSourceCredentials, updateSource } from '@/lib/setting
 import { cn } from '@/lib/utils'
 import {
   ConnectionTestFailed,
+  newSourceName,
   refreshAfterConnect,
   sentence,
   urlSchema,
@@ -110,7 +111,12 @@ const shape = testGithubAppRequestSchema.shape
  */
 export type GithubAppConnectFormProps = ConnectFormProps
 
-export function GithubAppConnectForm({ source, onConnected, onCancel }: GithubAppConnectFormProps) {
+export function GithubAppConnectForm({
+  source,
+  name,
+  onConnected,
+  onCancel,
+}: GithubAppConnectFormProps) {
   const queryClient = useQueryClient()
   const replacing = source !== undefined
   const [url, setUrl] = useState(source?.baseUrl ?? '')
@@ -151,7 +157,12 @@ export function GithubAppConnectForm({ source, onConnected, onCancel }: GithubAp
           })
         : await createSource({
             kind: 'github',
-            name: test.account ?? (baseUrl ? hostOf(baseUrl) : 'GitHub App'),
+            name: newSourceName(
+              queryClient,
+              'github',
+              name,
+              test.account ?? (baseUrl ? hostOf(baseUrl) : 'GitHub App'),
+            ),
             baseUrl,
             auth: 'github_app',
             ...app,

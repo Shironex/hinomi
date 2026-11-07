@@ -11,6 +11,7 @@ import { createSource, testSourceCredentials, updateSource } from '@/lib/setting
 import {
   ConnectionTestFailed,
   TOKEN_CODES,
+  newSourceName,
   refreshAfterConnect,
   sentence,
   urlSchema,
@@ -46,9 +47,12 @@ const COPY = {
  * by onboarding (create) and settings (replace the credentials). GitHub can
  * connect with a token or as a GitHub App.
  */
-export type SourceConnectFormProps = ConnectFormProps
+export interface SourceConnectFormProps extends ConnectFormProps {
+  /** GitHub: where to get a token, shown above the token form (not for a GitHub App). */
+  guide?: React.ReactNode
+}
 
-export function SourceConnectForm(props: SourceConnectFormProps) {
+export function SourceConnectForm({ guide, ...props }: SourceConnectFormProps) {
   const [auth, setAuth] = useState<SourceAuth>(props.source?.auth ?? 'token')
   if (props.kind !== 'github') return <TokenConnectForm {...props} />
   return (
@@ -57,7 +61,10 @@ export function SourceConnectForm(props: SourceConnectFormProps) {
       {auth === 'github_app' ? (
         <GithubAppConnectForm {...props} />
       ) : (
-        <TokenConnectForm {...props} />
+        <>
+          {guide}
+          <TokenConnectForm {...props} />
+        </>
       )}
     </div>
   )
@@ -66,7 +73,7 @@ export function SourceConnectForm(props: SourceConnectFormProps) {
 /** The token never comes back from the server, so the field always starts empty. */
 type TokenConnectFormProps = ConnectFormProps
 
-function TokenConnectForm({ kind, source, onConnected, onCancel }: TokenConnectFormProps) {
+function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenConnectFormProps) {
   const copy = COPY[kind]
   const queryClient = useQueryClient()
   const replacing = source !== undefined
@@ -96,7 +103,12 @@ function TokenConnectForm({ kind, source, onConnected, onCancel }: TokenConnectF
           })
         : await createSource({
             kind,
-            name: kind === 'coolify' ? hostOf(baseUrl ?? '') : baseUrl ? hostOf(baseUrl) : 'GitHub',
+            name: newSourceName(
+              queryClient,
+              kind,
+              name,
+              kind === 'coolify' ? hostOf(baseUrl ?? '') : baseUrl ? hostOf(baseUrl) : 'GitHub',
+            ),
             baseUrl,
             token,
           })
