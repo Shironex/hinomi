@@ -3,6 +3,7 @@ import type { Db } from '../db/client.js'
 import { createAdvisoriesRepository } from './advisories.js'
 import { createDeploymentsRepository } from './deployments.js'
 import { createFindingsRepository } from './findings.js'
+import { createHttpCacheRepository } from './http-cache.js'
 import { createFixRunsRepository } from './fix-runs.js'
 import { createFixPlansRepository } from './plans.js'
 import { createRepoSourcesRepository } from './repo-sources.js'
@@ -32,5 +33,6 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
     fixPlans: createFixPlansRepository(db),
     fixRuns: createFixRunsRepository(db),
     settings: createSettingsRepository(db),
+    httpCache: createHttpCacheRepository(db),
   }
 }
