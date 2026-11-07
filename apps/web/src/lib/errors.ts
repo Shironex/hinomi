@@ -13,7 +13,7 @@ export function describeError(error: unknown): string {
       return 'The server answered with data this page does not understand. The web app and server may be on different versions.'
     }
     if (error.status === 404) return 'The server has no record of this. It may have been removed.'
-    return `${error.message}.`
+    return /[.!?]$/.test(error.message) ? error.message : `${error.message}.`
   }
   if (error instanceof Error && error.message) return error.message
   return 'Something went wrong while loading this page.'
