@@ -150,10 +150,26 @@ export const deployment = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
+const commit = '3f9a1c7e5b2d4086a1c3e5f70912b4d6e8a0c2f4'
+
+/** GET /version for a release build; `over` changes any field. */
+export const versionInfo = (over: Record<string, unknown> = {}) => ({
+  version: '0.3.0',
+  commit,
+  buildDate: '2026-11-07T09:30:00.000Z',
+  isDev: false,
+  prerelease: false,
+  imageTag: 'ghcr.io/shironex/hinomi:0.3.0',
+  releaseNotesUrl: 'https://github.com/Shironex/hinomi/releases/tag/v0.3.0',
+  update: null,
+  ...over,
+})
+
 /** A configured instance: both sources, settings, no channels, one deployment. */
 export function configuredRoutes(): Record<string, unknown> {
   return {
     'GET /health': { status: 'ok', version: '0.3.0' },
+    'GET /version': versionInfo(),
     'GET /shell/nav-counts': { needsAction: 0, deployments: 1, alerts: 0, activeFixRuns: null },
     'GET /shell/scan-status': { state: 'idle', lastScanAt: at, nextScanAt: null },
     'GET /onboarding': { finished: true, alertsSkipped: false },

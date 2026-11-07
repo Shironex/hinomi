@@ -10,11 +10,21 @@ import {
   settingsQuery,
   sourcesQuery,
 } from '@/lib/settings-api'
+import { versionQuery } from '@/lib/queries'
 import { useTheme } from '@/lib/theme'
+import { versionLabel } from '@/lib/version'
 import { THEME_LABEL } from '@/components/shell/theme-meta'
 
 export type SettingsSectionKey =
-  'sources' | 'notifications' | 'scans' | 'mapping' | 'webhook' | 'runner' | 'access' | 'appearance'
+  | 'sources'
+  | 'notifications'
+  | 'scans'
+  | 'mapping'
+  | 'webhook'
+  | 'runner'
+  | 'access'
+  | 'appearance'
+  | 'about'
 
 const KIND_WORD = { discord: 'Discord', webhook: 'webhook', email: 'email' } as const
 
@@ -45,6 +55,7 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const deployments = useQuery(deploymentsQuery)
   const webhook = useQuery(githubWebhookQuery)
   const runner = useQuery(webhookRunnerQuery)
+  const version = useQuery(versionQuery)
   const scan = useScanStatus()
   const access = useAccessStatus()
   const theme = useTheme()
@@ -115,6 +126,13 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
 
   if (access) out.access = accessLabel(access)
   out.appearance = `${THEME_LABEL[theme]} theme`
+
+  if (version.data) {
+    const { update } = version.data
+    out.about = update
+      ? `${versionLabel(version.data)}, v${update.version} available`
+      : versionLabel(version.data)
+  }
 
   return out
 }

@@ -3,6 +3,7 @@ import {
   navCountsSchema,
   scanStatusSchema,
   startScanResponseSchema,
+  versionResponseSchema,
 } from '@hinomi/shared'
 import { QueryClient, queryOptions } from '@tanstack/react-query'
 import { api, ApiError } from './api'
@@ -28,6 +29,7 @@ export function createQueryClient() {
 
 export const queryKeys = {
   health: ['health'] as const,
+  version: ['version'] as const,
   navCounts: ['shell', 'nav-counts'] as const,
   scanStatus: ['shell', 'scan-status'] as const,
 }
@@ -36,6 +38,16 @@ export const healthQuery = queryOptions({
   queryKey: queryKeys.health,
   queryFn: ({ signal }) => api.get('/health', healthResponseSchema, { signal }),
   staleTime: 15_000,
+})
+
+/** The running build and any newer release. The server looks at GitHub once a day, so hourly is plenty. */
+export const VERSION_POLL_MS = 60 * 60 * 1000
+
+export const versionQuery = queryOptions({
+  queryKey: queryKeys.version,
+  queryFn: ({ signal }) => api.get('/version', versionResponseSchema, { signal }),
+  staleTime: VERSION_POLL_MS,
+  refetchInterval: VERSION_POLL_MS,
 })
 
 /** Poll fast while a scan runs so the progress moves, slowly otherwise. */
