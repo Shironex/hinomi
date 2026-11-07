@@ -12,8 +12,8 @@ import type { FixRunRow } from '../db/schema.js'
 //   running -> nothing_to_do -> verified | not_cleared (empty diff, straight to a rescan)
 //   before the PR: failed, cancelled (the run), lost (polling gave up)
 //   before the merge: superseded (a newer dispatch), closed_unmerged (PR closed)
-//   back from the end: closed_unmerged -> pr_open (PR reopened), failed -> queued | running (the
-//   same workflow run re-run on GitHub, a higher attempt)
+//   back from the end: closed_unmerged -> pr_open (PR reopened), failed or cancelled -> queued |
+//   running (the same workflow run re-run on GitHub, a higher attempt)
 //
 // Polling can miss states, so a run may jump forward (dispatched straight to branch_pushed). An
 // event for a state the run already left is `stale`; one that makes no sense from the current
@@ -318,6 +318,7 @@ function sameValue(a: unknown, b: unknown): boolean {
 export const FIX_RUN_REVIVALS: Partial<Record<FixRunState, readonly FixRunEventType[]>> = {
   closed_unmerged: ['pr_reopened'],
   failed: ['run_queued', 'run_started'],
+  cancelled: ['run_queued', 'run_started'],
 }
 
 /** A revival of an ended run, or null when the event does not revive it. */

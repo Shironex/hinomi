@@ -338,6 +338,7 @@ describe('transitionFixRun: revivals', () => {
     expect(FIX_RUN_REVIVALS).toEqual({
       closed_unmerged: ['pr_reopened'],
       failed: ['run_queued', 'run_started'],
+      cancelled: ['run_queued', 'run_started'],
     })
   })
 
@@ -385,6 +386,35 @@ describe('transitionFixRun: revivals', () => {
     expect(
       transitionFixRun(failed, { type: 'run_queued', githubRunId: 9001, githubRunAttempt: 2 }, T2),
     ).toMatchObject({ ok: true, run: { state: 'queued', startedAt: null } })
+  })
+
+  it('takes a cancelled workflow run back when the same run is re-run with a higher attempt', () => {
+    const cancelled = apply(run('queued', { githubRunId: 9001, githubRunAttempt: 1 }), {
+      type: 'run_completed',
+      conclusion: 'cancelled',
+    })
+    expect(cancelled).toMatchObject({ state: 'cancelled', stateReason: 'run_cancelled' })
+
+    const rerun = { type: 'run_queued', githubRunId: 9001, githubRunAttempt: 2 } as const
+    expect(transitionFixRun(cancelled, rerun, T2)).toMatchObject({
+      ok: true,
+      changed: true,
+      run: { state: 'queued', stateReason: null, githubRunAttempt: 2, endedAt: null },
+    })
+    const started = { type: 'run_started', githubRunId: 9001, githubRunAttempt: 2 } as const
+    expect(transitionFixRun(cancelled, started, T2)).toMatchObject({
+      ok: true,
+      run: { state: 'running', startedAt: T2, completedAt: null },
+    })
+    for (const event of [
+      { type: 'run_started', githubRunId: 9001, githubRunAttempt: 1 },
+      { type: 'run_started', githubRunId: 9002, githubRunAttempt: 2 },
+    ] as const) {
+      expect(transitionFixRun(cancelled, event, T2)).toMatchObject({
+        ok: false,
+        rejection: { code: 'terminal' },
+      })
+    }
   })
 
   it('keeps a failed run ended for the same attempt, another run, or a run never linked', () => {
