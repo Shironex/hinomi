@@ -172,11 +172,11 @@ export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
     title: 'Runs an image with no git source',
     short: 'Image only',
     explain:
-      'This service or app is deployed from a container image, not built from a repo, so there is no repo to map and no lockfile to read. It is not a blind spot: the image scan (phase 2) will check what the image contains.',
+      'This service or app is deployed from a container image, not built from a repo, so there is no repo to map and no lockfile to read. It is not a blind spot: the image scan checks what the image contains when it is on.',
     fix: [
       [
-        'Nothing to do for now',
-        'The image scan in phase 2 covers it. It stays ranked low until then.',
+        'Turn on the image scan',
+        "Settings: image scan reads Coolify's own scan results (newer Coolify versions). The note closes once the image is covered.",
       ],
       [
         'Built from a repo you own?',
@@ -203,6 +203,16 @@ export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
     explain:
       'Some lines in requirements.txt name no exact version (ranges, URLs or editable installs), so Hinomi cannot tell which version is installed and does not check them.',
     fix: [['Pin the versions', 'Use name==version, or a lockfile such as uv.lock or poetry.lock.']],
+  },
+  image_scan_partial: {
+    title: 'Image scan result is partial',
+    short: 'Partial image scan',
+    explain:
+      'The image scanner capped the list of vulnerabilities for this deployment, so some advisories in the image may not be shown.',
+    fix: [
+      ['Check the scanner', 'The full list is in the scanner itself (Coolify: the Security page).'],
+      ['Rescan', 'The note closes when a later scan returns the full list.'],
+    ],
   },
 }
 

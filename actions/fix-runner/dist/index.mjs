@@ -5632,7 +5632,8 @@ const blindSpotTypeSchema = _enum(BLIND_SPOT_TYPES);
 const COVERAGE_NOTE_TYPES = [
 	"image_only",
 	"release_lockfile_missing",
-	"requirements_unpinned"
+	"requirements_unpinned",
+	"image_scan_partial"
 ];
 const coverageNoteTypeSchema = _enum(COVERAGE_NOTE_TYPES);
 const DEPLOYMENT_REACHES = [
@@ -13902,6 +13903,26 @@ const githubWebhookAckSchema = object({ status: _enum([
 const healthResponseSchema = object({
 	status: literal("ok"),
 	version: string()
+});
+
+// ../../packages/shared/src/image-scan.ts
+const IMAGE_SCAN_MODES = ["off", "coolify"];
+const imageScanModeSchema = _enum(IMAGE_SCAN_MODES);
+const IMAGE_FIX_STATES = [
+	"fixed",
+	"no_fix",
+	"ignored"
+];
+const imageFixStateSchema = _enum(IMAGE_FIX_STATES);
+const imageScanEvidenceSchema = object({
+	imageScan: literal("coolify"),
+	imageRefs: array(string().max(1e3)).max(50),
+	scannedAt: string().nullable(),
+	kev: boolean(),
+	epss: number$1().nullable(),
+	risk: number$1().nullable(),
+	fixState: imageFixStateSchema,
+	packageType: string().max(100)
 });
 
 // ../../packages/shared/src/runner-payload.ts
