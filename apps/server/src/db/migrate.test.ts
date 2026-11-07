@@ -19,6 +19,7 @@ const TABLES = [
   'http_cache',
   'repo_sources',
   'repos',
+  'runtime_pins',
   'scan_runs',
   'settings',
   'sources',

@@ -9,6 +9,7 @@ import { createFixRunsRepository } from './fix-runs.js'
 import { createFixPlansRepository } from './plans.js'
 import { createRepoSourcesRepository } from './repo-sources.js'
 import { createReposRepository } from './repos.js'
+import { createRuntimePinsRepository } from './runtime-pins.js'
 import { createScanRunsRepository } from './scan-runs.js'
 import { createSettingsRepository } from './settings.js'
 import { createSourcesRepository } from './sources.js'
@@ -31,6 +32,7 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
     advisories: createAdvisoriesRepository(db),
     findings: createFindingsRepository(db),
     checkOverrides: createCheckOverridesRepository(db),
+    runtimePins: createRuntimePinsRepository(db),
     scanRuns: createScanRunsRepository(db),
     fixPlans: createFixPlansRepository(db),
     fixRuns: createFixRunsRepository(db),
