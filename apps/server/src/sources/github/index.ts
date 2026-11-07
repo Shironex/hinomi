@@ -52,6 +52,7 @@ export {
   type WorkflowDispatchInput,
   type WorkflowDispatchResult,
 } from './actions.js'
+export { createBranch, putRepoFile, readRepoFileWithSha, type PutFileInput } from './contents.js'
 export {
   addPullLabels,
   createPull,

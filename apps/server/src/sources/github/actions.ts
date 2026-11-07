@@ -6,12 +6,12 @@ import { parsePayload, restRepoSchema } from './schemas.js'
 // GitHub calls of the fix runner: the repo facts a dispatch needs, the workflow_dispatch call,
 // reading the caller workflow file, and cheap reads that probe what a token may do.
 
-function repoPath(owner: string, name: string): string {
+export function repoPath(owner: string, name: string): string {
   return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
 }
 
 /** A repo relative path with each segment encoded, slashes kept. */
-function filePath(path: string): string {
+export function filePath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/')
 }
 
