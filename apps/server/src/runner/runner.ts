@@ -1,8 +1,8 @@
 import type { FixDispatchEncoding, FixRunKind, FixRunnerKind } from '@hinomi/shared'
 import type { FixPlanRow, FixRunRow, RepoRow } from '../db/schema.js'
 
-// The contract every fix runner implements: GitHub Actions now, the webhook and local runners
-// later. A runner turns a stored fix plan into a fix_runs row and hands the plan to whatever
+// The contract every fix runner implements: GitHub Actions, the webhook runner and the local
+// runner, picked per repo by its runner kind. A runner turns a stored fix plan into a fix_runs row and hands the plan to whatever
 // applies it. The checks that do not depend on the runner (enabled, a plan exists, decision 10
 // on a closed unmerged PR) run before it, in service.ts.
 
@@ -22,10 +22,11 @@ export interface FixRunDispatchRefusal {
   created: false
   /**
    * `no_source`: nothing to talk to (no GitHub source). `nothing_to_send`: the plan has no safe
-   * step the runner can apply (for `majors`: no major upgrade for the agent). `plan`: the plan or its payload is not valid. `unavailable`: the
-   * repo could not be read before dispatching.
+   * step the runner can apply (for `majors`: no major upgrade for the agent). `plan`: the plan or
+   * its payload is not valid. `unavailable`: the repo could not be read before dispatching.
+   * `not_configured`: the repo's runner kind is not set up or not allowed on this host.
    */
-  code: 'no_source' | 'nothing_to_send' | 'plan' | 'unavailable'
+  code: 'no_source' | 'nothing_to_send' | 'plan' | 'unavailable' | 'not_configured'
   message: string
 }
 
