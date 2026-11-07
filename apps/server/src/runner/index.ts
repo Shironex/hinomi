@@ -19,7 +19,33 @@ export {
   dispatchInputs,
   type GithubActionsRunnerOptions,
 } from './github-actions.js'
-export { openRunnerGithub, type RunnerGithub, type RunnerGithubOptions } from './github.js'
+export {
+  cachedRunnerGithub,
+  openRunnerGithub,
+  type RunnerGithub,
+  type RunnerGithubOptions,
+} from './github.js'
+export {
+  FIX_RESULT_ARTIFACT_PREFIX,
+  FIX_RESULT_FILE,
+  MAX_RESULT_ARTIFACT_BYTES,
+  fixResultArtifactNames,
+  readFixResultZip,
+} from './artifact.js'
+export {
+  createFixRunTracker,
+  type FixRunTickSummary,
+  type FixRunTracker,
+  type FixRunTrackerOptions,
+  type FixRunTrackingView,
+} from './tracker.js'
+export {
+  FIX_RUN_TRACKING,
+  pollIntervalMs,
+  trackingPhase,
+  type FixRunTrackingConfig,
+  type TrackingPhase,
+} from './tracking.js'
 export {
   RUNNER_APP_PERMISSIONS,
   appPermissions,

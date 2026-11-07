@@ -3,10 +3,12 @@ import {
   FIX_RUN_TERMINAL_STATES,
   currentTime,
   type FixChecksMode,
+  type FixResultV1,
   type FixRunKind,
+  type FixRunState,
   type FixRunnerKind,
 } from '@hinomi/shared'
-import { and, desc, eq, inArray, isNotNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { fixRuns, type FixRunRow } from '../db/schema.js'
 import {
@@ -188,6 +190,25 @@ export function createFixRunsRepository(db: Db) {
       }
       if (Object.keys(set).length === 0) return get(id)
       return db.update(fixRuns).set(set).where(eq(fixRuns.id, id)).returning().get()
+    },
+
+    /** Stores the runner's result once read and validated (the state is left to applyEvent). */
+    setResult(id: number, result: FixResultV1): FixRunRow | undefined {
+      return db.update(fixRuns).set({ result }).where(eq(fixRuns.id, id)).returning().get()
+    },
+
+    /**
+     * Runs in one of `states` that ended at or after `since`, oldest first: the ended runs
+     * polling still looks at, so a reopened PR or a re-run workflow is noticed.
+     */
+    listEndedSince(since: Date, states: readonly FixRunState[]): FixRunRow[] {
+      if (states.length === 0) return []
+      return db
+        .select()
+        .from(fixRuns)
+        .where(and(inArray(fixRuns.state, [...states]), gte(fixRuns.endedAt, since)))
+        .orderBy(fixRuns.id)
+        .all()
     },
 
     /** A repo's runs, newest first, optionally of one kind. */
