@@ -76,6 +76,12 @@ export interface FixRunTracker {
    * reached verified or not cleared. Never throws.
    */
   scanFinished(report: FullScanReport): number
+  /**
+   * Makes the followed runs that `select` picks due at once, ahead of their cadence (a GitHub
+   * webhook named them). They are still polled by `tick`, inside the request budget and after a
+   * rate limit pause, and a publish retry keeps its backoff. Returns the ids of the runs marked.
+   */
+  pollNow(select: (run: FixRunRow) => boolean): number[]
 }
 
 interface Due {
@@ -193,6 +199,8 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
     })
   const meter = new RequestMeter(config, () => now().getTime())
   const states = new Map<number, RunTrackingState>()
+  /** Runs asked for by `pollNow`, due at once until their next poll. */
+  const urgent = new Set<number>()
   const compareCache = new Map<string, GithubCompareStatus | null>()
   let running: Promise<FixRunTickSummary> | null = null
 
@@ -208,6 +216,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
   function dueAt(run: FixRunRow, phase: TrackingPhase, at: Date): number {
     const state = states.get(run.id)
     if (state?.retryAt) return state.retryAt.getTime()
+    if (urgent.has(run.id)) return at.getTime()
     if (!state?.lastPolledAt) return at.getTime()
     return state.lastPolledAt.getTime() + pollIntervalMs(run, phase, at, config)
   }
@@ -228,6 +237,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
       list.push({ run, phase, at: dueAt(run, phase, at) })
     }
     for (const id of states.keys()) if (!kept.has(id)) states.delete(id)
+    for (const id of urgent) if (!kept.has(id)) urgent.delete(id)
     return list.sort((a, b) => a.at - b.at || a.run.id - b.run.id)
   }
 
@@ -261,6 +271,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
     if (!source.ok) {
       for (const { run } of due) {
         const state = stateOf(run.id)
+        urgent.delete(run.id)
         state.lastPolledAt = started
         state.lastError = source.message
       }
@@ -303,6 +314,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
           error: state.lastError,
         })
       } finally {
+        urgent.delete(run.id)
         state.lastPolledAt = now()
         polled += 1
       }
@@ -338,6 +350,16 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
         lastError: state.lastError,
         pausedUntil: meter.paused() ? new Date(meter.pausedUntil) : null,
       }
+    },
+
+    pollNow(select) {
+      const ids: number[] = []
+      for (const { run } of followed(now())) {
+        if (!select(run)) continue
+        urgent.add(run.id)
+        ids.push(run.id)
+      }
+      return ids
     },
 
     scanFinished(report) {

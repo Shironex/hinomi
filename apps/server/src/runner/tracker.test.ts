@@ -547,6 +547,65 @@ describe('rate limits and the request cap', () => {
   })
 })
 
+describe('poll now', () => {
+  it('polls a run a webhook named ahead of its cadence, once', async () => {
+    const run = dispatched()
+    const { tracker: t, requests } = tracker()
+    await t.tick()
+    advance(5 * SECOND)
+    expect((await t.tick()).polled).toBe(0)
+
+    expect(t.pollNow((r) => r.githubRunId === RUN_ID)).toEqual([run.id])
+    expect(t.status(get(run))?.nextPollAt).toEqual(clock)
+    const before = requests.length
+    expect((await t.tick()).polled).toBe(1)
+    expect(requests.length).toBeGreaterThan(before)
+
+    // Back on its cadence after that poll.
+    advance(SECOND)
+    expect((await t.tick()).polled).toBe(0)
+  })
+
+  it('marks only followed runs the predicate picks', () => {
+    const run = dispatched()
+    const { tracker: t } = tracker()
+    expect(t.pollNow(() => false)).toEqual([])
+    repos.fixRuns.applyEvent(run.id, { type: 'failed', reason: 'test' }, clock)
+    advance(8 * 24 * 60 * MINUTE)
+    // Ended more than seven days ago: outside the watch window, so never marked.
+    expect(t.pollNow(() => true)).toEqual([])
+  })
+
+  it('keeps the request budget and a rate limit pause', async () => {
+    const run = dispatched()
+    const reset = Math.floor(clock.getTime() / 1000) + 600
+    world.headers = { 'x-ratelimit-remaining': '120', 'x-ratelimit-reset': String(reset) }
+    const { tracker: t, requests } = tracker()
+    await t.tick()
+    const count = requests.length
+    advance(30 * SECOND)
+    expect(t.pollNow(() => true)).toEqual([run.id])
+    expect((await t.tick()).polled).toBe(0)
+    expect(requests.length).toBe(count)
+
+    // Once the window resets the run is still due at once.
+    world.headers = { 'x-ratelimit-remaining': '4900', 'x-ratelimit-reset': String(reset + 3600) }
+    clock = new Date(reset * 1000 + 2000)
+    expect((await t.tick()).polled).toBe(1)
+  })
+
+  it('keeps the hourly cap', async () => {
+    dispatched()
+    const { tracker: t, requests } = tracker({ config: { requestsPerHour: 1 } })
+    await t.tick()
+    const count = requests.length
+    advance(5 * SECOND)
+    t.pollNow(() => true)
+    expect((await t.tick()).polled).toBe(0)
+    expect(requests.length).toBe(count)
+  })
+})
+
 describe('publishing', () => {
   function pushed() {
     const run = dispatched()

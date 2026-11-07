@@ -81,4 +81,44 @@ describe('fix run tracking timer', () => {
     await timer.idle()
     expect(t.pending).toEqual([])
   })
+
+  it('brings the next tick forward on wake, once per burst, and right after a running tick', async () => {
+    const t = timers()
+    const gate: { release?: () => void } = {}
+    let ticks = 0
+    const timer = startFixRunTracking({
+      ticker: {
+        tick: () => {
+          ticks += 1
+          return new Promise((resolve) => {
+            gate.release = () => resolve({ nextDelayMs: 20_000 })
+          })
+        },
+      },
+      now,
+      wakeDelayMs: 2_000,
+      firstDelayMs: 20_000,
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+    })
+    expect(t.pending.map((p) => p.ms)).toEqual([20_000])
+    timer.wake()
+    timer.wake()
+    expect(t.pending.map((p) => p.ms)).toEqual([2_000])
+    t.fire()
+    // A wake during the tick: the next tick follows it after the wake delay.
+    timer.wake()
+    expect(t.pending).toEqual([])
+    gate.release?.()
+    await timer.idle()
+    expect(ticks).toBe(1)
+    expect(t.pending.map((p) => p.ms)).toEqual([2_000])
+    t.fire()
+    gate.release?.()
+    await timer.idle()
+    expect(t.pending.map((p) => p.ms)).toEqual([20_000])
+    timer.stop()
+    timer.wake()
+    expect(t.pending).toEqual([])
+  })
 })
