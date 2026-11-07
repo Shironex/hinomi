@@ -19,6 +19,7 @@ import { ShellContext, type ShellState } from './shell-context'
 import { ShortcutsDialog } from './shortcuts-dialog'
 import { THEME_LABEL } from './theme-meta'
 import { TopBar } from './top-bar'
+import { UpdatePrompt } from './update-prompt'
 
 export function AppShell() {
   const navigate = useNavigate()
@@ -64,6 +65,7 @@ export function AppShell() {
   const dialogs = (
     <>
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <UpdatePrompt />
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
