@@ -14,6 +14,7 @@ const TABLES = [
   'finding_events',
   'findings',
   'fix_plans',
+  'fix_runs',
   'repos',
   'scan_runs',
   'settings',
