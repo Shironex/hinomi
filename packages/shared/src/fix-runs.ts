@@ -69,8 +69,9 @@ export function isFixRunTerminal(state: FixRunState): boolean {
 }
 
 /**
- * Where the fix plan runs. Only `github_actions` exists today; the `webhook` and `local` runners
- * come later and are listed so the column does not need a migration when they land.
+ * Where the fix plan runs: a workflow in the repo (`github_actions`, the default), an external
+ * runner Hinomi posts the plan to (`webhook`), or Hinomi's own host (`local`, opt in through
+ * HINOMI_LOCAL_RUNNER). Chosen per repo.
  */
 export const FIX_RUNNER_KINDS = ['github_actions', 'webhook', 'local'] as const
 export const fixRunnerKindSchema = z.enum(FIX_RUNNER_KINDS)

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { apiErrorSchema } from './api.js'
-import { fixRunKindSchema, fixRunSchema } from './fix-runs.js'
+import { fixRunKindSchema, fixRunSchema, fixRunnerKindSchema } from './fix-runs.js'
 import { fixChecksModeSchema } from './runner.js'
 import { FIX_DISPATCH_ENCODINGS } from './runner-payload.js'
 
@@ -142,6 +142,11 @@ export const runnerSettingsSchema = z.object({
    * The optional majors agent. The server always sends it; absent (an older server) means off.
    */
   majorsAgent: runnerMajorsAgentSchema.optional(),
+  /**
+   * Where the plan runs: `github_actions` (default), `webhook` or `local`. The server always
+   * sends it; absent (an older server) means GitHub Actions.
+   */
+  kind: fixRunnerKindSchema.optional(),
 })
 export type RunnerSettings = z.infer<typeof runnerSettingsSchema>
 
@@ -150,6 +155,7 @@ export const updateRunnerSettingsRequestSchema = z.strictObject({
   enabled: z.boolean().optional(),
   workflow: callerWorkflowSchema.nullable().optional(),
   majorsAgent: runnerMajorsAgentSchema.optional(),
+  kind: fixRunnerKindSchema.optional(),
 })
 export type UpdateRunnerSettingsRequest = z.infer<typeof updateRunnerSettingsRequestSchema>
 
@@ -258,6 +264,16 @@ export const runnerSetupPrSchema = z.object({
 })
 export type RunnerSetupPr = z.infer<typeof runnerSetupPrSchema>
 
+/** Whether the runners other than GitHub Actions can take a dispatch, for every repo. */
+export const runnerKindsStatusSchema = z.object({
+  webhook: z.object({
+    /** A URL and a readable secret are set (see /api/settings/webhook-runner). */
+    configured: z.boolean(),
+    message: z.string(),
+  }),
+})
+export type RunnerKindsStatus = z.infer<typeof runnerKindsStatusSchema>
+
 export const runnerStatusSchema = z.object({
   repoId: id,
   settings: runnerSettingsSchema,
@@ -285,6 +301,8 @@ export const runnerStatusSchema = z.object({
   checkedAt: isoDate,
   /** One line on what to do next, or that the runner is ready. */
   message: z.string(),
+  /** The other runner kinds. Absent from an older server. */
+  runners: runnerKindsStatusSchema.optional(),
 })
 export type RunnerStatus = z.infer<typeof runnerStatusSchema>
 
