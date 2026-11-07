@@ -528,6 +528,24 @@ const fixPlanTargetFields = {
   byTier: tierCounts,
 }
 
+/**
+ * How the target of a step was checked against known advisories (OSV and GitHub data Hinomi
+ * stores, plus an OSV query for the exact version). clean: no known advisory affects `to`.
+ * affected: every version Hinomi knows in the step's semver line is affected, so `to` stays the
+ * lowest version that clears the step's findings. unchecked: OSV could not answer (or is off),
+ * so only stored advisories were checked.
+ */
+export const fixPlanTargetCheckSchema = z.object({
+  status: z.enum(['clean', 'affected', 'unchecked']),
+  /** Highest first patched version among the findings: what the step needs at least. */
+  minimum: z.string(),
+  /** Advisories that affect a lower candidate (such as `minimum`) and not `to`. */
+  avoids: z.array(z.string()),
+  /** Advisories known to affect `to` itself. Empty unless `status` is affected. */
+  stillAffected: z.array(z.string()),
+})
+export type FixPlanTargetCheck = z.infer<typeof fixPlanTargetCheckSchema>
+
 export const fixPlanStepSchema = z.object({
   /** Stable across scans: `apply type:ecosystem:package:to:lockfile`. */
   id: z.string(),
@@ -536,17 +554,25 @@ export const fixPlanStepSchema = z.object({
   ...fixPlanTargetFields,
   /** Installed versions the step moves, lowest first. */
   from: z.array(z.string()),
-  /** Highest first patched version among the findings, so one step clears all of them. */
+  /**
+   * Lowest version that clears every finding of the step and has no known advisory of its own,
+   * within the semver line of the highest first patched version; see `targetCheck`.
+   */
   to: z.string(),
   level: bumpLevelSchema,
   risk: z.enum(['safe', 'risky']),
   riskReasons: z.array(fixPlanRiskReasonSchema),
-  /** One line for the PR body, e.g. "Semver major: read the changelog". Null for safe steps. */
+  /**
+   * One line for the PR body, e.g. "Semver major: read the changelog", or what the target check
+   * could not settle. Null when there is nothing to say.
+   */
   note: z.string().nullable(),
   apply: fixPlanApplySchema,
   /** When `to` was published. Null: unknown (OSV and GitHub do not carry release dates). */
   releasedAt: isoDate.nullable(),
   releaseAge: releaseAgeSchema,
+  /** The target check. Absent in plans built before it existed and for ecosystems it skips. */
+  targetCheck: fixPlanTargetCheckSchema.optional(),
 })
 export type FixPlanStep = z.infer<typeof fixPlanStepSchema>
 
@@ -654,6 +680,11 @@ export const fixRepoSchema = z.object({
   findings: z.number().int(),
   /** The repo's latest fix plan, null until a scan has built one. */
   plan: fixPlanRefSchema.nullable(),
+  /**
+   * The target that plan's step for the package picked and how it was checked against known
+   * advisories. Null when the plan has no step for the package or did not check its target.
+   */
+  planTarget: fixPlanTargetCheckSchema.extend({ to: z.string() }).nullable().optional(),
 })
 export type FixRepo = z.infer<typeof fixRepoSchema>
 
