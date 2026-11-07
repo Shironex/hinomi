@@ -17,6 +17,7 @@ import { indexDeployments, syncDeployments, type DeploymentIndex } from './deplo
 import { readSupportWindowDays, type SupportIndex } from '../support/index.js'
 import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { createRepoFileReader } from './guards/repo-files.js'
+import { runImageScan, type ImageScanResult } from './image-scan.js'
 import { saveScanPlans } from './plans.js'
 import { scanReleases } from './releases.js'
 import type { ScanSources } from './sources.js'
@@ -395,6 +396,31 @@ async function checkReleases(
   return result.changes
 }
 
+/**
+ * Records the image scan on the Coolify tally: counts, and an error per instance that failed
+ * (a 403 or an outage). An instance without the endpoint is not an error, only a count and a log.
+ */
+function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
+  if (ctx.sources.settings.imageScan === 'off') return
+  const t = tally(ctx.tallies, 'coolify')
+  bump(t, 'imagesScanned', result.scanned)
+  bump(t, 'imagesUnchanged', result.unchanged)
+  for (const entry of result.unavailable) {
+    bump(t, 'imageScanUnavailable')
+    ctx.log.info('scan: this Coolify has no image scan results', {
+      source: entry.subject,
+      reason: entry.reason,
+    })
+  }
+  for (const failure of result.errors) {
+    // An instance whose inventory already failed this scan counts once.
+    const failed = ctx.errors.some((e) => e.source === 'coolify' && e.subject === failure.subject)
+    if (!failed) t.failed++
+    ctx.repositories.sources.markError(failure.sourceId, failure.error, ctx.now())
+    recordError(ctx, { source: 'coolify', subject: failure.subject, error: failure.error })
+  }
+}
+
 function sourceResults(ctx: ScanContext): Partial<Record<SourceKind, ScanSourceResult>> {
   const out: Partial<Record<SourceKind, ScanSourceResult>> = {}
   for (const kind of ['coolify', 'github', 'osv'] as const) {
@@ -522,8 +548,20 @@ export async function runScan(
     changes.push(
       ...(await checkReleases(ctx, repos, index, result.scans, options.concurrency ?? 4)),
     )
+    const mode = sources.settings.imageScan
+    const images = await runImageScan(ctx.repositories, sources.coolify, index, {
+      mode,
+      now: now(),
+    })
+    changes.push(...images.changes)
+    recordImageScan(ctx, images)
     ctx.progress('ranking', 0, 0)
-    changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
+    changes.push(
+      ...applyBlindSpots(ctx.repositories, index, result.scans, now(), {
+        mode,
+        coverage: images.coverage,
+      }),
+    )
     const guardContext = {
       deployments: index.deployments,
       repos,
