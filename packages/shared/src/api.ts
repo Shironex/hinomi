@@ -417,6 +417,217 @@ export const activityItemSchema = findingEventSchema.extend({
 export type ActivityItem = z.infer<typeof activityItemSchema>
 
 // ---------------------------------------------------------------------------
+// Fix plans: one upgrade plan per repo, built at the end of every scan
+
+/**
+ * Version of the fix plan contract. A runner that applies plans checks it and refuses a
+ * version it does not know. Raised on any change that is not a new optional field.
+ */
+export const FIX_PLAN_VERSION = 1
+
+/** Days a release must be public before a plan proposes it (the release age gate). */
+export const RELEASE_AGE_GATE_DAYS = 7
+
+/** Package managers a plan can target, detected from the lockfile name. */
+export const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'unknown'] as const
+export const packageManagerSchema = z.enum(PACKAGE_MANAGERS)
+export type PackageManager = z.infer<typeof packageManagerSchema>
+
+/** Direct: a manifest lists the package. Transitive: only pulled in by other packages. */
+export const dependencyRelationshipSchema = z.enum(['direct', 'transitive', 'unknown'])
+export type DependencyRelationship = z.infer<typeof dependencyRelationshipSchema>
+
+/** Semver distance from the installed version to the target; 0.x minors count as major. */
+export const bumpLevelSchema = z.enum(['patch', 'minor', 'major', 'unknown'])
+export type BumpLevel = z.infer<typeof bumpLevelSchema>
+
+/**
+ * Why a step is risky. semver_major: breaking by semver, read the changelog. pins_other_versions:
+ * the override also moves copies of the package that were not vulnerable. unknown_version: the
+ * versions are not semver. unknown_relationship: Hinomi could not tell direct from transitive.
+ * unknown_package_manager: no lockfile Hinomi reads, so the step needs a person.
+ */
+export const fixPlanRiskReasonSchema = z.enum([
+  'semver_major',
+  'pins_other_versions',
+  'unknown_version',
+  'unknown_relationship',
+  'unknown_package_manager',
+])
+export type FixPlanRiskReason = z.infer<typeof fixPlanRiskReasonSchema>
+
+/** clear: older than the gate. too_new: inside it. unknown: the publish date is not known. */
+export const releaseAgeSchema = z.enum(['clear', 'too_new', 'unknown'])
+export type ReleaseAge = z.infer<typeof releaseAgeSchema>
+
+/**
+ * How a runner applies a step, without guessing:
+ * - manifest_bump: set the dependency to `version` in each manifest (keep its range prefix),
+ *   then install. For Cargo `manifests` is empty and the step's `workspaces` names the crates.
+ * - override: set `key` to `value` under `field` of the root `manifest`, then install.
+ *   `field` is `pnpm.overrides` (pnpm), `overrides` (npm, bun) or `resolutions` (yarn).
+ * - lockfile_update: `cargo update -p <packageName>@<from> --precise <to>` for every `from`.
+ * - manual: Hinomi does not know the package manager; a person applies it.
+ */
+export const fixPlanApplySchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('manifest_bump'),
+    manifests: z.array(z.string()),
+    packageName: z.string(),
+    version: z.string(),
+  }),
+  z.object({
+    type: z.literal('override'),
+    manifest: z.string(),
+    field: z.enum(['pnpm.overrides', 'overrides', 'resolutions']),
+    key: z.string(),
+    value: z.string(),
+  }),
+  z.object({
+    type: z.literal('lockfile_update'),
+    tool: z.literal('cargo'),
+    packageName: z.string(),
+    from: z.array(z.string()),
+    to: z.string(),
+  }),
+  z.object({ type: z.literal('manual') }),
+])
+export type FixPlanApply = z.infer<typeof fixPlanApplySchema>
+
+const tierCounts = z.record(findingTierSchema, z.number().int())
+
+/** One project of the repo: a lockfile and the workspaces it covers. */
+export const fixPlanProjectSchema = z.object({
+  /** Repo relative lockfile path, e.g. `pnpm-lock.yaml` or `apps/api/Cargo.lock`. */
+  lockfile: z.string(),
+  /** Folder of the lockfile, `.` for the repo root. */
+  root: z.string(),
+  packageManager: packageManagerSchema,
+  /** Workspaces seen in the lockfile: repo relative folders (npm family) or crate names (Cargo). */
+  workspaces: z.array(z.string()),
+})
+export type FixPlanProject = z.infer<typeof fixPlanProjectSchema>
+
+/** What a step or an unfixed entry is about: one package in one project. */
+const fixPlanTargetFields = {
+  /** Advisory ecosystem as Hinomi stores it (`npm`, `rust`, ...). */
+  ecosystem: z.string(),
+  packageName: z.string(),
+  relationship: dependencyRelationshipSchema,
+  /** The project's lockfile, null when no lockfile is known (GitHub reported a manifest only). */
+  lockfile: z.string().nullable(),
+  packageManager: packageManagerSchema,
+  /** Where a direct dependency is declared, as in FixPlanProject.workspaces. Empty otherwise. */
+  workspaces: z.array(z.string()),
+  /** Direct dependencies that pull a transitive package in, from the lockfile paths. */
+  via: z.array(z.string()),
+  /** Open findings it covers, most urgent first. */
+  findingIds: z.array(id),
+  /** Advisory keys (GHSA or OSV ids) behind those findings. */
+  advisories: z.array(z.string()),
+  byTier: tierCounts,
+}
+
+export const fixPlanStepSchema = z.object({
+  /** Stable across scans: `apply type:ecosystem:package:to:lockfile`. */
+  id: z.string(),
+  /** 1 based position: safe direct bumps, then safe transitive fixes, then risky steps. */
+  order: z.number().int().positive(),
+  ...fixPlanTargetFields,
+  /** Installed versions the step moves, lowest first. */
+  from: z.array(z.string()),
+  /** Highest first patched version among the findings, so one step clears all of them. */
+  to: z.string(),
+  level: bumpLevelSchema,
+  risk: z.enum(['safe', 'risky']),
+  riskReasons: z.array(fixPlanRiskReasonSchema),
+  /** One line for the PR body, e.g. "Semver major: read the changelog". Null for safe steps. */
+  note: z.string().nullable(),
+  apply: fixPlanApplySchema,
+  /** When `to` was published. Null: unknown (OSV and GitHub do not carry release dates). */
+  releasedAt: isoDate.nullable(),
+  releaseAge: releaseAgeSchema,
+})
+export type FixPlanStep = z.infer<typeof fixPlanStepSchema>
+
+/** Findings no step can clear yet: `blocker` says why. too_new is kept for when release dates are known. */
+export const fixPlanUnfixedSchema = z.object({
+  ...fixPlanTargetFields,
+  installed: z.array(z.string()),
+  blocker: z.enum(['no_patch', 'too_new']),
+  /** When a too_new release clears the gate. Null for no_patch or an unknown date. */
+  availableAt: isoDate.nullable(),
+})
+export type FixPlanUnfixed = z.infer<typeof fixPlanUnfixedSchema>
+
+export const fixPlanSummarySchema = z.object({
+  findings: z.object({
+    /** Open fixable findings of the repo when the plan was built. */
+    total: z.number().int(),
+    /** Findings the steps clear (safe and risky). */
+    cleared: z.number().int(),
+    /** Findings the safe steps alone clear. */
+    clearedSafely: z.number().int(),
+    unfixed: z.number().int(),
+    clearedByTier: tierCounts,
+    unfixedByTier: tierCounts,
+  }),
+  steps: z.object({ safe: z.number().int(), risky: z.number().int() }),
+  /** Unfixed entries (packages), not findings. */
+  unfixed: z.number().int(),
+})
+export type FixPlanSummary = z.infer<typeof fixPlanSummarySchema>
+
+/** How the plan of the previous scan of the repo turned out by this scan. */
+export const fixPlanPreviousSchema = z.object({
+  scanRunId: id,
+  /** Findings its steps covered. */
+  findings: z.number().int(),
+  /** Of those, fixed by now. */
+  cleared: z.number().int(),
+  /** Of those, still open by now. */
+  stillOpen: z.number().int(),
+})
+export type FixPlanPrevious = z.infer<typeof fixPlanPreviousSchema>
+
+/**
+ * One upgrade plan per repo and scan: every open fixable finding is either in a step or in
+ * `unfixed`. Serialisable as is; a runner applies `steps` in `order` in one branch and one PR.
+ */
+export const fixPlanSchema = z.object({
+  version: z.literal(FIX_PLAN_VERSION),
+  repo: repoRefSchema,
+  scanRunId: id,
+  createdAt: isoDate,
+  projects: z.array(fixPlanProjectSchema),
+  steps: z.array(fixPlanStepSchema),
+  unfixed: z.array(fixPlanUnfixedSchema),
+  summary: fixPlanSummarySchema,
+  previous: fixPlanPreviousSchema.nullable(),
+})
+export type FixPlan = z.infer<typeof fixPlanSchema>
+
+/** A link to a repo's latest plan with its summary, for lists and finding detail. */
+export const fixPlanRefSchema = z.object({
+  repoId: id,
+  scanRunId: id,
+  createdAt: isoDate,
+  summary: fixPlanSummarySchema,
+})
+export type FixPlanRef = z.infer<typeof fixPlanRefSchema>
+
+/** Query of GET /api/repos/:id/plan. Without `scan`, the latest plan. */
+export const fixPlanQuerySchema = z.strictObject({
+  scan: z.coerce.number().int().positive().optional(),
+})
+
+export const fixPlansResponseSchema = z.object({
+  /** The latest plan of every repo that has one, most findings cleared first. */
+  items: z.array(fixPlanRefSchema.extend({ repo: repoRefSchema })),
+})
+export type FixPlansResponse = z.infer<typeof fixPlansResponseSchema>
+
+// ---------------------------------------------------------------------------
 // Fixes: open findings grouped by the version bump that clears them
 
 export const FIXES_PAGE_MAX = 100
