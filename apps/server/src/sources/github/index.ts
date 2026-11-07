@@ -33,7 +33,10 @@ export type {
 export {
   createGithubAppSource,
   createGithubSource,
+  createGithubSourceFromConfig,
+  isGithubAppSource,
   type GithubAppSource,
   type GithubAppSourceOptions,
   type GithubSource,
+  type GithubSourceConfig,
 } from './source.js'

@@ -6,11 +6,7 @@ import type {
 } from '@hinomi/shared'
 import type { Repositories, Source } from '../repository/index.js'
 import { fetchCoolifyInventory } from '../sources/coolify/index.js'
-import {
-  createGithubAppSource,
-  createGithubSource,
-  type GithubSource,
-} from '../sources/github/index.js'
+import { createGithubSourceFromConfig, type GithubSource } from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
@@ -101,25 +97,10 @@ function githubSource(
   const secret = readToken(repositories, source)
   let bound: GithubSource | null = null
   const client = (): GithubSource => {
-    if (bound) return bound
-    const shared = {
-      ...(source.baseUrl && { baseUrl: source.baseUrl }),
+    // One source per scan: an app's installation token is minted once and reused until it expires.
+    bound ??= createGithubSourceFromConfig(source, secret(), {
       ...(options.fetch && { fetch: options.fetch }),
-    }
-    if (source.auth === 'github_app') {
-      if (source.appId === null || source.installationId === null) {
-        throw new Error(`GitHub source "${source.name}" is missing its App ID or installation ID`)
-      }
-      // One app auth per scan: the installation token is minted once and reused until it expires.
-      bound = createGithubAppSource({
-        appId: source.appId,
-        installationId: source.installationId,
-        privateKey: secret(),
-        ...shared,
-      })
-    } else {
-      bound = createGithubSource({ token: secret(), ...shared })
-    }
+    })
     return bound
   }
   return {
