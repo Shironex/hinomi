@@ -12,15 +12,21 @@ export interface WrittenArtifacts {
   patchPath: string | null
 }
 
+/** Writes hinomi-result.json into `dir` (absolute) and returns its path. */
+export async function writeResult(dir: string, result: FixResultV1): Promise<string> {
+  await mkdir(dir, { recursive: true })
+  const resultPath = join(dir, RESULT_FILE)
+  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+  return resultPath
+}
+
 /** Writes hinomi-result.json and, when there is one, fix.patch into `dir` (absolute). */
 export async function writeArtifacts(
   dir: string,
   result: FixResultV1,
   patch: string | null,
 ): Promise<WrittenArtifacts> {
-  await mkdir(dir, { recursive: true })
-  const resultPath = join(dir, RESULT_FILE)
-  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+  const resultPath = await writeResult(dir, result)
   let patchPath: string | null = null
   if (patch !== null) {
     patchPath = join(dir, PATCH_FILE)

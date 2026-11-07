@@ -4,7 +4,7 @@ author: Shironex
 
 inputs:
   step:
-    description: 'detect (validate the dispatch and name every toolchain, before they are set up) or apply'
+    description: 'detect (validate the dispatch and name every toolchain, before they are set up), apply, or check (the full install and checks after apply with defer_checks)'
     required: false
     default: apply
   plan:
@@ -22,6 +22,10 @@ inputs:
     description: 'auto (the dispatch decides), install, full, or a comma list such as lint,test'
     required: false
     default: auto
+  defer_checks:
+    description: 'apply: true leaves the full install and the checks to the check step, so the patch is final before any install script runs'
+    required: false
+    default: 'false'
 
 outputs:
   package_manager:
