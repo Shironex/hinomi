@@ -64,6 +64,7 @@ export function findingItem(over: Partial<FindingListItem> = {}): FindingListIte
     coverageNote: null,
     guard: null,
     releaseTag: null,
+    fixedOnDefaultBranch: false,
     advisory: {
       id: 1,
       advisoryKey: 'GHSA-7q2m-48vx-hc3r',

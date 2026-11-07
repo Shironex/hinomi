@@ -32,7 +32,7 @@ import type {
   FixRunRow,
   ScanRunRow,
 } from '../db/schema.js'
-import type { Repositories, Source } from '../repository/index.js'
+import { coverageNoteTypeOf, type Repositories, type Source } from '../repository/index.js'
 import { compareVersions } from '../sources/osv/index.js'
 import {
   tierOf,
@@ -126,9 +126,10 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     scope: finding.scope,
     sources: finding.reportedBy,
     blindSpotType: finding.blindSpotType,
-    coverageNote: finding.kind === 'coverage_note' ? 'image_only' : null,
+    coverageNote: coverageNoteTypeOf(finding),
     guard: toFindingGuard(ranked),
     releaseTag: finding.releaseTag,
+    fixedOnDefaultBranch: finding.releaseTag !== null && finding.fixedOnDefaultBranch,
     advisory: ranked.advisory ? toAdvisorySummary(ranked.advisory) : null,
     installedVersion: finding.installedVersion,
     repo: ranked.repo ? toRepoRef(ranked.repo) : null,

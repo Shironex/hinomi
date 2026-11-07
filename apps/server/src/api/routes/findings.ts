@@ -30,6 +30,7 @@ import {
   type RankedFinding,
 } from '../../scan/index.js'
 import { findingNotifications } from '../../notify/index.js'
+import { coverageNoteTypeOf } from '../../repository/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { tierOf, toFindingDetail, toFindingListItem, toFixPlanRef } from '../serialize.js'
@@ -131,7 +132,10 @@ function groupKey(r: RankedFinding, group: Exclude<FindingGroup, 'none'>): [stri
     ]
   }
   if (r.guardCheck) return [`guard:${r.guardCheck}`, GUARD_COPY[r.guardCheck].title]
-  const type = r.kind === 'coverage_note' ? 'image_only' : (r.finding.blindSpotType ?? 'blind_spot')
+  const type =
+    r.kind === 'coverage_note'
+      ? (coverageNoteTypeOf(r.finding) ?? 'coverage_note')
+      : (r.finding.blindSpotType ?? 'blind_spot')
   return [`blind:${type}`, type.replaceAll('_', ' ')]
 }
 
