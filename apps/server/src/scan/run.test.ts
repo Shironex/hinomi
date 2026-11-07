@@ -262,7 +262,10 @@ const t0 = new Date('2026-11-06T06:00:00Z').getTime()
 
 function scan(n: number): Promise<ScanSummary> {
   const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
-  return runScan({ repositories: repos }, sources, { now: () => new Date(t0 + n * day) })
+  return runScan({ repositories: repos }, sources, {
+    now: () => new Date(t0 + n * day),
+    guards: [],
+  })
 }
 
 const repoId = (name: string) => repos.repos.getByName('kestrel-co', name)!.id
