@@ -35,7 +35,7 @@ Facts that shape this ([reusing workflow configurations](https://docs.github.com
 - No redirects: renaming the Hinomi repo breaks every caller.
 - Re-running a failed job reuses the reusable workflow from the first attempt's commit, so pinning by SHA is consistent anyway.
 
-**Pinning the action from the reusable workflow.** A reusable workflow cannot reference "its own ref", so `fix.yml` must name the action ref explicitly. Release flow: commit A builds `actions/fix-runner/dist`; the release commit B sets `uses: Shironex/hinomi/actions/fix-runner@<sha of A>` in `fix.yml` and is tagged `v0.2.0`. Callers pin `fix.yml@<sha of B> # v0.2.0`. Hinomi knows B's SHA per release and flags callers that are behind. Turn on immutable releases on the Hinomi repo, so the tag cannot move under people who pin by tag.
+**Pinning the action from the reusable workflow.** `fix.yml` takes the action with `uses: $/actions/fix-runner`, GitHub's self repository reference, which resolves to the repo and commit of the workflow file it appears in, even when a workflow in another repo calls it. Callers pin `fix.yml@<sha> # v0.2.0` and that one pin fixes the action too; no release commit has to rewrite an action SHA. Hinomi learns the SHA to suggest at run time (section 16). Turn on immutable releases on the Hinomi repo, so the tag cannot move under people who pin by tag.
 
 ### What the user adds once per repo
 
@@ -170,7 +170,7 @@ Each check gets a per check timeout and its last 60 lines are kept (secrets are 
 - **Draft:** when checks failed or the install bisect skipped steps; ready otherwise.
 - **Idempotency:**
   - Re-dispatch updates the same branch (force with lease) and the same PR: find an open PR by `head=<owner>:hinomi/fix-plan`, `PATCH` title, body and draft state. Draft to ready uses the GraphQL `markPullRequestReadyForReview`, ready to draft uses `convertPullRequestToDraft`.
-  - Concurrency group per repo with cancel in progress, so two dispatches never race on the branch.
+  - Concurrency group per repo without cancel in progress, so two dispatches never race on the branch (section 16).
   - If the last fix PR was **closed unmerged**, Hinomi does not reopen it silently (decision D10).
   - If the plan produces an empty diff (everything already fixed), no push and no PR; the run ends `nothing-to-do` and #63 jumps to a rescan.
 
@@ -230,8 +230,8 @@ Events: `workflow_run` (completed), `pull_request` (opened, closed, synchronize)
 
 - **Per run, private repo** (estimate): `apply` is checkout 5 s, toolchain 15 s, install with a warm store cache 30 to 60 s (cold 1 to 3 min), then the repo's checks (Hinomi's own CI job is about 3 to 5 min). `publish` takes about 20 s, but jobs are billed in whole minutes, so 1 min. **Total about 3 to 8 min, plus the repo's own CI on the PR**, which runs the same checks again. Public repos: free on standard hosted runners ([billing](https://docs.github.com/en/actions/concepts/billing-and-usage#about-billing-for-github-actions)).
 - **The double run** is the main waste: checks in `apply` and again in PR CI. Hence decision D2: for private repos, default to `install` mode in the runner (about 2 min total) and let PR CI be the check; the PR opens ready and CI decides. Public repos get full checks in the runner.
-- **Caching:** restore only (`actions/cache/restore` keyed on the base lockfile hash, with a restore key on the PM and OS). Never save from the fix branch: the changed lockfile would create a new, short lived cache entry per run. pnpm store, npm cache, bun cache, cargo registry and `target/` (cargo only when the repo already caches it).
-- **Concurrency:** `concurrency: { group: hinomi-fix-${{ github.repository }}, cancel-in-progress: true }` at the reusable workflow's top level, with a name the caller never uses. A new plan supersedes a running one.
+- **Caching:** none in the first release (section 16): no step restores or saves a cache, and the setup actions run with their caches off. A restore only cache could come later; a save from the apply job never.
+- **Concurrency:** `concurrency: { group: hinomi-fix-${{ github.repository }}, cancel-in-progress: false }` at the reusable workflow's top level, with a name the caller never uses. A run is never cancelled halfway; GitHub keeps one pending run per group, so a newer dispatch replaces an older pending one.
 - **Guard rails in Hinomi:** show "private: about N min of Actions" before dispatch (Hinomi has the repo visibility), confirm batch runs across several private repos, a per repo cooldown (default 6 h, override per click), and `timeout-minutes: 20` on `apply`.
 
 ## 9. YAML sketches
@@ -276,6 +276,8 @@ jobs:
 ```
 
 ### Reusable workflow outline (`Shironex/hinomi/.github/workflows/fix.yml`)
+
+The sketch below is the plan from before the build; the real file is `.github/workflows/fix.yml` and the differences are in section 16.
 
 ```yaml
 name: Hinomi fix (reusable)
@@ -582,3 +584,24 @@ Answers to the questions the fix plan work left open, and where they live in the
 4. **Safe and risky steps.** The fix PR contains only safe steps. Risky steps never enter it: they go to the optional majors job (in `risky`, only when the agent is on) and are always listed in the PR body under "Risky upgrades, not applied", whether the agent is on or not.
 5. **Where pnpm overrides go.** The runner decides, from the checkout, not Hinomi: an override with `field: 'pnpm.overrides'` is written to `overrides` in the project's `pnpm-workspace.yaml` when that file exists, else to `pnpm.overrides` in the `manifest` (the root `package.json`). If the package already has an override in either place, it is updated where it is and never added twice. Hinomi keeps sending `pnpm.overrides`, so the plan and the dispatch stay independent of the pnpm version.
 6. **Release age.** The plan has `releaseAge: unknown` for every step, because OSV and GitHub carry no publish dates. The action checks each target against the registry, applies the stricter of the repo's own gate and Hinomi's floor (`options.releaseAgeDays`, 7), skips a step inside the gate with reason `too_new`, and records every check in the result's `releaseAge` with the eligible date. It never lowers a gate or adds an exclusion.
+
+## 16. Built in 62.3: the workflow
+
+What the reusable workflow, the caller template and the self test settled, where it differs from the sketches above.
+
+1. **Action reference.** `uses: $/actions/fix-runner` (self repository reference) instead of an action SHA written at release time. The caller's pin on `fix.yml` covers the action, the action never sits in the target's checkout (so the repo's lint and tests never see it), and there is no extra checkout. `$/` and the `job.workflow_*` contexts are not available on GitHub Enterprise Server, so the runner needs github.com. actionlint 1.7.12 does not parse `$/` yet; `.github/actionlint.yaml` ignores exactly those two messages for `fix*.yml`.
+2. **Latest SHA.** The server reads the latest Hinomi release (`GET /repos/Shironex/hinomi/releases/latest`), the commit its tag points at, and checks `fix.yml` exists there, with plain unauthenticated requests through the source fetch: three requests per 6 hours, retried after 30 minutes on failure (`apps/server/src/runner/latest.ts`). On any failure it answers `LATEST_FIX_WORKFLOW`, which stays null until a release chooses to record the previous release's commit there. No release workflow change was needed: the tag is the record.
+3. **Apply in three steps.** `apply` runs with `defer_checks: true`: manifest edits and lockfile only installs (pnpm `--lockfile-only`, `npm install --package-lock-only`, cargo update, none of which runs lifecycle scripts) and the patch capture. Its outputs `base_sha`, `patch_sha256` and `patch_files` become the job outputs. Only then does the `check` step run the full install and the repo's checks, then the artifact is uploaded. The publish job verifies the downloaded patch against those job outputs, not against `hinomi-result.json` alone, so code that runs during the check step cannot swap the patch.
+4. **Publish in the action.** A `publish` step in the action (not shell): the patch's SHA-256 must equal the apply job output and the result file, it must touch exactly the listed files, each must pass `isAllowedPatchPath`, and the patch may not rename, copy, delete, re-mode or add a symlink. It applies with `git apply --index` on a checkout of the base commit, checks the staged list again, commits as `github-actions[bot]` with `fix(deps): apply hinomi fix plan <scanRunId>` and pushes `hinomi/fix-plan` with `--force` (the per repo concurrency group serializes runs). The token reaches git through `GIT_CONFIG_*` environment variables, never argv or `.git/config`, and its base64 form is masked. `dry_run: true` stops before the push.
+5. **Mixed ecosystems.** The detect step detects every project of the dispatch and reports every package manager present (`package_managers`, `setup_node`, `setup_pnpm`, `setup_yarn`, `setup_bun`, `setup_rust` and their versions); the workflow sets up each one. Mixed plans are not rejected: each project is applied on its own, and a project whose lockfile does not match fails only its own steps.
+6. **Toolchains.** Node from `.node-version` or `.nvmrc` (the project folder, then the root), else a package.json with `engines.node`, else LTS. pnpm through `pnpm/action-setup` from the `packageManager` field, else pnpm 10. yarn without corepack (current Node majors no longer bundle it): the exact version the `packageManager` field names, installed with npm without scripts (`yarn@1.x`, or `@yarnpkg/cli-dist` for yarn 2 and later), else the yarn classic on the runner image, which follows a `yarnPath`. bun through `oven-sh/setup-bun` with its binary cache off. Rust through `dtolnay/rust-toolchain` (stable), then `rustup toolchain install` when a `rust-toolchain(.toml)` in the crate folder or above pins another one.
+7. **Concurrency** does not cancel in progress (a half pushed branch is worse than a queued run). **Caches** are off entirely.
+8. **Self test.** `.github/workflows/fix-selftest.yml` calls `fix.yml` on pull requests touching it or the action, with a plan that bumps `ms` from 2.1.2 to 2.1.3 in an npm and a pnpm fixture project inside this repo, and `dry_run: true`. No extra repositories, about three short jobs on a public repo (free).
+
+### Residual risks
+
+- **`ACTIONS_RUNTIME_TOKEN` in the apply job.** The runner gives every JavaScript action step the runtime token. The action strips it (and `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, the OIDC request variables, `GITHUB_TOKEN`) from the environment of every process it starts, but an install script or a test runs as the same user and can read the action process's own environment through `/proc/<pid>/environ`. With it, dependency code can write cache entries for the dispatch's ref (the default branch, so the repo's own CI could restore a poisoned cache), upload or delete artifacts of this run, and write job step files. What it cannot do: push (the apply token is read only), or change the patch the publish job accepts, which is pinned by the apply step's outputs set before any such code runs. The fix runs no cache step at all, so it never hands that power a cache of its own to fill, but the repo's CI caches remain exposed. Repos that cache on the default branch can reduce it by keying caches on the lockfile hash (a poisoned entry then only matches the fix branch's lockfile) or by turning the runner to install mode, which runs no install scripts in the runner at all.
+- **The result file after the checks.** `hinomi-result.json` is rewritten by the check step and uploaded after it, so dependency code can forge its check results and step details. Hinomi parses it with the strict schema; the publish job takes nothing from it beyond what it cross checks. The PR's own CI reruns the checks.
+- **Repo owned code during the apply step.** A repo's `.pnpmfile.cjs` or yarn plugins run during the lockfile update; they are the repo's own committed code, trusted as much as the repo's CI.
+- **Pending runs.** A third dispatch while one runs and one waits replaces the waiting one; Hinomi sees that run as cancelled.
+- **Force push.** `--force` instead of a lease: anything pushed to `hinomi/fix-plan` by hand is overwritten by the next run.
