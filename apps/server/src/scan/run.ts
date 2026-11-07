@@ -336,9 +336,16 @@ function overallStatus(tallies: Tallies): ScanSummary['status'] {
 }
 
 /** Fix plans are derived data: a failure is logged and never fails the scan. */
-function savePlans(ctx: ScanContext, scanRunId: number, scans: Map<number, RepoScan>): void {
+async function savePlans(
+  ctx: ScanContext,
+  scanRunId: number,
+  scans: Map<number, RepoScan>,
+): Promise<void> {
   try {
-    const plans = saveScanPlans(ctx.repositories, scanRunId, scans, ctx.now())
+    const plans = await saveScanPlans(ctx.repositories, scanRunId, scans, ctx.now(), {
+      osv: ctx.sources.osv?.client ?? null,
+      warn: (message, data) => ctx.log.warn(message, data),
+    })
     ctx.log.info('scan: fix plans saved', { scanRunId, plans: plans.length })
   } catch (error) {
     ctx.log.warn('scan: fix plans failed', { scanRunId, error: errorMessage(error) })
@@ -409,7 +416,7 @@ export async function runScan(
     changes.push(...result.changes)
     ctx.progress('ranking', 0, 0)
     changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
-    savePlans(ctx, run.id, result.scans)
+    await savePlans(ctx, run.id, result.scans)
   } catch (error) {
     failure = errorMessage(error)
     ctx.log.error('scan: failed unexpectedly', { error: failure })

@@ -5,7 +5,8 @@ export {
   OSV_API_URL,
   OSV_BATCH_LIMIT,
 } from './client.js'
-export { compareVersions, isComparableVersion } from './semver.js'
+export { compareVersions, formatRange, isComparableVersion, rangeIntervals } from './semver.js'
+export type { RangeHit } from './semver.js'
 export type { OsvClient, OsvClientOptions } from './client.js'
 export { fetchLockfiles, GitHubContentsError } from './github.js'
 export type { FetchedLockfile, FetchLockfilesOptions } from './github.js'

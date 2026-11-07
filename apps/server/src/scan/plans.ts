@@ -17,11 +17,25 @@ import {
 } from '@hinomi/shared'
 import type { FindingRow, RepoRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
-import { compareVersions } from '../sources/osv/index.js'
+import { compareVersions, type OsvClient } from '../sources/osv/index.js'
 import type { RepoScan } from './collect.js'
 import { isFixable, type FixableFinding } from './fixes.js'
 import { tierOf } from './rank.js'
+import {
+  askOsv,
+  bumpLevel,
+  chooseTarget,
+  knownFromRow,
+  packageKey,
+  type KnownAdvisory,
+  type OsvAnswer,
+  type TargetChoice,
+  type TargetFacts,
+  type TargetQuery,
+} from './targets.js'
 import { listRankedFindings } from './views.js'
+
+export { bumpLevel } from './targets.js'
 
 // One upgrade plan per repo: every open fixable finding lands in a step or in `unfixed`.
 // Steps are data a runner applies without judgement; see fixPlanApplySchema in packages/shared.
@@ -43,6 +57,11 @@ export interface BuildFixPlanInput {
   /** Null when OSV did not read the repo this scan: the plan falls back to what findings say. */
   lockfiles: RepoLockfiles | null
   previous: FixPlanPrevious | null
+  /**
+   * Known advisories for the target check. Without it every step targets the highest first
+   * patched version of its findings, unchecked.
+   */
+  targets?: TargetFacts
 }
 
 export function toRepoRef(repo: RepoRow): RepoRef {
@@ -90,26 +109,6 @@ function lockfileEcosystem(ecosystem: string): LockfileDependency['ecosystem'] |
   if (ecosystem === 'npm') return 'npm'
   if (ecosystem === 'rust' || ecosystem === 'crates.io') return 'crates.io'
   return null
-}
-
-function semverParts(version: string): [number, number, number] | null {
-  const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(version.trim())
-  if (!m) return null
-  return [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)]
-}
-
-/**
- * Semver distance from `from` to `to`. A change of the first non zero part is major, as caret
- * ranges in npm and Cargo treat it, so 0.3 to 0.4 is major.
- */
-export function bumpLevel(from: string, to: string): BumpLevel {
-  const a = semverParts(from)
-  const b = semverParts(to)
-  if (!a || !b) return 'unknown'
-  if (a[0] !== b[0]) return 'major'
-  if (a[0] === 0 && a[1] !== b[1]) return 'major'
-  if (a[1] !== b[1]) return 'minor'
-  return 'patch'
 }
 
 const LEVEL_WEIGHT: Record<BumpLevel, number> = { patch: 0, minor: 1, major: 2, unknown: 3 }
@@ -337,12 +336,28 @@ function riskNote(
 
 type DraftStep = Omit<FixPlanStep, 'order'>
 
+/** The step's target: checked against known advisories when the plan has them. */
+function targetOf(group: Group, minimum: string, facts: TargetFacts | undefined): TargetChoice {
+  if (!facts) return { kind: 'skip' }
+  return chooseTarget({
+    ecosystem: group.ecosystem,
+    packageName: group.packageName,
+    minimum,
+    facts,
+  })
+}
+
+const joinNotes = (...notes: (string | null)[]) =>
+  notes.filter((n): n is string => n !== null).join(' ') || null
+
 function buildStep(
   group: Group,
   findings: FixableFinding[],
   lockfiles: RepoLockfiles | null,
+  target: TargetChoice,
 ): DraftStep {
-  const to = highest(findings.flatMap((f) => patchOf(f) ?? []))!
+  const minimum = highest(findings.flatMap((f) => patchOf(f) ?? []))!
+  const to = target.kind === 'done' ? target.to : minimum
   const from = sortedVersions(group.installed)
   const level = widestLevel(from, to)
   const apply = applyOf(group, from, to, level)
@@ -362,10 +377,14 @@ function buildStep(
     level,
     risk: reasons.length > 0 ? 'risky' : 'safe',
     riskReasons: reasons,
-    note: riskNote(reasons, group.packageName, from, to),
+    note: joinNotes(
+      riskNote(reasons, group.packageName, from, to),
+      target.kind === 'done' ? target.note : null,
+    ),
     apply,
     releasedAt: null,
     releaseAge: 'unknown',
+    ...(target.kind === 'done' && { targetCheck: target.check }),
   }
 }
 
@@ -415,16 +434,26 @@ function uniqueFindings(lists: readonly (readonly number[])[], byId: Map<number,
   return [...ids].flatMap((id) => byId.get(id) ?? [])
 }
 
-/** Builds the fix plan of one repo. Pure: the same input gives the same plan. */
-export function buildFixPlan(input: BuildFixPlanInput): FixPlan {
-  const drafts: { step: DraftStep; best: number }[] = []
+interface Draft {
+  drafts: { step: DraftStep; best: number }[]
+  unfixed: FixPlanUnfixed[]
+  /** Target versions the check still wants OSV to answer for. */
+  pending: TargetQuery[]
+}
+
+function draftPlan(input: BuildFixPlanInput): Draft {
+  const drafts: Draft['drafts'] = []
   const unfixed: FixPlanUnfixed[] = []
+  const pending: TargetQuery[] = []
   for (const group of groupFindings(input.findings, input.lockfiles)) {
     const patched = group.findings.filter((f) => patchOf(f) !== null)
     const unpatched = group.findings.filter((f) => patchOf(f) === null)
     if (patched.length > 0) {
+      const minimum = highest(patched.flatMap((f) => patchOf(f) ?? []))!
+      const target = targetOf(group, minimum, input.targets)
+      if (target.kind === 'pending') pending.push(target.query)
       drafts.push({
-        step: buildStep(group, patched, input.lockfiles),
+        step: buildStep(group, patched, input.lockfiles, target),
         best: bestTierIndex(patched),
       })
     }
@@ -437,6 +466,20 @@ export function buildFixPlan(input: BuildFixPlanInput): FixPlan {
       })
     }
   }
+  return { drafts, unfixed, pending }
+}
+
+/** Versions the target check of this plan still wants OSV to answer for. */
+export function pendingTargetQueries(input: BuildFixPlanInput): TargetQuery[] {
+  return draftPlan(input).pending
+}
+
+/**
+ * Builds the fix plan of one repo. Pure: the same input gives the same plan. A target still
+ * pending an OSV answer stays the highest first patched version, unchecked.
+ */
+export function buildFixPlan(input: BuildFixPlanInput): FixPlan {
+  const { drafts, unfixed } = draftPlan(input)
   const steps: FixPlanStep[] = drafts
     .sort(compareSteps)
     .map(({ step }, i) => ({ ...step, order: i + 1 }))
@@ -503,26 +546,66 @@ function lockfilesOf(scan: RepoScan): RepoLockfiles | null {
   return { lockfiles: scan.osv.value.lockfiles, dependencies: scan.osv.value.dependencies ?? [] }
 }
 
+/** Rounds of OSV questions per scan: each round can only add higher candidates. */
+export const TARGET_CHECK_ROUNDS = 4
+
+export interface SaveScanPlansOptions {
+  /** The scan's OSV client, to check targets; null or absent when OSV is off. */
+  osv?: OsvClient | null
+  /** Told when OSV could not answer the target check. */
+  warn?: (message: string, data: Record<string, unknown>) => void
+}
+
+/** Stored advisories of a package, read once per scan. */
+function storedAdvisories(repositories: Repositories): TargetFacts['stored'] {
+  const cache = new Map<string, KnownAdvisory[]>()
+  return (ecosystem, packageName) => {
+    const key = packageKey(ecosystem, packageName)
+    let list = cache.get(key)
+    if (!list) {
+      list = repositories.advisories
+        .forPackage(ecosystem, packageName)
+        .flatMap((row) => knownFromRow(row) ?? [])
+      cache.set(key, list)
+    }
+    return list
+  }
+}
+
+function uniqueQueries(queries: readonly TargetQuery[]): TargetQuery[] {
+  const byKey = new Map(
+    queries.map((q) => [`${packageKey(q.ecosystem, q.packageName)}\u0000${q.version}`, q]),
+  )
+  return [...byKey.values()]
+}
+
 /**
  * Builds and stores a fix plan for every repo this scan saved, nothing to fix included, so the
- * next scan can say what this plan cleared. Runs once at the end of the ranking phase.
+ * next scan can say what this plan cleared. Runs once at the end of the ranking phase. Targets
+ * are checked against stored advisories and, with an OSV client, OSV's answer for each candidate
+ * version: one batch per round over every repo, cached for the scan.
  */
-export function saveScanPlans(
+export async function saveScanPlans(
   repositories: Repositories,
   scanRunId: number,
   scans: ReadonlyMap<number, RepoScan>,
   now: Date,
-): FixPlan[] {
+  options: SaveScanPlansOptions = {},
+): Promise<FixPlan[]> {
   const byRepo = new Map<number, FixableFinding[]>()
   for (const ranked of listRankedFindings(repositories)) {
     if (!isFixable(ranked)) continue
     byRepo.set(ranked.repo.id, [...(byRepo.get(ranked.repo.id) ?? []), ranked])
   }
   const stateOf = (id: number) => repositories.findings.get(id)?.state
-  const plans: FixPlan[] = []
-  for (const [repoId, scan] of scans) {
+  const answers = new Map<string, Map<string, OsvAnswer>>()
+  const targets: TargetFacts = {
+    stored: storedAdvisories(repositories),
+    osv: options.osv ? answers : null,
+  }
+  const inputs: BuildFixPlanInput[] = [...scans].map(([repoId, scan]) => {
     const earlier = repositories.fixPlans.forRepo(repoId)
-    const plan = buildFixPlan({
+    return {
       repo: repositories.repos.get(repoId) ?? scan.repo,
       scanRunId,
       createdAt: now,
@@ -530,9 +613,31 @@ export function saveScanPlans(
       lockfiles: lockfilesOf(scan),
       previous:
         earlier && earlier.scanRunId !== scanRunId ? comparePlan(earlier.plan, stateOf) : null,
-    })
-    repositories.fixPlans.save(plan, now)
-    plans.push(plan)
+      targets,
+    }
+  })
+  const pending = () => uniqueQueries(inputs.flatMap(pendingTargetQueries))
+  for (let round = 0; options.osv && round < TARGET_CHECK_ROUNDS; round++) {
+    const queries = pending()
+    if (queries.length === 0) break
+    const error = await askOsv(options.osv, queries, answers)
+    if (error) {
+      options.warn?.('scan: OSV could not check fix targets', {
+        scanRunId,
+        versions: queries.length,
+        error,
+      })
+    }
   }
-  return plans
+  // Versions still unanswered after the last round are taken unchecked.
+  for (const query of pending()) {
+    const key = packageKey(query.ecosystem, query.packageName)
+    const versions = answers.get(key) ?? new Map<string, OsvAnswer>()
+    answers.set(key, versions.set(query.version, 'unavailable'))
+  }
+  return inputs.map((input) => {
+    const plan = buildFixPlan(input)
+    repositories.fixPlans.save(plan, now)
+    return plan
+  })
 }
