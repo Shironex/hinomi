@@ -1,4 +1,4 @@
-import { eq, or, sql } from 'drizzle-orm'
+import { and, eq, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { advisories, type AdvisoryRow, type NewAdvisoryRow } from '../db/schema.js'
 import { currentTime } from '@hinomi/shared'
@@ -25,6 +25,15 @@ export function createAdvisoriesRepository(db: Db) {
         })
         .returning()
         .get()
+    },
+
+    /** Every stored advisory of one package, for the fix plan's target check. */
+    forPackage(ecosystem: string, packageName: string): AdvisoryRow[] {
+      return db
+        .select()
+        .from(advisories)
+        .where(and(eq(advisories.ecosystem, ecosystem), eq(advisories.packageName, packageName)))
+        .all()
     },
 
     /**

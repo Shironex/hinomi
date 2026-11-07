@@ -15,7 +15,7 @@ import { createTestApi, seedFixWorld } from './testing.js'
 const T0 = new Date('2026-11-02T06:00:00.000Z')
 
 /** Runs the plan step of a scan for the given repos, as if OSV was off. */
-function planScan(repos: Repositories, scanned: RepoRow[]) {
+async function planScan(repos: Repositories, scanned: RepoRow[]) {
   const run = repos.scanRuns.start('manual', T0)
   const skipped = { status: 'skipped', reason: 'off' } as const
   const scans = new Map(
@@ -24,7 +24,7 @@ function planScan(repos: Repositories, scanned: RepoRow[]) {
       { repo, deployed: true, health: skipped, alerts: skipped, osv: skipped },
     ]),
   )
-  saveScanPlans(repos, run.id, scans, T0)
+  await saveScanPlans(repos, run.id, scans, T0)
   return run.id
 }
 
@@ -39,8 +39,8 @@ describe('GET /api/repos/:id/plan', () => {
   it('serves the latest plan, or the plan of one scan', async () => {
     const { call, repos } = createTestApi()
     const world = seedFixWorld(repos)
-    const first = planScan(repos, [world.storefront, world.ledger])
-    const second = planScan(repos, [world.storefront])
+    const first = await planScan(repos, [world.storefront, world.ledger])
+    const second = await planScan(repos, [world.storefront])
 
     const res = await call('GET', `/repos/${world.storefront.id}/plan`)
     expect(res.status).toBe(200)
@@ -67,7 +67,7 @@ describe('GET /api/plans', () => {
   it('lists the latest plan summary per repo, most findings cleared first', async () => {
     const { call, repos } = createTestApi()
     const world = seedFixWorld(repos)
-    planScan(repos, [world.storefront, world.ledger, world.docs])
+    await planScan(repos, [world.storefront, world.ledger, world.docs])
     const { items } = fixPlansResponseSchema.parse((await call('GET', '/plans')).json)
     expect(items.map((p) => [p.repo.name, p.summary.findings.cleared])).toEqual([
       ['storefront', 5],
@@ -84,7 +84,7 @@ describe('plan links', () => {
     const before = fixesResponseSchema.parse((await call('GET', '/fixes')).json)
     expect(before.items[0]?.repos.every((r) => r.plan === null)).toBe(true)
 
-    const run = planScan(repos, [world.storefront, world.ledger])
+    const run = await planScan(repos, [world.storefront, world.ledger])
     const { items } = fixesResponseSchema.parse((await call('GET', '/fixes')).json)
     const plans = Object.fromEntries(
       items[0]!.repos.map((r) => [r.repo.name, r.plan?.scanRunId ?? null]),

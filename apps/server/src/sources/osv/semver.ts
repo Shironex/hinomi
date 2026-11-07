@@ -68,15 +68,19 @@ export interface RangeHit {
  * Evaluates one OSV SEMVER or ECOSYSTEM range. Returns the interval holding
  * `version`, or null when the version is not affected by this range.
  */
-export function matchRange(range: OsvRange, version: string): RangeHit | null {
-  if (range.type === 'GIT') return null
-  const events = [...range.events].sort((a, b) => {
+function sortedEvents(range: OsvRange): OsvEvent[] {
+  return [...range.events].sort((a, b) => {
     const va = eventVersion(a)
     const vb = eventVersion(b)
     if (va === '0' && vb !== '0') return -1
     if (vb === '0' && va !== '0') return 1
     return compareVersions(va, vb)
   })
+}
+
+export function matchRange(range: OsvRange, version: string): RangeHit | null {
+  if (range.type === 'GIT') return null
+  const events = sortedEvents(range)
   let hit: RangeHit | null = null
   for (const event of events) {
     if (event.introduced !== undefined) {
@@ -107,4 +111,28 @@ export function formatRange(hit: RangeHit): string {
   if (hit.fixed) parts.push(`< ${hit.fixed}`)
   else if (hit.lastAffected) parts.push(`<= ${hit.lastAffected}`)
   return parts.length > 0 ? parts.join(', ') : '>= 0'
+}
+
+/** Every affected interval of one OSV SEMVER or ECOSYSTEM range, lowest first. */
+export function rangeIntervals(range: OsvRange): RangeHit[] {
+  if (range.type === 'GIT') return []
+  const out: RangeHit[] = []
+  let open: RangeHit | null = null
+  for (const event of sortedEvents(range)) {
+    if (event.introduced !== undefined) {
+      open ??= {
+        introduced: event.introduced === '0' ? null : event.introduced,
+        fixed: null,
+        lastAffected: null,
+      }
+    } else if (open && event.fixed !== undefined) {
+      out.push({ ...open, fixed: event.fixed })
+      open = null
+    } else if (open && event.last_affected !== undefined) {
+      out.push({ ...open, lastAffected: event.last_affected })
+      open = null
+    }
+  }
+  if (open) out.push(open)
+  return out
 }
