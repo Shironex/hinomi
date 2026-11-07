@@ -205,7 +205,7 @@ export function FindingPane({
   onMissing,
 }: {
   id: number
-  /** Position in a ranked list: "Why it ranks #1". */
+  /** Position in a ranked list, shown in the "Why it ranks" heading. */
   rank?: number
   layout?: 'stack' | 'two'
   deferRequest?: DeferRequest | null

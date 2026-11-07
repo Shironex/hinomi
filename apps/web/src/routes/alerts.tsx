@@ -146,7 +146,7 @@ export function AlertsPage() {
   )
   const clearFilters = () => void navigate({ search: { group: search.group }, replace: true })
 
-  // New filters mean new rows: a selection over rows no longer shown would surprise.
+  // New filters mean new rows: a selection over rows the filters now hide would surprise.
   const paramsKey = JSON.stringify(params)
   const [selectionKey, setSelectionKey] = useState(paramsKey)
   if (selectionKey !== paramsKey) {
