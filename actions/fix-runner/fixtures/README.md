@@ -11,4 +11,9 @@ nothing here is ever installed. Every package name is made up.
 - `npm-overrides`: an npm project with nested `overrides` and `min-release-age` in `.npmrc`.
 - `real-pnpm`, `real-npm`: one dependency each, for the test that runs the real pnpm and npm
   against a registry served on 127.0.0.1 by the test itself (no network).
+- `cargo-workspace`: a Cargo workspace with two member crates, `heron-codec` in
+  `[workspace.dependencies]` (inherited with `workspace = true`), a target specific `=` pin, a
+  `[dependencies.name]` table, dev and build dependencies, a build script that leaves a marker
+  if it ever runs, and a Cargo.lock that the real cargo test updates against a sparse
+  registry it serves on 127.0.0.1.
 - `dispatches`: dispatches the runner must refuse.

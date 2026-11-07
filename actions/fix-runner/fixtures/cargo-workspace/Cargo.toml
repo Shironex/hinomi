@@ -1,0 +1,7 @@
+[workspace]
+members = ["crates/api", "crates/core"]
+resolver = "2"
+
+[workspace.dependencies]
+# Shared by every crate that inherits it.
+heron-codec = "1.2.0"

@@ -1,0 +1,14 @@
+[package]
+name = "kestrel-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies.tern-time]
+version = "~0.8.1"
+
+[dev-dependencies]
+swift-log = "0.3"
+
+[build-dependencies]
+plover-build = '1.1'

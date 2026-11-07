@@ -5,7 +5,7 @@ import { writeArtifacts } from './artifacts.js'
 import { FixRunnerError } from './errors.js'
 import { nodeExec } from './exec.js'
 import { runApply, runDetect, type DispatchInputs } from './pipeline.js'
-import { npmPublishTimes, type HttpFetch } from './registry.js'
+import { registryPublishTimes, type HttpFetch } from './registry.js'
 import { nodeRepoFs } from './repo-fs.js'
 
 // The action entry: reads the inputs, runs the `detect` or `apply` step and sets outputs.
@@ -57,7 +57,7 @@ export async function main(io: MainIo): Promise<number> {
     const exec = nodeExec({ env, echo: (chunk) => io.write(chunk.replace(/\n$/, '')) })
     const outcome = await runApply(
       { ...dispatchInputs, checks: getInput(env, 'checks') },
-      { fs, exec, publishTimes: npmPublishTimes(io.fetch), log, now: io.now ?? currentTime },
+      { fs, exec, publishTimes: registryPublishTimes(io.fetch), log, now: io.now ?? currentTime },
     )
     const written = await writeArtifacts(
       resolve(workspace, OUTPUT_DIR),
