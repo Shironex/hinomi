@@ -7285,123 +7285,6 @@ function nodeExec(options) {
 	} };
 }
 
-// src/json-file.ts
-function isJsonObject(value) {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function parseJsonFile(text) {
-	const data = JSON.parse(text.replace(/^\uFEFF/, ""));
-	if (!isJsonObject(data)) throw new Error("Expected a JSON object");
-	return {
-		data,
-		indent: /^[{[][\r\n]+([ \t]+)\S/.exec(text)?.[1] ?? "  ",
-		eol: text.includes("\r\n") ? "\r\n" : "\n",
-		finalNewline: /\n$/.test(text)
-	};
-}
-function stringifyJsonFile(file) {
-	const body = JSON.stringify(file.data, null, file.indent);
-	const text = file.eol === "\n" ? body : body.replace(/\n/g, file.eol);
-	return file.finalNewline ? text + file.eol : text;
-}
-function objectAt(parent, key) {
-	const current = parent[key];
-	if (isJsonObject(current)) return current;
-	const created = {};
-	parent[key] = created;
-	return created;
-}
-
-// src/release-age.ts
-const MINUTE = 6e4;
-const MINUTES_PER_DAY = 1440;
-function excluded(gate, packageName, version) {
-	return gate.exclude.some((entry) => {
-		const at = entry.lastIndexOf("@");
-		if (at > 0) return entry.slice(0, at) === packageName && entry.slice(at + 1) === version;
-		return new RegExp(`^${entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(packageName);
-	});
-}
-function effectiveGate(floorDays, repoGate, packageName, version) {
-	const floor = floorDays * MINUTES_PER_DAY;
-	const repo = repoGate && !excluded(repoGate, packageName, version) ? repoGate.minutes : 0;
-	const minutes = Math.max(floor, repo);
-	const source = repo > floor ? repoGate?.source ?? "repo" : "hinomi";
-	return {
-		minutes,
-		days: Math.ceil(minutes / MINUTES_PER_DAY),
-		source
-	};
-}
-function checkReleaseAge(input) {
-	const { publishedAt, gate, now } = input;
-	const base = {
-		stepId: input.stepId,
-		packageName: input.packageName,
-		version: input.version,
-		gateDays: gate.days,
-		gateSource: gate.source
-	};
-	if (!publishedAt) return {
-		...base,
-		publishedAt: null,
-		status: "unknown",
-		eligibleAt: null
-	};
-	const eligible = new Date(publishedAt.getTime() + gate.minutes * MINUTE);
-	return {
-		...base,
-		publishedAt: publishedAt.toISOString(),
-		status: eligible.getTime() <= now.getTime() ? "clear" : "too_new",
-		eligibleAt: eligible.getTime() <= now.getTime() ? null : eligible.toISOString()
-	};
-}
-function minutesSince(date, now) {
-	return Math.max(0, Math.ceil((now.getTime() - date.getTime()) / MINUTE));
-}
-
-// src/semver.ts
-const EXACT = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-function parseVersion(text) {
-	const match = EXACT.exec(text.trim());
-	if (!match) return null;
-	return {
-		major: Number(match[1]),
-		minor: Number(match[2]),
-		patch: Number(match[3]),
-		prerelease: match[4] ? match[4].split(".") : []
-	};
-}
-function compareIdentifiers(a, b) {
-	const aNum = /^\d+$/.test(a);
-	const bNum = /^\d+$/.test(b);
-	if (aNum && bNum) return Number(a) - Number(b);
-	if (aNum) return -1;
-	if (bNum) return 1;
-	return a < b ? -1 : a > b ? 1 : 0;
-}
-function compareVersions(a, b) {
-	const left = parseVersion(a);
-	const right = parseVersion(b);
-	if (!left || !right) return left ? 1 : right ? -1 : 0;
-	const core = left.major - right.major || left.minor - right.minor || left.patch - right.patch;
-	if (core !== 0) return core;
-	if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
-	const length = Math.max(left.prerelease.length, right.prerelease.length);
-	for (let i = 0; i < length; i++) {
-		const x = left.prerelease[i];
-		const y = right.prerelease[i];
-		if (x === void 0) return -1;
-		if (y === void 0) return 1;
-		const diff = compareIdentifiers(x, y);
-		if (diff !== 0) return diff;
-	}
-	return 0;
-}
-function atLeast(version, minimum) {
-	return compareVersions(version, minimum) >= 0;
-}
-
 // src/registry.ts
 const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
 const TIMEOUT_MS = 2e4;
@@ -7457,27 +7340,101 @@ function npmPublishTimes(fetchImpl) {
 		return Number.isNaN(date.getTime()) ? null : date;
 	} };
 }
-
-// src/npmrc.ts
-function parseNpmrc(text) {
-	const values = /* @__PURE__ */ new Map();
-	const lists = /* @__PURE__ */ new Map();
-	for (const raw of (text ?? "").split(/\r?\n/)) {
-		const line = raw.trim();
-		if (line === "" || line.startsWith(";") || line.startsWith("#")) continue;
-		const eq = line.indexOf("=");
-		if (eq === -1) continue;
-		const key = line.slice(0, eq).trim();
-		const value = line.slice(eq + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
-		if (key.endsWith("[]")) {
-			const name = key.slice(0, -2);
-			lists.set(name, [...lists.get(name) ?? [], value]);
-		} else values.set(key, value);
-	}
-	return {
-		values,
-		lists
+const CRATES_IO_API = "https://crates.io/api/v1/crates/";
+const CRATES_IO_USER_AGENT = "hinomi-fix-runner (https://github.com/Shironex/hinomi)";
+function cratesPublishTimes(fetchImpl, options = {}) {
+	const intervalMs = options.intervalMs ?? 1e3;
+	const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
+	const now = options.now ?? nowMs;
+	const cache = /* @__PURE__ */ new Map();
+	let queue = Promise.resolve();
+	let last = Number.NEGATIVE_INFINITY;
+	const lookup = async (url) => {
+		const wait = last + intervalMs - now();
+		if (wait > 0) await sleep(wait);
+		last = now();
+		try {
+			const response = await fetchImpl(url, {
+				headers: {
+					accept: "application/json",
+					"user-agent": CRATES_IO_USER_AGENT
+				},
+				signal: AbortSignal.timeout(TIMEOUT_MS)
+			});
+			if (!response.ok) return null;
+			const value = (await response.json())?.version?.created_at;
+			if (typeof value !== "string") return null;
+			const date = new Date(value);
+			return Number.isNaN(date.getTime()) ? null : date;
+		} catch {
+			return null;
+		}
 	};
+	return { publishedAt(crateName, version) {
+		const url = `${CRATES_IO_API}${encodeURIComponent(crateName)}/${encodeURIComponent(version)}`;
+		let pending = cache.get(url);
+		if (!pending) {
+			pending = queue.then(() => lookup(url));
+			queue = pending;
+			cache.set(url, pending);
+		}
+		return pending;
+	} };
+}
+function registryPublishTimes(fetchImpl) {
+	const npm = npmPublishTimes(fetchImpl);
+	const crates = cratesPublishTimes(fetchImpl);
+	return { publishedAt(packageName, version, registry) {
+		return (registry === "https://crates.io/api/v1/crates/" ? crates : npm).publishedAt(packageName, version, registry);
+	} };
+}
+
+// src/release-age.ts
+const MINUTE = 6e4;
+const MINUTES_PER_DAY = 1440;
+function excluded(gate, packageName, version) {
+	return gate.exclude.some((entry) => {
+		const at = entry.lastIndexOf("@");
+		if (at > 0) return entry.slice(0, at) === packageName && entry.slice(at + 1) === version;
+		return new RegExp(`^${entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(packageName);
+	});
+}
+function effectiveGate(floorDays, repoGate, packageName, version) {
+	const floor = floorDays * MINUTES_PER_DAY;
+	const repo = repoGate && !excluded(repoGate, packageName, version) ? repoGate.minutes : 0;
+	const minutes = Math.max(floor, repo);
+	const source = repo > floor ? repoGate?.source ?? "repo" : "hinomi";
+	return {
+		minutes,
+		days: Math.ceil(minutes / MINUTES_PER_DAY),
+		source
+	};
+}
+function checkReleaseAge(input) {
+	const { publishedAt, gate, now } = input;
+	const base = {
+		stepId: input.stepId,
+		packageName: input.packageName,
+		version: input.version,
+		gateDays: gate.days,
+		gateSource: gate.source
+	};
+	if (!publishedAt) return {
+		...base,
+		publishedAt: null,
+		status: "unknown",
+		eligibleAt: null
+	};
+	const eligible = new Date(publishedAt.getTime() + gate.minutes * MINUTE);
+	return {
+		...base,
+		publishedAt: publishedAt.toISOString(),
+		status: eligible.getTime() <= now.getTime() ? "clear" : "too_new",
+		eligibleAt: eligible.getTime() <= now.getTime() ? null : eligible.toISOString()
+	};
+}
+function minutesSince(date, now) {
+	return Math.max(0, Math.ceil((now.getTime() - date.getTime()) / MINUTE));
 }
 
 // src/repo-fs.ts
@@ -7543,6 +7500,724 @@ function nodeRepoFs(root) {
 		async writeBytes(path, bytes) {
 			await writeFile(await contained(path), bytes);
 		}
+	};
+}
+
+// src/semver.ts
+const EXACT = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+function parseVersion(text) {
+	const match = EXACT.exec(text.trim());
+	if (!match) return null;
+	return {
+		major: Number(match[1]),
+		minor: Number(match[2]),
+		patch: Number(match[3]),
+		prerelease: match[4] ? match[4].split(".") : []
+	};
+}
+function compareIdentifiers(a, b) {
+	const aNum = /^\d+$/.test(a);
+	const bNum = /^\d+$/.test(b);
+	if (aNum && bNum) return Number(a) - Number(b);
+	if (aNum) return -1;
+	if (bNum) return 1;
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+function compareVersions(a, b) {
+	const left = parseVersion(a);
+	const right = parseVersion(b);
+	if (!left || !right) return left ? 1 : right ? -1 : 0;
+	const core = left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+	if (core !== 0) return core;
+	if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
+	const length = Math.max(left.prerelease.length, right.prerelease.length);
+	for (let i = 0; i < length; i++) {
+		const x = left.prerelease[i];
+		const y = right.prerelease[i];
+		if (x === void 0) return -1;
+		if (y === void 0) return 1;
+		const diff = compareIdentifiers(x, y);
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
+function atLeast(version, minimum) {
+	return compareVersions(version, minimum) >= 0;
+}
+
+// src/toml.ts
+const BARE_KEY = /[A-Za-z0-9_-]/;
+const WHITESPACE = /* @__PURE__ */ new Set([" ", "	"]);
+var Scanner = class {
+	text;
+	i = 0;
+	constructor(text) {
+		this.text = text;
+	}
+	peek() {
+		return this.text[this.i] ?? "";
+	}
+	fail(message) {
+		const line = this.text.slice(0, this.i).split("\n").length;
+		throw new FixRunnerError(`TOML: ${message} on line ${line}`);
+	}
+	skipSpaces() {
+		while (WHITESPACE.has(this.peek())) this.i++;
+	}
+	skipBlank() {
+		for (;;) {
+			const c = this.peek();
+			if (WHITESPACE.has(c) || c === "\n" || c === "\r") this.i++;
+			else if (c === "#") this.skipComment();
+			else return;
+		}
+	}
+	skipComment() {
+		while (this.i < this.text.length && this.peek() !== "\n") this.i++;
+	}
+	endLine() {
+		this.skipSpaces();
+		if (this.peek() === "#") this.skipComment();
+		if (this.peek() === "\r") this.i++;
+		if (this.i < this.text.length && this.peek() !== "\n") this.fail("expected the end of the line");
+	}
+	key() {
+		const parts = [];
+		for (;;) {
+			this.skipSpaces();
+			parts.push(this.keyPart());
+			this.skipSpaces();
+			if (this.peek() !== ".") return parts;
+			this.i++;
+		}
+	}
+	keyPart() {
+		const c = this.peek();
+		if (c === "\"" || c === "'") {
+			const start = this.i;
+			this.skipString();
+			return decodeString(this.text.slice(start, this.i)) ?? this.fail("unsupported quoted key");
+		}
+		const start = this.i;
+		while (BARE_KEY.test(this.peek())) this.i++;
+		if (this.i === start) this.fail("expected a key");
+		return this.text.slice(start, this.i);
+	}
+	skipString() {
+		const quote = this.peek();
+		if (this.text.startsWith(quote.repeat(3), this.i)) {
+			const close = this.text.indexOf(quote.repeat(3), this.i + 3);
+			if (close === -1) this.fail("unterminated string");
+			this.i = close + 3;
+			while (this.peek() === quote && this.i - close < 5) this.i++;
+			return;
+		}
+		this.i++;
+		while (this.i < this.text.length) {
+			const c = this.peek();
+			if (c === "\n") break;
+			if (c === "\\" && quote === "\"") {
+				this.i += 2;
+				continue;
+			}
+			this.i++;
+			if (c === quote) return;
+		}
+		this.fail("unterminated string");
+	}
+	skipValue() {
+		const c = this.peek();
+		if (c === "\"" || c === "'") return this.skipString();
+		if (c === "[" || c === "{") return this.skipContainer();
+		const start = this.i;
+		while (this.i < this.text.length && !/[\s,\]}#]/.test(this.peek())) this.i++;
+		if (this.i === start) this.fail("expected a value");
+	}
+	skipContainer() {
+		const close = this.peek() === "[" ? "]" : "}";
+		this.i++;
+		for (;;) {
+			this.skipBlank();
+			const c = this.peek();
+			if (c === "") this.fail("unterminated array or inline table");
+			if (c === close) {
+				this.i++;
+				return;
+			}
+			if (c === ",") {
+				this.i++;
+				continue;
+			}
+			if (close === "}") {
+				this.key();
+				this.skipSpaces();
+				if (this.peek() !== "=") this.fail("expected =");
+				this.i++;
+				this.skipSpaces();
+			}
+			this.skipValue();
+		}
+	}
+};
+function scanToml(text) {
+	const s = new Scanner(text);
+	const entries = [];
+	let table = [];
+	let arrayTable = false;
+	let tableIndex = 0;
+	for (;;) {
+		s.skipBlank();
+		if (s.i >= text.length) return entries;
+		if (s.peek() === "[") {
+			arrayTable = text[s.i + 1] === "[";
+			s.i += arrayTable ? 2 : 1;
+			table = s.key();
+			if (!text.startsWith(arrayTable ? "]]" : "]", s.i)) s.fail("expected ] after a table name");
+			s.i += arrayTable ? 2 : 1;
+			tableIndex++;
+			s.endLine();
+			continue;
+		}
+		const key = s.key();
+		if (s.peek() !== "=") s.fail("expected =");
+		s.i++;
+		s.skipSpaces();
+		const start = s.i;
+		s.skipValue();
+		entries.push({
+			table,
+			arrayTable,
+			tableIndex,
+			key,
+			start,
+			end: s.i
+		});
+		s.endLine();
+	}
+}
+function scanInlineTable(text, start, end) {
+	const s = new Scanner(text.slice(0, end));
+	s.i = start;
+	if (s.peek() !== "{") return [];
+	s.i++;
+	const entries = [];
+	for (;;) {
+		s.skipBlank();
+		if (s.peek() === "}" || s.i >= end) return entries;
+		if (s.peek() === ",") {
+			s.i++;
+			continue;
+		}
+		const key = s.key();
+		s.skipSpaces();
+		if (s.peek() !== "=") s.fail("expected =");
+		s.i++;
+		s.skipSpaces();
+		const valueStart = s.i;
+		s.skipValue();
+		entries.push({
+			table: [],
+			arrayTable: false,
+			tableIndex: 0,
+			key,
+			start: valueStart,
+			end: s.i
+		});
+	}
+}
+function decodeString(raw) {
+	if (raw.length < 2 || raw.startsWith("\"\"\"") || raw.startsWith("'''")) return null;
+	const quote = raw[0];
+	if (quote !== "\"" && quote !== "'" || raw.at(-1) !== quote) return null;
+	const body = raw.slice(1, -1);
+	if (quote === "'") return body;
+	if (/\\[^"\\]/.test(body)) return null;
+	return body.replace(/\\(["\\])/g, "$1");
+}
+function scalarValue(text, entry) {
+	const raw = text.slice(entry.start, entry.end);
+	if (raw === "true") return true;
+	if (raw === "false") return false;
+	return decodeString(raw);
+}
+
+// src/appliers/cargo.ts
+const CRATES_IO_SOURCES = ["registry+https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/"];
+const METADATA_TIMEOUT_MS = 12e4;
+function cargoLockPackages(text) {
+	const blocks = /* @__PURE__ */ new Map();
+	for (const entry of scanToml(text)) {
+		if (!entry.arrayTable || entry.table.join(".") !== "package" || entry.key.length !== 1) continue;
+		const value = scalarValue(text, entry);
+		if (typeof value !== "string") continue;
+		const block = blocks.get(entry.tableIndex) ?? {};
+		const field = entry.key[0];
+		if (field === "name" || field === "version" || field === "source") block[field] = value;
+		blocks.set(entry.tableIndex, block);
+	}
+	const crates = [];
+	for (const block of blocks.values()) if (block.name && block.version) crates.push({
+		name: block.name,
+		version: block.version,
+		source: block.source ?? null
+	});
+	return crates;
+}
+function cargoLockVersions(text, crateName) {
+	const versions = cargoLockPackages(text).filter((locked) => locked.name === crateName).map((locked) => locked.version);
+	return [...new Set(versions)];
+}
+function compatBucket(version) {
+	const parsed = parseVersion(version);
+	if (!parsed) return null;
+	if (parsed.major > 0) return String(parsed.major);
+	if (parsed.minor > 0) return `0.${parsed.minor}`;
+	return `0.0.${parsed.patch}`;
+}
+function preciseSources(locked, from, to) {
+	const bucket = compatBucket(to);
+	return locked.filter((version) => compareVersions(version, to) < 0).filter((version) => from.includes(version) || compatBucket(version) === bucket).sort(compareVersions);
+}
+const DEPENDENCY_TABLES = /* @__PURE__ */ new Set([
+	"dependencies",
+	"dev-dependencies",
+	"build-dependencies",
+	"dev_dependencies",
+	"build_dependencies"
+]);
+function dependencyTableLength(table) {
+	if (DEPENDENCY_TABLES.has(table[0] ?? "")) return 1;
+	if (table[0] === "target" && DEPENDENCY_TABLES.has(table[2] ?? "")) return 3;
+	if (table[0] === "workspace" && table[1] === "dependencies") return 2;
+	return 0;
+}
+function cargoDependencies(text) {
+	const found = /* @__PURE__ */ new Map();
+	const declare = (table, key) => {
+		const id = `${table}\0${key}`;
+		let dependency = found.get(id);
+		if (!dependency) {
+			dependency = {
+				table,
+				key,
+				packageName: null,
+				version: null,
+				workspace: false,
+				nonRegistry: false
+			};
+			found.set(id, dependency);
+		}
+		return dependency;
+	};
+	const setField = (dependency, field, entry) => {
+		const value = scalarValue(text, entry);
+		if (field === "version") dependency.version = entry;
+		else if (field === "package" && typeof value === "string") dependency.packageName = value;
+		else if (field === "workspace") dependency.workspace = value === true;
+		else if (field === "git" || field === "path") dependency.nonRegistry = true;
+	};
+	for (const entry of scanToml(text)) {
+		const length = dependencyTableLength(entry.table);
+		if (length === 0) continue;
+		const table = entry.table.slice(0, length).join(".");
+		const [first, ...rest] = entry.key;
+		if (first === void 0) continue;
+		if (entry.table.length === length + 1) {
+			const key = entry.table[length];
+			if (key !== void 0 && rest.length === 0) setField(declare(table, key), first, entry);
+			continue;
+		}
+		if (entry.table.length !== length) continue;
+		const dependency = declare(table, first);
+		if (rest.length === 1 && rest[0] !== void 0) setField(dependency, rest[0], entry);
+		else if (rest.length === 0 && text[entry.start] === "{") {
+			for (const inner of scanInlineTable(text, entry.start, entry.end)) if (inner.key.length === 1 && inner.key[0] !== void 0) setField(dependency, inner.key[0], inner);
+		} else if (rest.length === 0) dependency.version = entry;
+	}
+	return [...found.values()];
+}
+const REQUIREMENT = /^(\s*)(\^|~|=|>=)?(\s*)(\d+)(?:\.(\d+))?(?:\.(\d+))?(-[0-9A-Za-z.-]+)?(\s*)$/;
+function bumpRequirement(requirement, to) {
+	const match = REQUIREMENT.exec(requirement);
+	if (!match) return null;
+	const [, lead = "", operator = "", gap = "", , , , , trail = ""] = match;
+	return `${lead}${operator}${gap}${to}${trail}`;
+}
+function requirementFloor(requirement) {
+	const match = REQUIREMENT.exec(requirement);
+	if (!match) return null;
+	return `${match[4]}.${match[5] ?? "0"}.${match[6] ?? "0"}${match[7] ?? ""}`;
+}
+function bumpCargoManifest(text, crateName, to, scope) {
+	const result = {
+		text,
+		changed: 0,
+		declared: 0,
+		inherits: false,
+		manual: null
+	};
+	const replacements = [];
+	for (const dependency of cargoDependencies(text)) {
+		if ((dependency.packageName ?? dependency.key) !== crateName) continue;
+		if (dependency.table === "workspace.dependencies" !== (scope === "workspace")) continue;
+		result.declared++;
+		const where = `[${dependency.table}] ${dependency.key}`;
+		if (dependency.workspace) {
+			result.inherits = true;
+			continue;
+		}
+		if (!dependency.version) {
+			result.manual = dependency.nonRegistry ? `${where} is a git or path dependency` : `${where} has no version`;
+			continue;
+		}
+		const raw = text.slice(dependency.version.start, dependency.version.end);
+		const requirement = scalarValue(text, dependency.version);
+		const floor = typeof requirement === "string" ? requirementFloor(requirement) : null;
+		const next = typeof requirement === "string" ? bumpRequirement(requirement, to) : null;
+		if (next === null || floor === null) {
+			result.manual = `${where} has ${raw}`;
+			continue;
+		}
+		if (compareVersions(floor, to) >= 0) continue;
+		replacements.push({
+			start: dependency.version.start + 1,
+			end: dependency.version.end - 1,
+			value: next
+		});
+	}
+	let next = text;
+	for (const { start, end, value } of replacements.sort((a, b) => b.start - a.start)) next = next.slice(0, start) + value + next.slice(end);
+	return {
+		...result,
+		text: next,
+		changed: replacements.length
+	};
+}
+function parseCargoMetadata(output) {
+	const line = output.split(/\r?\n/).map((l) => l.trim()).findLast((l) => l.startsWith("{"));
+	if (!line) throw new Error("cargo metadata printed no JSON");
+	return JSON.parse(line);
+}
+async function repoRelative(ctx, absolute) {
+	const bases = [ctx.fs.root];
+	try {
+		bases.push(await realpath(ctx.fs.root));
+	} catch {}
+	for (const base of bases) {
+		const rel = relative(base, absolute).split("\\").join("/");
+		if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && isSafeRepoPath(rel)) return rel;
+	}
+	return null;
+}
+const workspaces = /* @__PURE__ */ new WeakMap();
+function cargoWorkspace(ctx) {
+	let pending = workspaces.get(ctx);
+	if (!pending) {
+		pending = readWorkspace(ctx);
+		workspaces.set(ctx, pending);
+	}
+	return pending;
+}
+async function readWorkspace(ctx) {
+	const result = await ctx.exec.run({
+		file: "cargo",
+		args: [
+			"metadata",
+			"--format-version",
+			"1",
+			"--no-deps"
+		]
+	}, {
+		cwd: ctx.fs.absolute(ctx.root),
+		timeoutMs: METADATA_TIMEOUT_MS
+	});
+	if (result.code !== 0) return `cargo metadata failed: ${(result.output.trim().split("\n").pop() ?? "").slice(0, 200)}`;
+	let doc;
+	try {
+		doc = parseCargoMetadata(result.output);
+	} catch {
+		return "cargo metadata printed no JSON";
+	}
+	const meta = doc;
+	if (typeof meta.workspace_root !== "string" || !Array.isArray(meta.packages)) return "cargo metadata output has no workspace";
+	const rootManifest = await repoRelative(ctx, `${meta.workspace_root}/Cargo.toml`);
+	if (!rootManifest) return "the workspace root is outside the repo";
+	const members = [];
+	for (const pkg of meta.packages) {
+		if (typeof pkg.name !== "string" || typeof pkg.manifest_path !== "string") continue;
+		const manifest = await repoRelative(ctx, pkg.manifest_path);
+		if (manifest?.endsWith("Cargo.toml")) members.push({
+			name: pkg.name,
+			manifest
+		});
+	}
+	return {
+		rootManifest,
+		members
+	};
+}
+function failed(detail) {
+	return {
+		status: "failed",
+		reason: "edit_failed",
+		detail
+	};
+}
+async function lockedVersions(ctx, crateName) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return [];
+	try {
+		return cargoLockVersions(text, crateName);
+	} catch {
+		return [];
+	}
+}
+async function checkPrecise(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update") return failed(`${apply.type} is not a lockfile update`);
+	const locked = await lockedVersions(ctx, apply.packageName);
+	if (preciseSources(locked, apply.from, apply.to).length === 0) return failed(`${ctx.lockfile} has ${apply.packageName} ${locked.join(", ")}, none that cargo update --precise ${apply.to} can move`);
+	return {
+		status: "edited",
+		files: []
+	};
+}
+async function bumpManifests$1(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "manifest_bump") return failed(`${apply.type} is not a manifest bump`);
+	const workspace = await cargoWorkspace(ctx);
+	if (typeof workspace === "string") return failed(workspace);
+	let targets = workspace.members;
+	if (step.workspaces.length > 0) {
+		const missing = step.workspaces.filter((name) => !targets.some((m) => m.name === name));
+		if (missing.length > 0) return failed(`not a workspace member: ${missing.join(", ")}`);
+		targets = targets.filter((member) => step.workspaces.includes(member.name));
+	}
+	const texts = /* @__PURE__ */ new Map();
+	const read = async (path) => texts.get(path) ?? await ctx.fs.read(path);
+	const changed = /* @__PURE__ */ new Set();
+	let declared = 0;
+	let inherits = false;
+	const bumpIn = async (path, scope) => {
+		const text = await read(path);
+		if (text === null) return `${path} does not exist`;
+		let bump;
+		try {
+			bump = bumpCargoManifest(text, apply.packageName, apply.version, scope);
+		} catch (error) {
+			return `${path}: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		if (bump.manual) return { manual: `${path} ${bump.manual}` };
+		declared += bump.declared;
+		inherits ||= bump.inherits;
+		texts.set(path, bump.text);
+		if (bump.changed > 0) changed.add(path);
+		return null;
+	};
+	for (const member of [...new Set(targets.map((t) => t.manifest))]) {
+		const problem = await bumpIn(member, "member");
+		if (typeof problem === "string") return failed(problem);
+		if (problem) return {
+			status: "skipped",
+			reason: "manual_specifier",
+			detail: problem.manual
+		};
+	}
+	if (inherits) {
+		const before = declared;
+		const problem = await bumpIn(workspace.rootManifest, "workspace");
+		if (typeof problem === "string") return failed(problem);
+		if (problem) return {
+			status: "skipped",
+			reason: "manual_specifier",
+			detail: problem.manual
+		};
+		if (declared === before) return failed(`${workspace.rootManifest} has no [workspace.dependencies] ${apply.packageName}`);
+	}
+	if (declared === 0) return failed(`no Cargo.toml of ${step.workspaces.join(", ") || "the workspace"} declares ${apply.packageName}`);
+	for (const path of changed) await ctx.fs.write(path, texts.get(path) ?? "");
+	return {
+		status: "edited",
+		files: [...changed].sort()
+	};
+}
+function update(args) {
+	return {
+		file: "cargo",
+		args: ["update", ...args]
+	};
+}
+async function cargoUpdateCommands(ctx, steps) {
+	const text = await ctx.fs.read(ctx.lockfile) ?? "";
+	let packages;
+	try {
+		packages = cargoLockPackages(text);
+	} catch {
+		packages = [];
+	}
+	const versionsOf = (name) => packages.filter((locked) => locked.name === name).map((locked) => locked.version);
+	const commands = [];
+	if (steps.some((step) => step.apply.type === "manifest_bump")) commands.push(update(["--workspace"]));
+	for (const { apply } of steps) if (apply.type === "lockfile_update") for (const from of preciseSources(versionsOf(apply.packageName), apply.from, apply.to)) commands.push(update([
+		"-p",
+		`${apply.packageName}@${from}`,
+		"--precise",
+		apply.to
+	]));
+	else if (apply.type === "manifest_bump") {
+		const bucket = compatBucket(apply.version);
+		const settled = versionsOf(apply.packageName).some((version) => compatBucket(version) === bucket && compareVersions(version, apply.version) >= 0);
+		if (bucket && !settled) commands.push(update([
+			"-p",
+			`${apply.packageName}@${bucket}`,
+			"--precise",
+			apply.version
+		]));
+	}
+	return commands;
+}
+const DURATION = /^\s*(\d+)\s*(second|minute|hour|day|week|month)s?\s*$/;
+const DURATION_MINUTES = {
+	second: 1 / 60,
+	minute: 1,
+	hour: 60,
+	day: MINUTES_PER_DAY,
+	week: 7 * MINUTES_PER_DAY,
+	month: 30 * MINUTES_PER_DAY
+};
+function parseCargoDuration(value) {
+	if (value.trim() === "0") return 0;
+	const match = DURATION.exec(value);
+	const unit = match?.[2] ? DURATION_MINUTES[match[2]] : void 0;
+	return match && unit !== void 0 ? Math.ceil(Number(match[1]) * unit) : null;
+}
+async function cargoConfigGate(ctx) {
+	const folders = [.../* @__PURE__ */ new Set([ctx.root, "."])];
+	for (const folder of folders) for (const name of [".cargo/config.toml", ".cargo/config"]) {
+		const path = repoJoin(folder, name);
+		const text = await ctx.fs.read(path);
+		if (text === null) continue;
+		let entries;
+		try {
+			entries = scanToml(text);
+		} catch {
+			continue;
+		}
+		for (const field of ["min-publish-age", "global-min-publish-age"]) {
+			const entry = entries.find((e) => [...e.table, ...e.key].join(".") === `registry.${field}`);
+			const value = entry ? scalarValue(text, entry) : null;
+			const minutes = typeof value === "string" ? parseCargoDuration(value) : null;
+			if (minutes !== null) return {
+				minutes,
+				source: `${path} registry.${field}`,
+				exclude: []
+			};
+		}
+	}
+	return null;
+}
+const cargoApplier = {
+	packageManager: "cargo",
+	lockfiles: ["Cargo.lock"],
+	versionCommand: {
+		file: "cargo",
+		args: ["--version"]
+	},
+	resolvedVersions: lockedVersions,
+	releaseAgeGate: cargoConfigGate,
+	async publishedAt(ctx, crateName, version) {
+		const text = await ctx.fs.read(ctx.lockfile);
+		let sources;
+		try {
+			sources = cargoLockPackages(text ?? "").filter((locked) => locked.name === crateName).map((locked) => locked.source);
+		} catch {
+			return null;
+		}
+		if (!sources.some((source) => source !== null && CRATES_IO_SOURCES.includes(source))) return null;
+		return ctx.publishTimes.publishedAt(crateName, version, CRATES_IO_API);
+	},
+	applyStep(ctx, step) {
+		return step.apply.type === "lockfile_update" ? checkPrecise(ctx, step) : bumpManifests$1(ctx, step);
+	},
+	lockfileInstall(ctx, { steps }) {
+		return cargoUpdateCommands(ctx, steps);
+	},
+	fullInstall() {
+		return {
+			file: "cargo",
+			args: ["fetch", "--locked"]
+		};
+	},
+	checks() {
+		const env = { CARGO_TERM_COLOR: "never" };
+		return Promise.resolve([{
+			name: "cargo check",
+			command: {
+				file: "cargo",
+				args: [
+					"check",
+					"--locked",
+					"--all-targets"
+				],
+				env
+			}
+		}, {
+			name: "cargo test",
+			command: {
+				file: "cargo",
+				args: ["test", "--locked"],
+				env
+			}
+		}]);
+	}
+};
+
+// src/json-file.ts
+function isJsonObject(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function parseJsonFile(text) {
+	const data = JSON.parse(text.replace(/^\uFEFF/, ""));
+	if (!isJsonObject(data)) throw new Error("Expected a JSON object");
+	return {
+		data,
+		indent: /^[{[][\r\n]+([ \t]+)\S/.exec(text)?.[1] ?? "  ",
+		eol: text.includes("\r\n") ? "\r\n" : "\n",
+		finalNewline: /\n$/.test(text)
+	};
+}
+function stringifyJsonFile(file) {
+	const body = JSON.stringify(file.data, null, file.indent);
+	const text = file.eol === "\n" ? body : body.replace(/\n/g, file.eol);
+	return file.finalNewline ? text + file.eol : text;
+}
+function objectAt(parent, key) {
+	const current = parent[key];
+	if (isJsonObject(current)) return current;
+	const created = {};
+	parent[key] = created;
+	return created;
+}
+
+// src/npmrc.ts
+function parseNpmrc(text) {
+	const values = /* @__PURE__ */ new Map();
+	const lists = /* @__PURE__ */ new Map();
+	for (const raw of (text ?? "").split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "" || line.startsWith(";") || line.startsWith("#")) continue;
+		const eq = line.indexOf("=");
+		if (eq === -1) continue;
+		const key = line.slice(0, eq).trim();
+		const value = line.slice(eq + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
+		if (key.endsWith("[]")) {
+			const name = key.slice(0, -2);
+			lists.set(name, [...lists.get(name) ?? [], value]);
+		} else values.set(key, value);
+	}
+	return {
+		values,
+		lists
 	};
 }
 
@@ -14079,7 +14754,11 @@ const pnpmApplier = {
 };
 
 // src/appliers/registry.ts
-const APPLIERS = /* @__PURE__ */ new Map([["pnpm", pnpmApplier], ["npm", npmApplier]]);
+const APPLIERS = /* @__PURE__ */ new Map([
+	["pnpm", pnpmApplier],
+	["npm", npmApplier],
+	["cargo", cargoApplier]
+]);
 
 // src/bisect.ts
 function firstErrorLine(output) {
@@ -14404,6 +15083,9 @@ function groupProjects(steps) {
 	}
 	return [...projects.values()];
 }
+async function installCommands(applier, ctx, options) {
+	return [await applier.lockfileInstall(ctx, options)].flat();
+}
 function reconcileStep(step, resolved) {
 	if (resolved.length === 0) return {
 		status: "skipped",
@@ -14461,14 +15143,25 @@ var ApplyRun = class {
 			timeoutMs
 		}));
 	}
-	async lockfileInstall(entry, repoGate) {
-		const command = entry.applier.lockfileInstall(entry.ctx, { repoGate });
-		const result = await this.run(command, entry.project.root, INSTALL_TIMEOUT_MS);
+	async lockfileInstall(entry, repoGate, steps) {
+		const commands = await installCommands(entry.applier, entry.ctx, {
+			repoGate,
+			steps
+		});
 		this.install.ran = true;
-		this.install.durationMs += result.durationMs;
+		const outputs = [];
+		for (const command of commands) {
+			const result = await this.run(command, entry.project.root, INSTALL_TIMEOUT_MS);
+			this.install.durationMs += result.durationMs;
+			outputs.push(result.output);
+			if (result.code !== 0) return {
+				ok: false,
+				output: outputs.join("\n")
+			};
+		}
 		return {
-			ok: result.code === 0,
-			output: result.output
+			ok: true,
+			output: outputs.join("\n")
 		};
 	}
 	async openProject(project) {
@@ -14564,7 +15257,7 @@ var ApplyRun = class {
 		return edited;
 	}
 	async installProject(entry, repoGate, edited) {
-		const first = await this.lockfileInstall(entry, repoGate);
+		const first = await this.lockfileInstall(entry, repoGate, edited);
 		if (first.ok) {
 			entry.applied = edited.map((step) => step.id);
 			return;
@@ -14575,11 +15268,9 @@ var ApplyRun = class {
 		const byId = new Map(edited.map((step) => [step.id, step]));
 		const result = await bisectInstall([...byId.keys()], first, { attempt: async (ids) => {
 			await snapshot.restore();
-			for (const id of ids) {
-				const step = byId.get(id);
-				if (step) await entry.applier.applyStep(entry.ctx, step);
-			}
-			return this.lockfileInstall(entry, repoGate);
+			const steps = ids.flatMap((id) => byId.get(id) ?? []);
+			for (const step of steps) await entry.applier.applyStep(entry.ctx, step);
+			return this.lockfileInstall(entry, repoGate, steps);
 		} });
 		for (const [id, detail] of result.failed) {
 			const step = byId.get(id);
@@ -14786,7 +15477,7 @@ async function main(io) {
 		}, {
 			fs,
 			exec,
-			publishTimes: npmPublishTimes(io.fetch),
+			publishTimes: registryPublishTimes(io.fetch),
 			log,
 			now: io.now ?? currentTime
 		});
