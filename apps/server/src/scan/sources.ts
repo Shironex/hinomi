@@ -1,11 +1,20 @@
 import type {
   AccountRepo,
+  DeploymentKind,
   DeploymentRecord,
   DependabotAlertsResult,
   RepoHealth,
 } from '@hinomi/shared'
 import { cachedFactsOf, type Repositories, type Source } from '../repository/index.js'
-import { fetchCoolifyInventory } from '../sources/coolify/index.js'
+import {
+  createCoolifyClient,
+  fetchCoolifyInventory,
+  fetchResourceScan,
+  probeImageScan,
+  type CoolifyClient,
+  type ImageScanProbe,
+  type ResourceScanResult,
+} from '../sources/coolify/index.js'
 import {
   createGithubSourceFromConfig,
   readRepoFile,
@@ -17,10 +26,20 @@ import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../source
 import type { OsvClient } from '../sources/osv/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
 
+/** Reads a deployment source's own image scan results (see image-scan.ts). */
+export interface ImageScanReader {
+  /** Once per instance and scan: whether it has results at all. */
+  probe(): Promise<ImageScanProbe>
+  /** One resource's images and findings, by its id in the source. */
+  resource(kind: DeploymentKind, externalId: string): Promise<ResourceScanResult>
+}
+
 export interface CoolifyScanSource {
   sourceId: number
   name: string
   fetchInventory(): Promise<DeploymentRecord[]>
+  /** Coolify's image scan results; left out by sources that cannot read them. */
+  imageScan?: ImageScanReader
 }
 
 export interface GithubScanSource {
@@ -108,9 +127,23 @@ function coolifySource(
   options: BuildScanSourcesOptions,
 ): CoolifyScanSource {
   const token = readToken(repositories, source)
+  let client: CoolifyClient | null = null
+  const imageClient = (): CoolifyClient => {
+    if (!source.baseUrl) throw new Error(`Coolify source "${source.name}" has no URL`)
+    client ??= createCoolifyClient({
+      baseUrl: source.baseUrl,
+      token: token(),
+      ...(options.fetch && { fetch: options.fetch }),
+    })
+    return client
+  }
   return {
     sourceId: source.id,
     name: source.name,
+    imageScan: {
+      probe: async () => probeImageScan(imageClient()),
+      resource: async (kind, externalId) => fetchResourceScan(imageClient(), kind, externalId),
+    },
     fetchInventory: async () => {
       if (!source.baseUrl) throw new Error(`Coolify source "${source.name}" has no URL`)
       // Facts are read again only for resources that changed since the last scan.

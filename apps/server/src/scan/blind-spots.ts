@@ -1,9 +1,10 @@
-import type { BlindSpotType } from '@hinomi/shared'
+import type { BlindSpotType, ImageScanMode } from '@hinomi/shared'
 import type { Repositories } from '../repository/index.js'
 import { blindSpotFindingKey, coverageNoteFindingKey } from '../repository/index.js'
 import type { FindingChange } from './apply.js'
 import type { RepoScan } from './collect.js'
 import { isImageOnly, needsRepoMapping, type DeploymentIndex } from './deployments.js'
+import { coveredByImageScan, type ImageCoverage } from './image-scan.js'
 import { loadOverrideIndex, reconcileOverride, type OverrideIndex } from './overrides.js'
 import { markFixed, reopenIfFixed } from './state.js'
 
@@ -85,20 +86,38 @@ export function deploymentBlindSpotChecks(index: DeploymentIndex): BlindSpotChec
   }))
 }
 
+/** What the image scan said this scan, for the `image_only` notes. */
+export interface ImageScanCoverage {
+  mode: ImageScanMode
+  coverage: ImageCoverage
+}
+
 /**
  * Opens and resolves `image_only` coverage notes: one per deployment with no
- * git source and no manual repo mapping. A mapping or a git source clears it.
+ * git source and no manual repo mapping. A mapping or a git source clears it,
+ * and so does the image scan when it covers the deployment. When the image scan
+ * could not tell this time, the note is left as it is.
  */
 export function applyCoverageNotes(
   repositories: Repositories,
   index: DeploymentIndex,
   now: Date,
+  imageScan?: ImageScanCoverage,
 ): FindingChange[] {
   const { findings } = repositories
   const unmapped = new Set(index.unmapped.map((d) => d.id))
   const changes: FindingChange[] = []
   for (const deployment of index.deployments) {
+    const existing = findings.getByKey(coverageNoteFindingKey('image_only', deployment.id))
     if (isImageOnly(deployment) && unmapped.has(deployment.id)) {
+      const covered = imageScan?.coverage.get(deployment.id)
+      if (covered === null) continue
+      if (covered === true && imageScan) {
+        if (existing && markFixed(findings, existing, now, coveredByImageScan(imageScan.mode))) {
+          changes.push({ findingId: existing.id, change: 'fixed' })
+        }
+        continue
+      }
       const { finding, created } = findings.observe(
         { kind: 'coverage_note', coverageNoteType: 'image_only', deploymentId: deployment.id },
         now,
@@ -109,7 +128,6 @@ export function applyCoverageNotes(
       }
       continue
     }
-    const existing = findings.getByKey(coverageNoteFindingKey('image_only', deployment.id))
     if (existing && markFixed(findings, existing, now)) {
       changes.push({ findingId: existing.id, change: 'fixed' })
     }
@@ -169,6 +187,7 @@ export function applyBlindSpots(
   index: DeploymentIndex,
   scans: ReadonlyMap<number, RepoScan>,
   now: Date,
+  imageScan?: ImageScanCoverage,
 ): FindingChange[] {
   return repositories.db.transaction(() => {
     const changes: FindingChange[] = []
@@ -184,7 +203,7 @@ export function applyBlindSpots(
     ]
     const overrides = loadOverrideIndex(repositories, index)
     for (const check of checks) applyCheck(repositories, check, overrides, now, changes)
-    changes.push(...applyCoverageNotes(repositories, index, now))
+    changes.push(...applyCoverageNotes(repositories, index, now, imageScan))
     return changes
   })
 }

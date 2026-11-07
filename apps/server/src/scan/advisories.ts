@@ -1,6 +1,7 @@
 import type { AdvisoryRecord, OsvAdvisoryMatch, Reporter } from '@hinomi/shared'
 import type { AdvisoryRow } from '../db/schema.js'
 import type { AdvisoriesRepository, UpsertAdvisoryInput } from '../repository/index.js'
+import type { ImageFinding } from '../sources/coolify/index.js'
 
 /**
  * Ecosystem names as stored on advisories: GitHub's lowercase words. OSV
@@ -56,6 +57,36 @@ export function advisoryFromOsv(match: OsvAdvisoryMatch): UpsertAdvisoryInput {
     vulnerableRanges: match.vulnerableRange ? [match.vulnerableRange] : [],
     firstPatchedVersion: match.firstPatched,
     publishedAt: parseDate(match.publishedAt),
+    withdrawnAt: null,
+  }
+}
+
+const GHSA_ID = /^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$/i
+const CVE_ID = /^CVE-\d{4}-\d{4,}$/i
+
+/**
+ * An advisory from an image scan finding. The key is the GHSA alias when there is one (so it
+ * joins what GitHub and OSV report), else the scanner's display id or id. OS package types keep
+ * their own ecosystem name (`deb`, `apk`, `rpm`), see ecosystemOfPackageType.
+ */
+export function advisoryFromImage(finding: ImageFinding): UpsertAdvisoryInput {
+  const ghsaId = finding.ids.find((id) => GHSA_ID.test(id)) ?? null
+  return {
+    advisoryKey: ghsaId ?? finding.displayId ?? finding.id,
+    ghsaId,
+    cveIds: uniq(finding.ids.filter((id) => CVE_ID.test(id)).map((id) => id.toUpperCase())),
+    aliases: finding.ids,
+    ecosystem: normalizeEcosystem(finding.ecosystem),
+    packageName: finding.packageName,
+    severity: finding.severity,
+    cvssScore: finding.cvssScore,
+    cvssVector: null,
+    summary: finding.title,
+    description: null,
+    url: finding.advisoryUrl,
+    vulnerableRanges: [],
+    firstPatchedVersion: finding.fixedIn,
+    publishedAt: null,
     withdrawnAt: null,
   }
 }
