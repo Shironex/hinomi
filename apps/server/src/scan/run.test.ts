@@ -350,6 +350,15 @@ describe('runScan', () => {
     const counts = findingCounts(repos, new Date(t0))
     expect(counts.advisories).toMatchObject({ total: 2, exposed: 2, needsAction: 2 })
     expect(counts.blindSpots.total).toBe(3)
+
+    // The ranking phase stores a fix plan for every scanned repo.
+    const plans = repos.fixPlans.latestPerRepo()
+    expect(plans).toHaveLength(3)
+    expect(plans.every((p) => p.scanRunId === summary.scanRunId)).toBe(true)
+    const harborPlan = repos.fixPlans.forRepo(harbor.repoId!)!.plan
+    expect(harborPlan.steps.map((s) => [s.packageName, s.to, s.lockfile])).toEqual([
+      ['example-parser', '1.2.5', 'package-lock.json'],
+    ])
   })
 
   it('reports each phase in order with its progress', async () => {

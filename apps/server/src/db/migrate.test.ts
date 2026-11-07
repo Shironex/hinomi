@@ -13,6 +13,7 @@ const TABLES = [
   'deployments',
   'finding_events',
   'findings',
+  'fix_plans',
   'repos',
   'scan_runs',
   'settings',

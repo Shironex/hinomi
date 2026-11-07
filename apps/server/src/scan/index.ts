@@ -67,6 +67,17 @@ export {
   groupFixes,
   isFixable,
   type Fix,
+  type FixableFinding,
   type FixFilter,
   type FixRepoGroup,
 } from './fixes.js'
+export {
+  buildFixPlan,
+  bumpLevel,
+  comparePlan,
+  packageManagerOf,
+  saveScanPlans,
+  toRepoRef,
+  type BuildFixPlanInput,
+  type RepoLockfiles,
+} from './plans.js'

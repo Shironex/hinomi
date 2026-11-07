@@ -8,37 +8,20 @@ import {
   type FindingNotification,
   type FindingTier,
   type FixItem,
-  type RepoRef,
   type ScanRun,
   type SeverityCounts,
   type SourceDto,
 } from '@hinomi/shared'
-import type {
-  AdvisoryRow,
-  DeploymentRow,
-  FindingEventRow,
-  RepoRow,
-  ScanRunRow,
-} from '../db/schema.js'
+import type { AdvisoryRow, DeploymentRow, FindingEventRow, ScanRunRow } from '../db/schema.js'
 import type { Source } from '../repository/index.js'
-import { tierOf, type Fix, type RankedFinding } from '../scan/index.js'
+import { tierOf, toRepoRef, type Fix, type RankedFinding } from '../scan/index.js'
+
+export { toRepoRef }
 
 // Rows to API shapes. Dates become ISO strings; nothing secret is ever copied.
 
 const iso = (date: Date) => date.toISOString()
 const isoOrNull = (date: Date | null) => (date ? date.toISOString() : null)
-
-export function toRepoRef(repo: RepoRow): RepoRef {
-  return {
-    id: repo.id,
-    owner: repo.owner,
-    name: repo.name,
-    fullName: `${repo.owner}/${repo.name}`,
-    archived: repo.archived,
-    alertsEnabled: repo.alertsEnabled,
-    lastScannedAt: isoOrNull(repo.lastScannedAt),
-  }
-}
 
 export function toDeploymentRef(deployment: DeploymentRow): DeploymentRef {
   return {
