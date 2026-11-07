@@ -32,6 +32,12 @@ export interface Config {
    * tunnel pointed at it can reach nothing else. Null when unset.
    */
   webhookPort: number | null
+  /**
+   * HINOMI_LOCAL_RUNNER=1 allows the local runner (fix plans applied on this host);
+   * HINOMI_LOCAL_RUNNER_CHECKS=1 also runs install scripts and checks there. `entry` is the
+   * bundled fix runner action it spawns, `path` the PATH its children get.
+   */
+  localRunner: { enabled: boolean; checks: boolean; entry: string; path: string }
 }
 
 const DEFAULT_PORT = 3000
@@ -49,12 +55,27 @@ const MAX_SHUTDOWN_TIMEOUT_SECONDS = 3600
 // so paths relative to it resolve to the same places either way.
 const defaultWebDistDir = fileURLToPath(new URL('../../web/dist', import.meta.url))
 const defaultMigrationsDir = fileURLToPath(new URL('../drizzle', import.meta.url))
+// The action bundle sits at the repo root in dev and at /app/actions in the image.
+const defaultFixRunnerEntry = fileURLToPath(
+  new URL('../../../actions/fix-runner/dist/index.mjs', import.meta.url),
+)
 
 /** Treat an empty value (`FOO=` in an env file) the same as an unset one. */
 const optionalString = z
   .string()
   .optional()
   .transform((value) => (value === undefined || value.trim() === '' ? undefined : value))
+
+/** An on or off switch: 1, true or yes; 0, false, no or unset. */
+function flagSetting(name: string) {
+  return optionalString.transform((value, ctx) => {
+    const text = (value ?? '').trim().toLowerCase()
+    if (['', '0', 'false', 'no'].includes(text)) return false
+    if (['1', 'true', 'yes'].includes(text)) return true
+    ctx.addIssue({ code: 'custom', message: `${name} must be 1 or 0, got "${value ?? ''}"` })
+    return z.NEVER
+  })
+}
 
 /** A TCP port, or undefined when unset. */
 function portSetting(name: string) {
@@ -118,6 +139,9 @@ const envSchema = z.object({
     return origin
   }),
   HINOMI_CF_ACCESS_AUD: optionalString,
+  HINOMI_LOCAL_RUNNER: flagSetting('HINOMI_LOCAL_RUNNER'),
+  HINOMI_LOCAL_RUNNER_CHECKS: flagSetting('HINOMI_LOCAL_RUNNER_CHECKS'),
+  PATH: optionalString,
   HINOMI_SECRET_KEY: optionalString.pipe(
     z
       .string()
@@ -175,5 +199,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         ? { teamDomain: parsed.HINOMI_CF_ACCESS_TEAM_DOMAIN, audience: parsed.HINOMI_CF_ACCESS_AUD }
         : null,
     webhookPort: parsed.HINOMI_WEBHOOK_PORT ?? null,
+    localRunner: {
+      enabled: parsed.HINOMI_LOCAL_RUNNER,
+      checks: parsed.HINOMI_LOCAL_RUNNER_CHECKS,
+      entry: defaultFixRunnerEntry,
+      path: parsed.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+    },
   }
 }

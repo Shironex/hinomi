@@ -39,6 +39,17 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ PORT: 'abc' })).toThrow(/PORT must be an integer/)
   })
 
+  it('keeps the local runner off unless HINOMI_LOCAL_RUNNER is 1', () => {
+    expect(loadConfig({}).localRunner).toMatchObject({ enabled: false, checks: false })
+    expect(loadConfig({ HINOMI_LOCAL_RUNNER: '0' }).localRunner.enabled).toBe(false)
+    const on = loadConfig({ HINOMI_LOCAL_RUNNER: '1', HINOMI_LOCAL_RUNNER_CHECKS: 'true' })
+    expect(on.localRunner).toMatchObject({ enabled: true, checks: true })
+    expect(on.localRunner.entry).toMatch(/actions\/fix-runner\/dist\/index\.mjs$/)
+    expect(() => loadConfig({ HINOMI_LOCAL_RUNNER: 'maybe' })).toThrow(
+      /HINOMI_LOCAL_RUNNER must be 1 or 0/,
+    )
+  })
+
   it('reads HINOMI_WEBHOOK_PORT, which must differ from PORT', () => {
     expect(loadConfig({}).webhookPort).toBeNull()
     expect(loadConfig({ HINOMI_WEBHOOK_PORT: '3001' }).webhookPort).toBe(3001)
