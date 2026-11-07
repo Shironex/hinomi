@@ -40,6 +40,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | `GET /api/version` | The running build: `version` (`dev` for a build without a release version), `commit` (full sha or null), `buildDate` (ISO or null), `isDev`, `prerelease`, `imageTag` and `releaseNotesUrl` (null for a dev build), and `update`: null, or `{ version, url, imageTag }` when the daily check found a newer release. Values come from the `HINOMI_BUILD_*` build args, see [self-hosting.md](self-hosting.md#version-and-update-check) |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
 | `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below) |
+| `GET /api/support/status` | The endoflife.date cache the support checks read: `source` (`live` when the last check succeeded in this run, `cache` for the stored copy of an earlier run, `none` before the first fetch), `fetchedAt` and `ageSeconds` (when the copy was last confirmed current, a 200 or a 304), `stale` (older than `staleAfterDays`, 7), `generatedAt` and `schemaVersion` (the API's own), `counts` (`products`, `releases`, `purls`), `runtimes` (per Node, Bun and Rust: the endoflife.date `product`, whether the copy has it, the support `basis` and the number of release `lines`), `lastAttemptAt`, `lastError` (null when the last try worked) and `nextRefreshAt`. See Support data below |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
 | `GET /api/shell/scan-status` | One of the states below |
 
@@ -309,8 +310,8 @@ A test answers `{ ok: true, message, version?, login?, scopes?, account?, reposi
 
 | Method and path | Does |
 |---|---|
-| `GET /api/settings` | `{ scanIntervalMinutes, osvEnabled, includeAccountRepos, updateCheckEnabled }` |
-| `PATCH /api/settings` | Any of them. The interval is 15 minutes to 7 days (default 360) and replans the next scan. `updateCheckEnabled` (default true) is the daily check for a newer release; turning it on checks at once |
+| `GET /api/settings` | `{ scanIntervalMinutes, osvEnabled, includeAccountRepos, updateCheckEnabled, supportWindowDays }` |
+| `PATCH /api/settings` | Any of them. The interval is 15 minutes to 7 days (default 360) and replans the next scan. `updateCheckEnabled` (default true) is the daily check for a newer release; turning it on checks at once. `supportWindowDays` (1 to 365, default 90) is how many days before end of life a release line turns from supported to ending |
 | `GET /api/scans?limit=` | Scan runs, newest first |
 | `GET /api/scans/:id` | One run with per source results |
 | `POST /api/scans` | Starts a scan: 202 `{ started: true, run }`, or 200 `{ started: false, run }` with the scan already running |
@@ -361,6 +362,18 @@ Both live on the server, so every tab and browser sees the same setup progress. 
 | `PATCH /api/notifications/settings` | `publicBaseUrl` (empty clears it), `digestHour` (0 to 23, server local time) and `fixRunEvents` (any of the six switches; the ones left out keep their value, an unknown name or an empty object is a 400) |
 
 See [notifications.md](notifications.md) for what is sent and when.
+
+### Support data
+
+The support checks read [endoflife.date](https://endoflife.date) (MIT licensed data). `GET /api/support/status` (above) shows the state of the cache; the code is in `apps/server/src/support/`.
+
+- Once a day the server sends one conditional `GET /api/v1/products/full` (`If-None-Match`, the stored etag). A 304 only moves `fetchedAt`; a 200 is validated, gzipped into the `http_cache` table (key `eol:products-full`) and indexed in memory. A 301 is followed inside the API host, a 429 is retried with backoff and its `Retry-After` is respected (a long one moves the next try instead of blocking), a request times out after 30 seconds and a body over 32 MB is refused. A failed or unusable answer never replaces the stored copy.
+- The answer is untrusted input: products and release lines that do not fit are skipped, never indexed as plain object keys.
+- Offline, the last copy keeps serving and `status` reports its age. After 7 days without a successful check `stale` is true. With no copy at all (a fresh install without network) there is no index and the support checks leave their findings alone until the first fetch works.
+- Nothing is fetched until a repo exists. The first check runs a minute after boot, and a copy under a day old, as after a restart, is not fetched again.
+- The warning window is the `supportWindowDays` setting. A release line is `supported`, `maintenance` (active support is over, security fixes continue), `ending` (end of life within the window) or `eol` (the date passed; the date wins over the API's `isEol` flag, which is only used when there is no date).
+- Runtime lines (Q12): `nodejs` publishes end of active support, LTS start and end of security support per major (`basis: security`). `rust` has no security date; a line ends when the next one is released, so only the newest line is supported (`basis: release_cycle`). `bun` publishes one line, `1`, with no end date at all (`basis: release_cycle`), so a Bun pin reads as supported. The basis is decided from the data each time it loads.
+- The purl index maps package identifiers to products (`pkg:npm/next` to `nextjs`, `pkg:npm/%40angular/core` to `angular`); lookups normalise case, percent encoding, version, qualifiers and subpath.
 
 ## Scheduler
 
