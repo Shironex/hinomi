@@ -838,6 +838,8 @@ export const overviewResponseSchema = z.object({
   recentActivity: z.array(activityItemSchema),
   /** The fixes with a patched version that clear the most exposure, at most 5, same order as /api/fixes. */
   topFixes: z.array(fixItemSchema),
+  /** Guard findings not fixed (turned off ones included), per check and level. */
+  guardCounts: z.record(guardCheckSchema, z.record(guardLevelSchema, z.number().int())),
 })
 export type OverviewResponse = z.infer<typeof overviewResponseSchema>
 
@@ -1074,11 +1076,29 @@ export type DeploymentItem = z.infer<typeof deploymentItemSchema>
 export const deploymentsResponseSchema = z.object({ items: z.array(deploymentItemSchema) })
 export type DeploymentsResponse = z.infer<typeof deploymentsResponseSchema>
 
+/**
+ * One check on one deployment, for the deployment's guards panel. Blind spot types that
+ * can be turned off (like `archived_deployed`) are listed here too.
+ */
+export const deploymentGuardSchema = z.object({
+  check: overridableCheckSchema,
+  /** `pass`, a level, or null when the check has not run on it yet. */
+  result: guardResultSchema.nullable(),
+  /** Null for a pass without evidence, and for blind spot types. */
+  evidence: guardEvidenceSchema.nullable(),
+  /** The open finding, null on a pass. */
+  findingId: id.nullable(),
+  override: checkOverrideRefSchema.nullable(),
+})
+export type DeploymentGuard = z.infer<typeof deploymentGuardSchema>
+
 export const deploymentDetailSchema = deploymentItemSchema.extend({
   watchPaths: z.array(z.string()).nullable(),
   overrides: z.array(repoOverrideSchema),
   /** Findings that reach this deployment and are not fixed, most urgent first. */
   findings: z.array(findingListItemSchema),
+  /** One entry per guard check, then the blind spot types that can be turned off (see deploymentGuardSchema). */
+  guards: z.array(deploymentGuardSchema),
 })
 export type DeploymentDetail = z.infer<typeof deploymentDetailSchema>
 
@@ -1248,22 +1268,6 @@ export type GuardInfo = z.infer<typeof guardInfoSchema>
 export const guardsResponseSchema = z.object({ items: z.array(guardInfoSchema) })
 export type GuardsResponse = z.infer<typeof guardsResponseSchema>
 
-/**
- * One check on one deployment, for the deployment's guards panel. Blind spot types that
- * can be turned off (like `archived_deployed`) are listed here too.
- */
-export const deploymentGuardSchema = z.object({
-  check: overridableCheckSchema,
-  /** `pass`, a level, or null when the check has not run on it yet. */
-  result: guardResultSchema.nullable(),
-  /** Null for a pass without evidence, and for blind spot types. */
-  evidence: guardEvidenceSchema.nullable(),
-  /** The open finding, null on a pass. */
-  findingId: id.nullable(),
-  override: checkOverrideRefSchema.nullable(),
-})
-export type DeploymentGuard = z.infer<typeof deploymentGuardSchema>
-
 // ---------------------------------------------------------------------------
 // Settings
 
@@ -1350,6 +1354,8 @@ export const navCountsSchema = z.object({
   alerts: z.number().int().nullable(),
   /** Fix runs not yet verified fixed. Null until fix runs exist. */
   activeFixRuns: z.number().int().nullable(),
+  /** Guard findings at warn or fail on a running deployment, not snoozed, accepted or turned off. */
+  guards: z.number().int().nullable(),
 })
 export type NavCountsDto = z.infer<typeof navCountsSchema>
 

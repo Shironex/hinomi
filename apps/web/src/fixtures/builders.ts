@@ -1,3 +1,4 @@
+import { GUARD_CHECKS } from '@hinomi/shared'
 import type {
   DeploymentDetail,
   DeploymentItem,
@@ -137,6 +138,13 @@ export function findingsResponse(
   }
 }
 
+/** Guard counts of the overview with no guard finding yet. */
+export function emptyGuardCounts(): OverviewResponse['guardCounts'] {
+  return Object.fromEntries(
+    GUARD_CHECKS.map((check) => [check, { warn: 0, fail: 0, unknown: 0 }]),
+  ) as OverviewResponse['guardCounts']
+}
+
 export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse {
   return {
     funnel: {
@@ -244,6 +252,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
       },
     ],
     topFixes: [],
+    guardCounts: emptyGuardCounts(),
     ...over,
   }
 }
@@ -321,6 +330,7 @@ export function deploymentDetail(over: Partial<DeploymentDetail> = {}): Deployme
     watchPaths: ['src/**', 'Dockerfile'],
     overrides: [],
     findings: [findingItem()],
+    guards: [],
     ...over,
   }
 }

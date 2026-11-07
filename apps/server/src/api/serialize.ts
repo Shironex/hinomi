@@ -1,10 +1,14 @@
 import {
   FINDING_TIERS,
+  GUARD_COPY,
+  guardEvidenceSchema,
   isFixRunTerminal,
   type AdvisorySummary,
+  type CheckOverrideRef,
   type DeploymentRef,
   type FindingDetail,
   type FindingEvent,
+  type FindingGuard,
   type FindingListItem,
   type FindingNotification,
   type FindingTier,
@@ -30,7 +34,13 @@ import type {
 } from '../db/schema.js'
 import type { Repositories, Source } from '../repository/index.js'
 import { compareVersions } from '../sources/osv/index.js'
-import { tierOf, toRepoRef, type Fix, type RankedFinding } from '../scan/index.js'
+import {
+  tierOf,
+  toRepoRef,
+  type CoveringOverride,
+  type Fix,
+  type RankedFinding,
+} from '../scan/index.js'
 
 export { toRepoRef }
 
@@ -68,6 +78,36 @@ export function toAdvisorySummary(advisory: AdvisoryRow): AdvisorySummary {
 
 export { tierOf }
 
+export function toCheckOverrideRef(covering: CoveringOverride): CheckOverrideRef {
+  return {
+    id: covering.override.id,
+    scope: covering.scope,
+    reason: covering.override.reason,
+    createdAt: iso(covering.override.createdAt),
+  }
+}
+
+/**
+ * The guard part of a guard finding, with the copy from GUARD_COPY for its level. Null for other
+ * kinds, and for a stored row whose evidence no longer parses (written by an older check).
+ */
+export function toFindingGuard(ranked: RankedFinding): FindingGuard | null {
+  const { finding } = ranked
+  if (finding.kind !== 'guard' || !finding.guardCheck || !finding.guardLevel) return null
+  const evidence = guardEvidenceSchema.safeParse(finding.evidence)
+  if (!evidence.success) return null
+  const copy = GUARD_COPY[finding.guardCheck]
+  return {
+    check: finding.guardCheck,
+    level: finding.guardLevel,
+    evidence: evidence.data,
+    title: copy.title,
+    explanation: copy.explanation[finding.guardLevel] ?? copy.question,
+    fixText: copy.fix[finding.guardLevel] ?? '',
+    override: ranked.override ? toCheckOverrideRef(ranked.override) : null,
+  }
+}
+
 export function toFindingListItem(ranked: RankedFinding): FindingListItem {
   const { finding } = ranked
   return {
@@ -87,8 +127,8 @@ export function toFindingListItem(ranked: RankedFinding): FindingListItem {
     sources: finding.reportedBy,
     blindSpotType: finding.blindSpotType,
     coverageNote: finding.kind === 'coverage_note' ? 'image_only' : null,
-    guard: null,
-    releaseTag: null,
+    guard: toFindingGuard(ranked),
+    releaseTag: finding.releaseTag,
     advisory: ranked.advisory ? toAdvisorySummary(ranked.advisory) : null,
     installedVersion: finding.installedVersion,
     repo: ranked.repo ? toRepoRef(ranked.repo) : null,

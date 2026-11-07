@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { silentLogger, type Logger } from '../log.js'
 import { readNotifySettings } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
+import { GUARDS, type Guard } from '../scan/index.js'
 import {
   createFixRunService,
   type FixRunService,
@@ -21,6 +22,7 @@ import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
 import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
+import { guardsRoutes, overridesRoutes } from './routes/guards.js'
 import { fixRunsRoutes, repoFixRunsRoutes } from './routes/fix-runs.js'
 import { fixesRoutes } from './routes/fixes.js'
 import { githubWebhookSettingsRoutes } from './routes/github-webhook.js'
@@ -70,6 +72,8 @@ export interface ApiOptions {
   webhookRunner?: { receiver: RunnerCallbackReceiver; transport: WebhookRunnerTransport }
   /** The local runner (HINOMI_LOCAL_RUNNER), for repos of the local kind. */
   localRunner?: FixRunServiceOptions['localRunner']
+  /** Guard checks the scans run. Defaults to the registered ones; must match what the scheduler runs. */
+  guards?: readonly Guard[]
 }
 
 /**
@@ -87,6 +91,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     support:
       options.support ??
       createSupportData({ cache: options.repositories.httpCache, now, demand: () => false }),
+    guards: options.guards ?? GUARDS,
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
     ...(options.fixRunTracking && { fixRunTracking: options.fixRunTracking }),
     ...(options.updates && { updates: options.updates }),
@@ -117,6 +122,8 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   api.route('/overview', overviewRoutes(deps))
   api.route('/findings', findingsRoutes(deps))
   api.route('/fixes', fixesRoutes(deps))
+  api.route('/guards', guardsRoutes(deps))
+  api.route('/overrides', overridesRoutes(deps))
   api.route('/deployments', deploymentsRoutes(deps))
   api.route('/repos', reposRoutes(deps))
   api.route('/repos', repoFixRunsRoutes(deps))

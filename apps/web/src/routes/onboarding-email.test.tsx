@@ -15,6 +15,7 @@ describe('onboarding alerts step', () => {
         deployments: null,
         alerts: null,
         activeFixRuns: null,
+        guards: null,
       },
       'GET /shell/scan-status': { state: 'unconfigured' },
       'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },

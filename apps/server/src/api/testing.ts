@@ -106,6 +106,7 @@ export function createTestApi({
   localRunner,
   updates,
   support,
+  guards,
 }: {
   withSecret?: boolean
   sourceFetch?: typeof fetch
@@ -113,6 +114,7 @@ export function createTestApi({
   localRunner?: ApiOptions['localRunner']
   updates?: ApiOptions['updates']
   support?: ApiOptions['support']
+  guards?: ApiOptions['guards']
 } = {}) {
   const { handle, repos } = createTestRepositories({ withSecret })
   const scan = controllableScan()
@@ -214,6 +216,7 @@ export function createTestApi({
       ...(localRunner && { localRunner }),
       ...(updates && { updates }),
       ...(support && { support }),
+      ...(guards && { guards }),
     },
   })
 

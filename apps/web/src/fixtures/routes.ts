@@ -204,12 +204,19 @@ export function fixtureRoute(
     case '/shell/nav-counts':
       return ok(
         setup
-          ? { needsAction: null, deployments: null, alerts: null, activeFixRuns: null }
+          ? {
+              needsAction: null,
+              deployments: null,
+              alerts: null,
+              activeFixRuns: null,
+              guards: null,
+            }
           : {
               needsAction: OVERVIEW.funnel.needsAction,
               deployments: DEPLOYMENTS.length,
               alerts: OVERVIEW.funnel.total,
               activeFixRuns: null,
+              guards: null,
             },
       )
     case '/shell/scan-status':

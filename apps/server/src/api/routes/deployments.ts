@@ -13,6 +13,7 @@ import {
   reposResponseSchema,
   type BlindSpotType,
   type DeploymentItem,
+  type GuardCheck,
   type RepoOverride,
   type SeverityCounts,
 } from '@hinomi/shared'
@@ -23,12 +24,14 @@ import {
   isExposed,
   isImageOnly,
   listRankedFindings,
+  loadOverrideIndex,
   needsRepoMapping,
   type RankedFinding,
 } from '../../scan/index.js'
 import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { deploymentGuards } from './guards.js'
 import {
   toDeploymentRef,
   toFindingListItem,
@@ -147,11 +150,19 @@ export function deploymentsRoutes(deps: ApiDeps) {
     const { id } = readParams(c, idParamSchema)
     const deployment = requireDeployment(repositories, id)
     const ctx = joinContext(repositories)
+    const registered = new Set<GuardCheck>(deps.guards.map((g) => g.check))
     return send(c, deploymentDetailSchema, {
       ...toItem(ctx, deployment),
       watchPaths: deployment.watchPaths,
       overrides: overridesOf(repositories, id),
       findings: openFindingsOf(ctx.ranked, id).map(toFindingListItem),
+      guards: deploymentGuards(
+        ctx.ranked,
+        deployment,
+        repositories.deployments.effectiveRepoIds(id),
+        loadOverrideIndex(repositories),
+        registered,
+      ),
     })
   })
 
