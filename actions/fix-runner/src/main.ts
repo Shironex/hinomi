@@ -1,18 +1,19 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { FixPayloadError, currentTime, parseFixResult } from '@hinomi/shared'
 import { consoleLogger, getInput, writeOutputs, type Env } from './actions-io.js'
 import { PATCH_FILE, RESULT_FILE, writeArtifacts, writeResult } from './artifacts.js'
 import { FixRunnerError } from './errors.js'
 import { nodeExec } from './exec.js'
-import { runApply, runChecks, runDetect, type DispatchInputs } from './pipeline.js'
+import { runAgentStep } from './majors.js'
+import { runApply, runChecks, runDetect, type DispatchInputs, type FixScope } from './pipeline.js'
 import { publishPatch, verifyPublish } from './publish.js'
 import { registryPublishTimes, type HttpFetch } from './registry.js'
 import { nodeRepoFs } from './repo-fs.js'
 import { toolchainOutputs } from './toolchain.js'
 
-// The action entry: reads the inputs, runs the `detect`, `apply`, `check` or `publish` step and
-// sets outputs. The plan reaches this code only through INPUT_PLAN, never through a shell.
+// The action entry: reads the inputs, runs the `detect`, `apply`, `check`, `agent` or `publish`
+// step and sets outputs. The plan reaches this code only through INPUT_PLAN, never through a shell.
 
 /** Folder inside the checkout the workflow uploads, as in the reusable workflow sketch. */
 export const OUTPUT_DIR = '.hinomi'
@@ -36,6 +37,12 @@ function parseFileList(value: string): string[] {
     // Reported below.
   }
   throw new FixRunnerError('The patch_files input is not a JSON list of paths')
+}
+
+function parseScope(value: string): FixScope {
+  if (value === '' || value === 'fix') return 'fix'
+  if (value === 'majors') return 'majors'
+  throw new FixRunnerError(`Unknown scope ${JSON.stringify(value)}`)
 }
 
 export interface MainIo {
@@ -64,8 +71,9 @@ export async function main(io: MainIo): Promise<number> {
       repository: env.GITHUB_REPOSITORY ?? '',
     }
     const outputDir = resolve(workspace, OUTPUT_DIR)
+    const scope = parseScope(getInput(env, 'scope'))
     if (step === 'detect') {
-      const detected = await runDetect(dispatchInputs, fs)
+      const detected = await runDetect(dispatchInputs, fs, scope)
       for (const problem of detected.problems) log.warning('Detection failed', { problem })
       Object.assign(outputs, {
         package_manager: detected.packageManager,
@@ -73,7 +81,8 @@ export async function main(io: MainIo): Promise<number> {
         lockfile: detected.lockfile,
         project_root: detected.root,
         ...toolchainOutputs(detected.toolchains),
-        artifact_name: `hinomi-fix-${detected.dispatch.runId}`,
+        artifact_name: `hinomi-${scope}-${detected.dispatch.runId}`,
+        has_steps: String(detected.dispatch.steps.length > 0),
         agent_needed: String(detected.dispatch.options.agent && detected.dispatch.risky.length > 0),
       })
       flush()
@@ -96,6 +105,7 @@ export async function main(io: MainIo): Promise<number> {
         baseSha,
         repository: dispatchInputs.repository,
         runId: dispatchInputs.runId,
+        scope,
       })
       const published = await publishPatch({
         exec,
@@ -110,11 +120,47 @@ export async function main(io: MainIo): Promise<number> {
         serverUrl: env.GITHUB_SERVER_URL ?? 'https://github.com',
         repository: dispatchInputs.repository,
         write: io.write,
+        scope,
       })
       Object.assign(outputs, {
         branch: published.branch,
         commit_sha: published.commitSha,
         pushed: String(published.pushed),
+      })
+      flush()
+      return 0
+    }
+
+    if (step === 'agent') {
+      const tempDir = env.RUNNER_TEMP ?? ''
+      if (tempDir === '') throw new FixRunnerError('RUNNER_TEMP is not set')
+      const outcome = await runAgentStep(
+        {
+          ...dispatchInputs,
+          dryRun: getInput(env, 'dry_run') === 'true',
+          secret: getInput(env, 'agent_secret'),
+          tempDir,
+        },
+        { fs, exec, log, now: io.now ?? currentTime },
+      )
+      // Written outside the checkout after the agent is gone, into a folder emptied first, so
+      // nothing the agent left behind can stand in for the result.
+      const dir = resolve(tempDir, 'hinomi-majors-out')
+      await rm(dir, { recursive: true, force: true })
+      const written = await writeArtifacts(dir, outcome.result, outcome.patch)
+      const agent = outcome.result.agent
+      log.info('agent done', {
+        outcome: agent?.outcome ?? 'none',
+        patch: outcome.result.patch ? outcome.result.patch.files.length : 0,
+      })
+      Object.assign(outputs, {
+        has_changes: String(outcome.patch !== null),
+        result_path: written.resultPath,
+        patch_path: written.patchPath ?? '',
+        output_dir: dir,
+        base_sha: outcome.result.baseSha,
+        patch_sha256: outcome.result.patch?.sha256 ?? '',
+        patch_files: JSON.stringify(outcome.result.patch?.files ?? []),
       })
       flush()
       return 0

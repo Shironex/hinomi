@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto'
-import { FIX_BRANCH, type FixResultV1 } from '@hinomi/shared'
+import { FIX_BRANCH, MAJORS_BRANCH, type FixResultV1 } from '@hinomi/shared'
 import type { Logger } from './actions-io.js'
 import { FixRunnerError } from './errors.js'
 import type { Command, Exec } from './exec.js'
-import { isAllowedPatchPath } from './patch.js'
+import {
+  MAJORS_PATCH_MAX_BYTES,
+  MAJORS_PATCH_MAX_FILES,
+  isAllowedMajorsPatchPath,
+  isAllowedPatchPath,
+} from './patch.js'
+import type { FixScope } from './pipeline.js'
 
 // The publish job: the only code that holds a write token. It trusts nothing from the
 // artifact on its own: the patch must hash to the SHA-256 the apply step reported as a job
@@ -11,6 +17,11 @@ import { isAllowedPatchPath } from './patch.js'
 // the dependency file allowlist again, and contain no renames, deletions, mode changes or
 // symlinks. Then it applies the patch on the base commit, commits it as github-actions[bot]
 // and force pushes the fix branch. It never opens the PR; Hinomi does.
+//
+// With scope `majors` it publishes the coding agent's patch instead: the same hash and file
+// list pinning, a wider allowlist (any text file outside .github and the other execution
+// sinks in patch.ts), no binary data, at most MAJORS_PATCH_MAX_FILES files and
+// MAJORS_PATCH_MAX_BYTES bytes, pushed to hinomi/majors.
 
 const GIT_TIMEOUT_MS = 120_000
 const SHA256 = /^[a-f0-9]{64}$/
@@ -102,6 +113,29 @@ export interface PublishCheckInput {
   /** `github.repository` and the run_id input of this run. */
   repository: string
   runId: string
+  /** Which job made the patch. Default `fix`. */
+  scope?: FixScope
+}
+
+/** The branch a scope publishes to. */
+export function branchFor(scope: FixScope): string {
+  return scope === 'majors' ? MAJORS_BRANCH : FIX_BRANCH
+}
+
+function verifyMajors(patch: Buffer, result: FixResultV1, paths: string[]): void {
+  if (!result.agent) refuse('a majors patch needs the agent report in hinomi-result.json')
+  if (patch.length > MAJORS_PATCH_MAX_BYTES) {
+    refuse(`it is ${patch.length} bytes, more than ${MAJORS_PATCH_MAX_BYTES}`)
+  }
+  if (paths.length > MAJORS_PATCH_MAX_FILES) {
+    refuse(`it touches ${paths.length} files, more than ${MAJORS_PATCH_MAX_FILES}`)
+  }
+  if (patch.toString('utf8').split('\n').includes('GIT binary patch')) {
+    refuse('a majors patch carries no binary data')
+  }
+  for (const path of paths) {
+    if (!isAllowedMajorsPatchPath(path)) refuse(`${path} is outside what a majors patch may change`)
+  }
 }
 
 /** Every check before the patch is applied. Returns the patch's files. Throws on any doubt. */
@@ -124,6 +158,11 @@ export function verifyPublish(input: PublishCheckInput): string[] {
   if (paths.join('\n') !== expected.join('\n')) {
     refuse(`it touches ${paths.join(', ')} but the apply job listed ${expected.join(', ')}`)
   }
+  if ((input.scope ?? 'fix') === 'majors') {
+    verifyMajors(input.patch, result, paths)
+    return paths
+  }
+  if (result.agent) refuse('the result is from a majors run, not a fix run')
   const listed = new Set(expected)
   for (const path of paths) {
     if (!isAllowedPatchPath(path, listed)) refuse(`${path} is not a dependency file`)
@@ -149,6 +188,8 @@ export interface PublishOptions {
   repository: string
   /** Writes a line to the job log; used to mask the push credential. */
   write: (line: string) => void
+  /** Which job made the patch. Default `fix`. */
+  scope?: FixScope
 }
 
 export interface PublishOutcome {
@@ -157,8 +198,18 @@ export interface PublishOutcome {
   pushed: boolean
 }
 
-/** The commit message of the fix branch, from the result. */
+/** The commit message of the fix or majors branch, from the result. */
 export function commitMessage(result: FixResultV1): string {
+  if (result.agent) {
+    const packages = result.steps.length
+    return [
+      `fix(deps): adapt to major upgrades from hinomi run ${result.runId}`,
+      '',
+      `Hinomi majors run ${result.runId}, plan ${result.planScanRunId}: ${packages} major ${packages === 1 ? 'upgrade' : 'upgrades'}.`,
+      `A coding agent (${result.agent.preset}) wrote these changes; review them before merging.`,
+      '',
+    ].join('\n')
+  }
   const applied = result.steps.filter((step) => step.status === 'applied').length
   return [
     `fix(deps): apply hinomi fix plan ${result.planScanRunId}`,
@@ -171,6 +222,7 @@ export function commitMessage(result: FixResultV1): string {
 /** Applies the verified patch on the base commit, commits it and pushes the fix branch. */
 export async function publishPatch(options: PublishOptions): Promise<PublishOutcome> {
   const { exec, root, log } = options
+  const branch = branchFor(options.scope ?? 'fix')
   const git = async (args: string[], env?: Record<string, string>) => {
     const command: Command = {
       file: 'git',
@@ -213,8 +265,8 @@ export async function publishPatch(options: PublishOptions): Promise<PublishOutc
   const commitSha = (await git(['rev-parse', 'HEAD'])).trim()
   log.info('committed', { commit: commitSha, files: staged.join(',') })
   if (options.dryRun) {
-    log.info('dry run, nothing pushed', { branch: FIX_BRANCH })
-    return { branch: FIX_BRANCH, commitSha, pushed: false }
+    log.info('dry run, nothing pushed', { branch })
+    return { branch, commitSha, pushed: false }
   }
 
   if (options.token === '') throw new FixRunnerError('No token to push with')
@@ -232,7 +284,7 @@ export async function publishPatch(options: PublishOptions): Promise<PublishOutc
       '--force',
       '--no-verify',
       `${server.origin}/${options.repository}.git`,
-      `HEAD:refs/heads/${FIX_BRANCH}`,
+      `HEAD:refs/heads/${branch}`,
     ],
     {
       GIT_TERMINAL_PROMPT: '0',
@@ -241,6 +293,6 @@ export async function publishPatch(options: PublishOptions): Promise<PublishOutc
       GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`,
     },
   )
-  log.info('pushed', { branch: FIX_BRANCH, commit: commitSha })
-  return { branch: FIX_BRANCH, commitSha, pushed: true }
+  log.info('pushed', { branch, commit: commitSha })
+  return { branch, commitSha, pushed: true }
 }
