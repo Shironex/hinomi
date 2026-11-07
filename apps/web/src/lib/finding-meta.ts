@@ -214,6 +214,23 @@ export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
       ['Rescan', 'The note closes when a later scan returns the full list.'],
     ],
   },
+  image_sbom_unavailable: {
+    title: 'No SBOM for this image',
+    short: 'No image SBOM',
+    explain:
+      'The image scan looked for an SBOM attestation in the registry and found none it could read for an image of this deployment, so its packages are not checked. The note lists the reason per image.',
+    fix: [
+      [
+        'Publish an SBOM',
+        'Build the image with an SBOM attestation (docker buildx build --sbom=true, or sbom: true in docker/build-push-action).',
+      ],
+      [
+        'Private image',
+        'Hinomi reads public images only. Use Coolify image scan results for private images.',
+      ],
+      ['Read failed', 'A network error or a rate limit is tried again on the next scan.'],
+    ],
+  },
 }
 
 /** What a blind spot or a coverage note is about; null for advisories. */

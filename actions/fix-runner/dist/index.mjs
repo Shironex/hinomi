@@ -5633,7 +5633,8 @@ const COVERAGE_NOTE_TYPES = [
 	"image_only",
 	"release_lockfile_missing",
 	"requirements_unpinned",
-	"image_scan_partial"
+	"image_scan_partial",
+	"image_sbom_unavailable"
 ];
 const coverageNoteTypeSchema = _enum(COVERAGE_NOTE_TYPES);
 const DEPLOYMENT_REACHES = [
@@ -5904,8 +5905,29 @@ const guardEvidenceSchema = discriminatedUnion("check", [
 ]);
 
 // ../../packages/shared/src/image-scan.ts
-const IMAGE_SCAN_MODES = ["off", "coolify"];
+const IMAGE_SCAN_MODES = [
+	"off",
+	"coolify",
+	"sbom"
+];
 const imageScanModeSchema = _enum(IMAGE_SCAN_MODES);
+const IMAGE_SCAN_SOURCES = ["coolify", "sbom"];
+const imageScanSourceSchema = _enum(IMAGE_SCAN_SOURCES);
+const IMAGE_SBOM_UNAVAILABLE_REASONS = [
+	"unparsable_ref",
+	"not_found",
+	"unauthorized",
+	"no_index",
+	"no_platform",
+	"no_attestation",
+	"no_sbom",
+	"too_large",
+	"invalid",
+	"refused",
+	"osv_off",
+	"error"
+];
+const imageSbomUnavailableReasonSchema = _enum(IMAGE_SBOM_UNAVAILABLE_REASONS);
 const IMAGE_FIX_STATES = [
 	"fixed",
 	"no_fix",
@@ -5913,7 +5935,7 @@ const IMAGE_FIX_STATES = [
 ];
 const imageFixStateSchema = _enum(IMAGE_FIX_STATES);
 const imageScanEvidenceSchema = object({
-	imageScan: literal("coolify"),
+	imageScan: imageScanSourceSchema,
 	imageRefs: array(string().max(1e3)).max(50),
 	scannedAt: string().nullable(),
 	kev: boolean(),
@@ -6227,6 +6249,7 @@ const osvVulnerabilitySchema = object({
 	summary: string().optional(),
 	details: string().optional(),
 	aliases: array(string()).optional(),
+	upstream: array(string()).optional(),
 	modified: string().optional(),
 	published: string().optional(),
 	withdrawn: string().optional(),
@@ -6236,6 +6259,10 @@ const osvVulnerabilitySchema = object({
 	})).optional(),
 	affected: array(osvAffectedSchema).optional(),
 	database_specific: record(string(), unknown()).optional()
+});
+const osvQueryResponseSchema = object({
+	vulns: array(osvVulnerabilitySchema).optional(),
+	next_page_token: string().optional()
 });
 const advisorySeveritySchema = _enum([
 	"critical",
