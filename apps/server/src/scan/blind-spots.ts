@@ -112,8 +112,8 @@ export function applyCoverageNotes(
     if (isImageOnly(deployment) && unmapped.has(deployment.id)) {
       const covered = imageScan?.coverage.get(deployment.id)
       if (covered === null) continue
-      if (covered === true && imageScan) {
-        if (existing && markFixed(findings, existing, now, coveredByImageScan(imageScan.mode))) {
+      if (covered) {
+        if (existing && markFixed(findings, existing, now, coveredByImageScan(covered))) {
           changes.push({ findingId: existing.id, change: 'fixed' })
         }
         continue

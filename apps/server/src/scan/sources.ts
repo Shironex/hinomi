@@ -26,7 +26,10 @@ import {
 } from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
+import { createImageSbomReader, type ImageSbomReader } from '../sources/registry/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
+
+export type { ImageSbomReader }
 
 /** Reads a deployment source's own image scan results (see image-scan.ts). */
 export interface ImageScanReader {
@@ -102,6 +105,8 @@ export interface ScanSources {
    * before anything is replaced. Absent in hand-built sources: no pins are read.
    */
   scanRuntimePins?(input: ScanPinsInput): Promise<RuntimePinRecord[]>
+  /** Reads image SBOMs from registries (`sbom` image scan mode). Absent: that half is skipped. */
+  imageSbom?: ImageSbomReader
   settings: ScanSettings
 }
 
@@ -251,6 +256,8 @@ export function buildScanSources(
     github: [...github.values()].map((g) => g.github),
     osv,
     settings,
+    // Makes no request until the `sbom` image scan mode asks for an image.
+    imageSbom: createImageSbomReader({ ...(options.fetch && { fetch: options.fetch }) }),
     readRepoFile: async (owner, name, path, ref, sourceId) => {
       const gh = github.get(sourceId)
       if (!gh) throw new Error(`GitHub source ${sourceId} is not available`)
