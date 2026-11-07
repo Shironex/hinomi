@@ -5,6 +5,8 @@ import {
   currentTime,
 } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
+import type { OsvClient } from '../sources/osv/index.js'
+import { saveScanPlans } from '../scan/index.js'
 import { createTestApi, seedFixWorld } from './testing.js'
 
 // GET /api/fixes. Every name and domain is fictional.
@@ -40,6 +42,63 @@ describe('GET /api/fixes', () => {
       ['kestrel-co/ledger', '2.0.1'],
     ])
     expect(http.apps.map((a) => a.name)).toEqual(['ledger-api', 'storefront-web'])
+  })
+
+  it('gives each repo the target its latest plan picked and what the check found', async () => {
+    const { call, repos } = createTestApi()
+    const world = seedFixWorld(repos)
+    const affected = {
+      id: 'GHSA-http-0099',
+      affected: [
+        {
+          package: { name: 'kestrel-http', ecosystem: 'npm' },
+          ranges: [{ type: 'SEMVER', events: [{ introduced: '2.1.0' }, { fixed: '2.1.1' }] }],
+        },
+      ],
+    }
+    const osv: OsvClient = {
+      queryBatch: (queries) =>
+        Promise.resolve(queries.map((q) => (q.version === '2.1.0' ? [affected.id] : []))),
+      getVulnerability: () => Promise.resolve(affected),
+      getVulnerabilities: (ids) => Promise.resolve(ids.map(() => affected)),
+    }
+    const skipped = { status: 'skipped', reason: 'off' } as const
+    const run = repos.scanRuns.start('manual', currentTime())
+    await saveScanPlans(
+      repos,
+      run.id,
+      new Map([
+        [
+          world.storefront.id,
+          {
+            repo: world.storefront,
+            deployed: true,
+            health: skipped,
+            alerts: skipped,
+            osv: skipped,
+          },
+        ],
+      ]),
+      currentTime(),
+      { osv },
+    )
+    const { items } = await getFixes(call)
+    const http = items.find((f) => f.packageName === 'kestrel-http')!
+    expect(http.target).toBe('2.1.0')
+    expect(http.repos.map((r) => [r.repo.name, r.planTarget])).toEqual([
+      [
+        'storefront',
+        {
+          to: '2.1.1',
+          minimum: '2.1.0',
+          status: 'clean',
+          avoids: ['GHSA-http-0099'],
+          stillAffected: [],
+        },
+      ],
+      ['docs', null],
+      ['ledger', null],
+    ])
   })
 
   it('serves the package without a patch as its own fix with a null target', async () => {

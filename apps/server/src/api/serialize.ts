@@ -11,6 +11,8 @@ import {
   type FixItem,
   type FixPlan,
   type FixPlanRef,
+  type FixPlanStep,
+  type FixRepo,
   type FixRun,
   type FixRunDetail,
   type FixRunTracking,
@@ -27,6 +29,7 @@ import type {
   ScanRunRow,
 } from '../db/schema.js'
 import type { Repositories, Source } from '../repository/index.js'
+import { compareVersions } from '../sources/osv/index.js'
 import { tierOf, toRepoRef, type Fix, type RankedFinding } from '../scan/index.js'
 
 export { toRepoRef }
@@ -201,15 +204,50 @@ export function toFixPlanRef(row: FixPlanRow): FixPlanRef {
   }
 }
 
-/** Repo id to the link of its latest plan. */
-export type PlanRefs = (repoId: number) => FixPlanRef | null
+type PlanTarget = NonNullable<FixRepo['planTarget']>
 
-/** Links to every repo's latest plan, read once per request. */
-export function latestPlanRefs(repositories: Repositories): PlanRefs {
-  const refs = new Map(
-    repositories.fixPlans.latestPerRepo().map((r) => [r.repoId, toFixPlanRef(r)]),
-  )
-  return (repoId) => refs.get(repoId) ?? null
+/** Every repo's latest plan, read once per request. */
+export interface LatestPlans {
+  /** The link to the repo's latest plan. */
+  ref(repoId: number): FixPlanRef | null
+  /** The target the latest plan's steps for a package picked, with its check. */
+  target(repoId: number, ecosystem: string, packageName: string): PlanTarget | null
+}
+
+const STATUS_WEIGHT: Record<PlanTarget['status'], number> = { clean: 0, unchecked: 1, affected: 2 }
+
+/** One target for the package across the plan's steps: the highest, with every advisory named. */
+function planTarget(steps: readonly FixPlanStep[]): PlanTarget | null {
+  const checked = steps.filter((s) => s.targetCheck !== undefined)
+  if (checked.length === 0) return null
+  const sorted = [...new Set(checked.map((s) => s.to))].sort(compareVersions)
+  const minimums = [...new Set(checked.map((s) => s.targetCheck!.minimum))].sort(compareVersions)
+  const union = (pick: (s: FixPlanStep) => string[]) => [...new Set(checked.flatMap(pick))].sort()
+  return {
+    to: sorted.at(-1)!,
+    minimum: minimums.at(-1)!,
+    status: checked
+      .map((s) => s.targetCheck!.status)
+      .reduce((worst, s) => (STATUS_WEIGHT[s] > STATUS_WEIGHT[worst] ? s : worst)),
+    avoids: union((s) => s.targetCheck!.avoids),
+    stillAffected: union((s) => s.targetCheck!.stillAffected),
+  }
+}
+
+export function latestPlans(repositories: Repositories): LatestPlans {
+  const rows = new Map(repositories.fixPlans.latestPerRepo().map((r) => [r.repoId, r]))
+  return {
+    ref: (repoId) => {
+      const row = rows.get(repoId)
+      return row ? toFixPlanRef(row) : null
+    },
+    target: (repoId, ecosystem, packageName) =>
+      planTarget(
+        (rows.get(repoId)?.plan.steps ?? []).filter(
+          (s) => s.ecosystem === ecosystem && s.packageName === packageName,
+        ),
+      ),
+  }
 }
 
 /** A stored plan as served: the repo ref is read fresh, the rest is the stored contract. */
@@ -218,7 +256,7 @@ export function toFixPlan(row: FixPlanRow, repo: FixPlan['repo']): FixPlan {
 }
 
 /** A fix as the API serves it: counts by tier and severity, repos with their own target. */
-export function toFixItem(fix: Fix, planOf: PlanRefs = () => null): FixItem {
+export function toFixItem(fix: Fix, plans?: LatestPlans): FixItem {
   const byTier = Object.fromEntries(FINDING_TIERS.map((t) => [t, 0])) as Record<FindingTier, number>
   const bySeverity: SeverityCounts = { critical: 0, high: 0, moderate: 0, low: 0 }
   for (const finding of fix.findings) {
@@ -239,7 +277,8 @@ export function toFixItem(fix: Fix, planOf: PlanRefs = () => null): FixItem {
       repo: toRepoRef(r.repo),
       target: r.target,
       findings: r.findings.length,
-      plan: planOf(r.repo.id),
+      plan: plans?.ref(r.repo.id) ?? null,
+      planTarget: plans?.target(r.repo.id, fix.ecosystem, fix.packageName) ?? null,
     })),
     apps: fix.apps.map(toDeploymentRef),
   }
