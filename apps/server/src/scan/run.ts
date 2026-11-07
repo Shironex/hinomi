@@ -12,6 +12,7 @@ import { mapLimit } from '../sources/osv/index.js'
 import { applyRepoAdvisories, coveringSources, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
 import { collectGithub, collectOsv, collectRepo, errorMessage, type RepoScan } from './collect.js'
+import { repoKey } from './ownership.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
 import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
@@ -76,6 +77,13 @@ interface Tally {
 
 type Tallies = Partial<Record<SourceKind, Tally>>
 
+/** Per GitHub source tally, to record each source's own outcome on its row. */
+interface SourceTally {
+  attempted: number
+  failed: number
+  first: { subject: string; error: string } | null
+}
+
 function tally(tallies: Tallies, source: SourceKind): Tally {
   return (tallies[source] ??= { attempted: 0, failed: 0, counts: {} })
 }
@@ -90,6 +98,10 @@ interface ScanContext {
   now: () => Date
   log: ScanLogger
   tallies: Tallies
+  /** By GitHub source id. */
+  githubTallies: Map<number, SourceTally>
+  /** Account repo lists read this scan, by GitHub source id (`owner/name` lowercased). */
+  listed: Map<number, Set<string>>
   errors: ScanError[]
   skipped: ScanPhase[]
   progress: (phase: ScanPhase, done: number, total: number) => void
@@ -97,14 +109,14 @@ interface ScanContext {
 
 /** True when the account repo list is read in the deployments phase. */
 function listsAccountRepos(sources: ScanSources): boolean {
-  return sources.github !== null && sources.settings.includeAccountRepos
+  return sources.github.length > 0 && sources.settings.includeAccountRepos
 }
 
 /** Phases with nothing to do for these sources. Matching and ranking always run. */
 export function skippedPhases(sources: ScanSources): ScanPhase[] {
   const skipped: ScanPhase[] = []
   if (sources.coolify.length === 0 && !listsAccountRepos(sources)) skipped.push('deployments')
-  if (!sources.github) skipped.push('alerts')
+  if (sources.github.length === 0) skipped.push('alerts')
   if (!sources.osv) skipped.push('lockfiles')
   return skipped
 }
@@ -114,6 +126,23 @@ function startPhase(ctx: ScanContext, phase: ScanPhase, total: number): () => vo
   let done = 0
   ctx.progress(phase, done, total)
   return () => ctx.progress(phase, ++done, total)
+}
+
+/** Counts one unit of work of a GitHub source, failed when `error` is given. */
+function tallySource(
+  ctx: ScanContext,
+  sourceId: number,
+  failure?: { subject: string; error: string },
+): void {
+  let t = ctx.githubTallies.get(sourceId)
+  if (!t) {
+    t = { attempted: 0, failed: 0, first: null }
+    ctx.githubTallies.set(sourceId, t)
+  }
+  t.attempted++
+  if (!failure) return
+  t.failed++
+  t.first ??= failure
 }
 
 function recordError(ctx: ScanContext, error: ScanError): void {
@@ -145,32 +174,41 @@ async function syncCoolify(ctx: ScanContext, step: () => void): Promise<void> {
   }
 }
 
-/** Upserts every repo the GitHub token sees, for the everything-else view. */
+/**
+ * Upserts every repo each GitHub source sees, for the everything-else view, and remembers each
+ * list so repos are not asked of sources that do not see them.
+ */
 async function syncAccountRepos(ctx: ScanContext, step: () => void): Promise<number[]> {
-  const github = ctx.sources.github
-  if (!github || !listsAccountRepos(ctx.sources)) return []
-  try {
-    const repos = await github.listAccountRepos()
+  if (!listsAccountRepos(ctx.sources)) return []
+  const ids = new Set<number>()
+  for (const github of ctx.sources.github) {
+    try {
+      const repos = await github.listAccountRepos()
+      ctx.listed.set(github.sourceId, new Set(repos.map((r) => repoKey(r.owner, r.name))))
+      tallySource(ctx, github.sourceId)
+      const upserted = ctx.repositories.db.transaction(() =>
+        repos.map(
+          (r) =>
+            ctx.repositories.repos.upsert({
+              owner: r.owner,
+              name: r.name,
+              archived: r.archived,
+              ...(r.defaultBranch && { defaultBranch: r.defaultBranch }),
+            }).id,
+        ),
+      )
+      for (const id of upserted) ids.add(id)
+    } catch (error) {
+      const t = tally(ctx.tallies, 'github')
+      t.attempted++
+      t.failed++
+      const failure = { subject: `${github.name} account repos`, error: errorMessage(error) }
+      tallySource(ctx, github.sourceId, failure)
+      recordError(ctx, { source: 'github', ...failure })
+    }
     step()
-    return ctx.repositories.db.transaction(() =>
-      repos.map(
-        (r) =>
-          ctx.repositories.repos.upsert({
-            owner: r.owner,
-            name: r.name,
-            archived: r.archived,
-            ...(r.defaultBranch && { defaultBranch: r.defaultBranch }),
-          }).id,
-      ),
-    )
-  } catch (error) {
-    const t = tally(ctx.tallies, 'github')
-    t.attempted++
-    t.failed++
-    recordError(ctx, { source: 'github', subject: 'account repos', error: errorMessage(error) })
-    step()
-    return []
   }
+  return [...ids]
 }
 
 function reposToScan(ctx: ScanContext, index: DeploymentIndex, accountRepoIds: number[]) {
@@ -182,7 +220,14 @@ function reposToScan(ctx: ScanContext, index: DeploymentIndex, accountRepoIds: n
 
 function tallyRepo(ctx: ScanContext, scan: RepoScan): void {
   const name = `${scan.repo.owner}/${scan.repo.name}`
-  if (ctx.sources.github) {
+  for (const probe of scan.probes ?? []) {
+    const alerts = scan.alerts
+    const alertsError =
+      probe.sourceId === scan.sourceId && alerts.status === 'error' ? alerts.error : undefined
+    const error = probe.error ?? alertsError
+    tallySource(ctx, probe.sourceId, error === undefined ? undefined : { subject: name, error })
+  }
+  if (ctx.sources.github.length > 0) {
     const t = tally(ctx.tallies, 'github')
     t.attempted++
     bump(t, 'repos')
@@ -211,8 +256,26 @@ function tallyRepo(ctx: ScanContext, scan: RepoScan): void {
   }
 }
 
+/** Records which GitHub sources see the repo and which one reads it. */
+function saveOwnership(ctx: Pick<ScanContext, 'repositories' | 'now'>, scan: RepoScan): void {
+  if (scan.probes === undefined || scan.probes.length === 0) return
+  const { repoSources } = ctx.repositories
+  const at = ctx.now()
+  for (const probe of scan.probes) {
+    if (probe.sees === true) {
+      repoSources.record(scan.repo.id, probe.sourceId, probe.alertsReadable, at)
+    }
+  }
+  repoSources.forget(
+    scan.repo.id,
+    scan.probes.filter((p) => p.sees === false).map((p) => p.sourceId),
+  )
+  repoSources.setOwner(scan.repo.id, scan.sourceId ?? null)
+}
+
 function saveRepoHealth(ctx: Pick<ScanContext, 'repositories' | 'now'>, scan: RepoScan): void {
   const { repos } = ctx.repositories
+  saveOwnership(ctx, scan)
   if (scan.health.status === 'ok') {
     const health = scan.health.value
     repos.upsert({
@@ -261,10 +324,10 @@ async function scanRepos(
 ): Promise<{ scans: Map<number, RepoScan>; changes: FindingChange[] }> {
   const deploymentsOf = (repo: RepoRow) => index.byRepo.get(repo.id) ?? []
   const github = await perRepo(ctx, 'alerts', repos, concurrency, (repo) =>
-    collectGithub(ctx.sources, repo),
+    collectGithub(ctx.sources, repo, ctx.listed),
   )
   const osv = await perRepo(ctx, 'lockfiles', repos, concurrency, (repo, i) =>
-    collectOsv(ctx.sources, repo, deploymentsOf(repo), github[i]!.health),
+    collectOsv(ctx.sources, repo, deploymentsOf(repo), github[i]!.health, github[i]!.sourceId),
   )
   const step = startPhase(ctx, 'matching', repos.length)
   const scans = new Map<number, RepoScan>()
@@ -313,18 +376,19 @@ function sourceResults(ctx: ScanContext): Partial<Record<SourceKind, ScanSourceR
   return out
 }
 
-/** Records the outcome on the GitHub and OSV source rows (Coolify is marked per instance). */
+/** Records the outcome on each GitHub source row and the OSV row (Coolify is marked per instance). */
 function markSources(ctx: ScanContext, results: Partial<Record<SourceKind, ScanSourceResult>>) {
-  const ids: [SourceKind, number | null | undefined][] = [
-    ['github', ctx.sources.github?.sourceId],
-    ['osv', ctx.sources.osv?.sourceId],
-  ]
-  for (const [kind, id] of ids) {
-    const result = results[kind]
-    if (id == null || !result || result.status === 'skipped') continue
-    if (result.error) ctx.repositories.sources.markError(id, result.error, ctx.now())
-    else ctx.repositories.sources.markOk(id, ctx.now())
+  for (const [sourceId, t] of ctx.githubTallies) {
+    if (t.first) {
+      const error = `${t.failed} of ${t.attempted} failed. First: ${t.first.subject}: ${t.first.error}`
+      ctx.repositories.sources.markError(sourceId, error, ctx.now())
+    } else ctx.repositories.sources.markOk(sourceId, ctx.now())
   }
+  const osvId = ctx.sources.osv?.sourceId
+  const osv = results.osv
+  if (osvId == null || !osv || osv.status === 'skipped') return
+  if (osv.error) ctx.repositories.sources.markError(osvId, osv.error, ctx.now())
+  else ctx.repositories.sources.markOk(osvId, ctx.now())
 }
 
 function overallStatus(tallies: Tallies): ScanSummary['status'] {
@@ -378,6 +442,8 @@ export async function runScan(
     now,
     log: options.log ?? silent,
     tallies: {},
+    githubTallies: new Map(),
+    listed: new Map(),
     errors: [],
     skipped: skippedPhases(sources),
     progress: (phase, done, total) => {
@@ -406,7 +472,7 @@ export async function runScan(
       : startPhase(
           ctx,
           'deployments',
-          sources.coolify.length + (listsAccountRepos(sources) ? 1 : 0),
+          sources.coolify.length + (listsAccountRepos(sources) ? sources.github.length : 0),
         )
     await syncCoolify(ctx, step)
     const accountRepoIds = await syncAccountRepos(ctx, step)

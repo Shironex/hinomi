@@ -36,7 +36,7 @@ describe('scan sources with a GitHub App', () => {
       },
     ])
     const sources = buildScanSources(repos, { fetch })
-    const list = await sources.github?.listAccountRepos()
+    const list = await sources.github[0]?.listAccountRepos()
     expect(list?.map((r) => `${r.owner}/${r.name}`)).toEqual(['kestrel-co/lantern-api'])
     expect(requests.map((r) => r.url)).toEqual([
       'https://api.github.com/app/installations/4242/access_tokens',
