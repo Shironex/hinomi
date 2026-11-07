@@ -4,7 +4,7 @@ author: Shironex
 
 inputs:
   step:
-    description: 'detect (validate the dispatch and name the package manager, before the toolchain is set up) or apply'
+    description: 'detect (validate the dispatch and name every toolchain, before they are set up) or apply'
     required: false
     default: apply
   plan:
@@ -32,6 +32,32 @@ outputs:
     description: Lockfile of the first project (detect).
   project_root:
     description: Folder of the first project's lockfile (detect).
+  package_managers:
+    description: Every package manager among the dispatch's projects, comma separated (detect).
+  setup_node:
+    description: true when a project uses npm, pnpm, yarn or bun (detect).
+  node_version_file:
+    description: File setup-node reads the Node version from, empty for the current LTS (detect).
+  setup_pnpm:
+    description: true when a project uses pnpm (detect).
+  pnpm_version:
+    description: pnpm version to install, empty when pnpm_package_json names it (detect).
+  pnpm_package_json:
+    description: package.json pnpm/action-setup reads (detect).
+  setup_yarn:
+    description: true when a project uses yarn (detect).
+  yarn_version:
+    description: yarn version from the packageManager field, empty to use the runner image's yarn (detect).
+  setup_bun:
+    description: true when a project uses bun (detect).
+  bun_version:
+    description: bun version to install (detect).
+  setup_rust:
+    description: true when a project uses cargo (detect).
+  rust_root:
+    description: Folder of the first cargo project, where a rust-toolchain file applies (detect).
+  artifact_name:
+    description: Name for the uploaded artifact, from the validated dispatch run id (detect).
   has_changes:
     description: true when the apply step produced a patch.
   agent_needed:
