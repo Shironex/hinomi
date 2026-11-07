@@ -21,4 +21,5 @@ export {
   type ParsedRequirements,
   type RequirementsNotChecked,
 } from './requirements.js'
+export { parsePoetryLock, parseUvLock } from './python.js'
 export { parseYarnLock } from './yarn.js'

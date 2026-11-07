@@ -437,6 +437,8 @@ const LOCKFILE_NAMES = [
   'requirements.txt',
   'go.mod',
   'composer.lock',
+  'uv.lock',
+  'poetry.lock',
 ]
 const isLockfile = (path: string) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf('/') + 1))
 
