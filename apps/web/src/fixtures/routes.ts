@@ -16,16 +16,25 @@ import {
 } from './dataset'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
+import {
+  RUNNER_SECRET,
+  isRunnerScenario,
+  runnerHostFor,
+  webhookRunnerFor,
+  type RunnerScenario,
+} from './webhook-runner'
 
 /**
  * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
  * and GitHub not yet, so setup opens on its second step. The `webhook-*` scenarios are the
- * default instance with the GitHub webhook in one state (see ./webhook).
+ * default instance with the GitHub webhook in one state (see ./webhook). The `runner-*` and
+ * `local-off` scenarios are the default instance with the webhook runner in one state, or a
+ * host without the local runner (see ./webhook-runner).
  */
-export type FixtureScenario = 'default' | 'setup' | WebhookScenario
+export type FixtureScenario = 'default' | 'setup' | WebhookScenario | RunnerScenario
 
 export const isFixtureScenario = (value: string | null): value is FixtureScenario =>
-  value === 'default' || value === 'setup' || isWebhookScenario(value)
+  value === 'default' || value === 'setup' || isWebhookScenario(value) || isRunnerScenario(value)
 
 export interface FixtureReply {
   status: number
@@ -166,6 +175,10 @@ export function fixtureRoute(
     return ok({ secret: WEBHOOK_SECRET, settings: webhookFor(scenario) })
   }
 
+  if (method === 'POST' && path === '/settings/webhook-runner/secret') {
+    return { status: 201, body: { secret: RUNNER_SECRET, settings: webhookRunnerFor(scenario) } }
+  }
+
   if (method !== 'GET') {
     const dispatchId = method === 'POST' ? idFrom(path, /^\/repos\/(\d+)\/fix-runs$/) : null
     return dispatchId === null ? readOnly : dispatchReply(dispatchId, body)
@@ -219,6 +232,8 @@ export function fixtureRoute(
       return ok({ scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))
+    case '/settings/webhook-runner':
+      return ok(webhookRunnerFor(scenario))
     case '/scans':
       return ok({ items: setup ? [] : [LAST_SCAN] })
     case '/notifications/channels':
@@ -247,7 +262,7 @@ export function fixtureRoute(
 
   const runnerRepo = idFrom(path, /^\/repos\/(\d+)\/runner$/)
   if (runnerRepo !== null) {
-    const status = runnerFor(runnerRepo)
+    const status = runnerFor(runnerRepo, runnerHostFor(scenario))
     return status ? ok(status) : notFound(path)
   }
 

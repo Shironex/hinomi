@@ -10,6 +10,8 @@
  *
  * `?fixture=setup` in the first URL serves a first run instead of a configured instance, and
  * `?fixture=webhook-on` (and the other `webhook-*` names) the GitHub webhook in that state.
+ * `?fixture=runner-new`, `runner-error` and `local-off` show the webhook runner settings and the
+ * local runner in those states.
  */
 import { FIXED_NOW } from './dataset'
 import { fixtureRoute, isFixtureScenario, type FixtureScenario } from './routes'

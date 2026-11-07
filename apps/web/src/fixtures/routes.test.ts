@@ -24,6 +24,8 @@ import {
   scanStatusSchema,
   scansResponseSchema,
   githubWebhookSettingsSchema,
+  rotateWebhookRunnerSecretResponseSchema,
+  webhookRunnerSettingsSchema,
   rotateGithubWebhookSecretResponseSchema,
   settingsSchema,
   sourcesResponseSchema,
@@ -37,6 +39,7 @@ import type { z } from 'zod'
 import { DEPLOYMENTS, FINDINGS, LAST_SCAN } from './dataset'
 import { PLANS, RUNS } from './fix-runs'
 import { WEBHOOK_SCENARIOS } from './webhook'
+import { RUNNER_SCENARIOS } from './webhook-runner'
 import { filterFindings, fixtureRoute, type FixtureScenario } from './routes'
 
 const get = (path: string, scenario?: FixtureScenario) =>
@@ -80,6 +83,56 @@ describe('fixture API', () => {
   it.each(WEBHOOK_SCENARIOS)('answers the webhook settings in the %s scenario', (scenario) => {
     expectShape('/settings/github-webhook', githubWebhookSettingsSchema, scenario)
     expect(get('/settings', scenario).status).toBe(200)
+  })
+
+  it.each(RUNNER_SCENARIOS)(
+    'answers the runner settings and statuses in the %s scenario',
+    (scenario) => {
+      expectShape('/settings/webhook-runner', webhookRunnerSettingsSchema, scenario)
+      for (const plan of PLANS) {
+        expectShape(`/repos/${plan.repo.id}/runner`, runnerStatusSchema, scenario)
+      }
+    },
+  )
+
+  it('shapes the runner kinds by what the host offers', () => {
+    const status = (id: number, scenario?: FixtureScenario) =>
+      get(`/repos/${id}/runner`, scenario).body as RunnerStatus
+    // Webhook: ready when set up, not ready (with the reason) when it is not.
+    expect(status(20).settings.kind).toBe('webhook')
+    expect(status(20).ready).toBe(true)
+    expect(status(20, 'runner-new').ready).toBe(false)
+    expect(status(20, 'runner-new').message).toMatch(/Set the webhook runner URL/)
+    expect(status(20, 'runner-new').runners?.webhook.configured).toBe(false)
+    // A webhook repo whose runner is off needs turning on, whatever the host offers.
+    expect(status(21).settings.enabled).toBe(false)
+    expect(status(21).ready).toBe(false)
+    // Local: available by default, off on a host without it, with the warning either way.
+    expect(status(22).settings.kind).toBe('local')
+    expect(status(22).ready).toBe(true)
+    expect(status(22).runners?.local?.available).toBe(true)
+    expect(status(22, 'local-off').ready).toBe(false)
+    expect(status(22, 'local-off').runners?.local?.available).toBe(false)
+    for (const scenario of ['default', 'local-off'] as const) {
+      expect(status(1, scenario).runners?.local?.warning).toMatch(/dedicated container/)
+    }
+    expect(status(1).settings.kind).toBe('github_actions')
+  })
+
+  it('has webhook and local runs without a workflow run', () => {
+    const other = RUNS.filter((r) => r.runner !== 'github_actions')
+    expect(new Set(other.map((r) => r.runner))).toEqual(new Set(['webhook', 'local']))
+    for (const run of other) expect(run.github).toBeNull()
+  })
+
+  it('answers a new runner secret once, in the contract shape', () => {
+    const reply = fixtureRoute(
+      'POST',
+      new URL('http://localhost/api/settings/webhook-runner/secret'),
+      'runner-new',
+    )
+    expect(reply.status).toBe(201)
+    expect(rotateWebhookRunnerSecretResponseSchema.safeParse(reply.body).error).toBeUndefined()
   })
 
   it('answers a new webhook secret once, in the contract shape', () => {
