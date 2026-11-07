@@ -40,6 +40,12 @@ export {
   type FixRunTrackerOptions,
   type FixRunTrackingView,
 } from './tracker.js'
+export type {
+  FullScanReport,
+  RepoRescanOutcome,
+  RepoRescanner,
+  ScanFindingChange,
+} from './tracker-verify.js'
 export {
   FIX_RUN_TRACKING,
   pollIntervalMs,

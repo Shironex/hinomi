@@ -49,6 +49,27 @@ const tracker = createFixRunTracker({
   repositories: storage.repositories,
   log,
   publicBaseUrl: () => readNotifySettings(storage.repositories.settings).publicBaseUrl,
+  // Verification rescans go through the scheduler, so they never run beside a full scan.
+  rescan: async (repoId) => {
+    const pending = scheduler.scanRepo(repoId)
+    if (!pending) return { kind: 'busy' }
+    const summary = await pending
+    if (summary.status === 'failed') {
+      return { kind: 'failed', error: summary.errors[0]?.error ?? 'the rescan failed' }
+    }
+    return { kind: 'done', at: summary.finishedAt, changes: summary.changes }
+  },
+})
+// A full scan verifies the fix runs that wait for one (the fallback when rescans keep failing).
+scheduler.onScanFinished((summary) => {
+  tracker.scanFinished({
+    scanRunId: summary.scanRunId,
+    status: summary.status,
+    startedAt: summary.startedAt,
+    finishedAt: summary.finishedAt,
+    failedRepos: summary.errors.map((e) => e.subject),
+    changes: summary.changes,
+  })
 })
 let tracking: FixRunTrackingTimer | null = null
 

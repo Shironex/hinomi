@@ -2,9 +2,14 @@ import { currentTime } from '@hinomi/shared'
 import type { FixRunRow } from '../db/schema.js'
 import { silentLogger, type Logger } from '../log.js'
 import type { Repositories } from '../repository/index.js'
-import { GithubRateLimitError, type GithubClient } from '../sources/github/index.js'
+import {
+  GithubRateLimitError,
+  type GithubClient,
+  type GithubCompareStatus,
+} from '../sources/github/index.js'
 import { cachedRunnerGithub, type RunnerGithub } from './github.js'
 import { pollFixRun, type PollContext, type RunTrackingState } from './tracker-poll.js'
+import { verifyFromFullScan, type FullScanReport, type RepoRescanner } from './tracker-verify.js'
 import {
   FIX_RUN_TRACKING,
   WATCHED_ENDED_STATES,
@@ -34,6 +39,11 @@ export interface FixRunTrackerOptions {
   config?: Partial<FixRunTrackingConfig>
   /** Replaces the GitHub source (tests). */
   github?: () => RunnerGithub
+  /**
+   * Rescans one repo to verify a deployed (or merged, or empty) fix. Without it, runs that wait
+   * for a rescan are verified only by full scans reported through `scanFinished`.
+   */
+  rescan?: RepoRescanner
 }
 
 /** What the tracker knows about one run, for the run's API answer. */
@@ -61,6 +71,11 @@ export interface FixRunTracker {
   tick(): Promise<FixRunTickSummary>
   /** The tracking state of a run, or null when the tracker never looked at it. */
   status(run: FixRunRow): FixRunTrackingView | null
+  /**
+   * A full scan finished: verifies the runs it covers that wait for a rescan. Returns how many
+   * reached verified or not cleared. Never throws.
+   */
+  scanFinished(report: FullScanReport): number
 }
 
 interface Due {
@@ -178,6 +193,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
     })
   const meter = new RequestMeter(config, () => now().getTime())
   const states = new Map<number, RunTrackingState>()
+  const compareCache = new Map<string, GithubCompareStatus | null>()
   let running: Promise<FixRunTickSummary> | null = null
 
   function stateOf(runId: number): RunTrackingState {
@@ -207,7 +223,7 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
     const kept = new Set<number>()
     for (const run of rows) {
       const phase = trackingPhase(run, at, config)
-      if (!phase) continue
+      if (!phase || (phase === 'verify' && !options.rescan)) continue
       kept.add(run.id)
       list.push({ run, phase, at: dueAt(run, phase, at) })
     }
@@ -269,12 +285,16 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
         config,
         publicBaseUrl: options.publicBaseUrl,
         state,
+        rescan: options.rescan,
+        compareCache,
       }
       try {
         // A row read at the start of the tick may have moved (an API dispatch superseded it).
         const fresh = repositories.fixRuns.get(run.id)
         const phaseNow = fresh ? trackingPhase(fresh, now(), config) : null
-        if (fresh && phaseNow) await pollFixRun(context, fresh, phaseNow)
+        if (fresh && phaseNow && (phaseNow !== 'verify' || options.rescan)) {
+          await pollFixRun(context, fresh, phaseNow)
+        }
       } catch (error) {
         state.lastError = errorText(error)
         log.warn('tracker: polling a fix run failed', {
@@ -317,6 +337,15 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
         nextPollAt: phase ? new Date(Math.max(dueAt(run, phase, at), at.getTime())) : null,
         lastError: state.lastError,
         pausedUntil: meter.paused() ? new Date(meter.pausedUntil) : null,
+      }
+    },
+
+    scanFinished(report) {
+      try {
+        return verifyFromFullScan({ repositories, now, log, config }, report)
+      } catch (error) {
+        log.warn('tracker: verifying fix runs from a scan failed', { error: errorText(error) })
+        return 0
       }
     },
   }

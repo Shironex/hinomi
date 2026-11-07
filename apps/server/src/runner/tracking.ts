@@ -1,4 +1,4 @@
-import type { FixRunState } from '@hinomi/shared'
+import type { FixRunDeployment, FixRunState } from '@hinomi/shared'
 import type { FixRunRow } from '../db/schema.js'
 
 // How often the tracker looks at a fix run, as pure functions of the run and the time
@@ -38,6 +38,21 @@ export const FIX_RUN_TRACKING = {
   publishRetryBaseMs: 30 * SECOND,
   publishRetryMaxMs: 15 * MINUTE,
   publishMaxAttempts: 10,
+  /** Merged: read the repo's Coolify deploys every 2 minutes for an hour, then every 15. */
+  deployMs: 2 * MINUTE,
+  deployFastForMs: HOUR,
+  deploySlowMs: 15 * MINUTE,
+  /** No deploy of the merge commit after this long: stop waiting, warn, stay merged. */
+  deployGiveUpMs: 3 * DAY,
+  /** Once one app shipped the fix, the others are waited for this long before the rescan. */
+  otherAppsWaitMs: HOUR,
+  /** Finished deploys compared with the merge commit per app and poll (answers are cached). */
+  deployComparesPerPoll: 5,
+  /** A failed rescan of the repo is tried again after 5 minutes, doubling, 5 tries in all. */
+  rescanRetryBaseMs: 5 * MINUTE,
+  rescanMaxAttempts: 5,
+  /** A full scan is running: ask again after this long (its result may verify the run first). */
+  rescanBusyMs: 2 * MINUTE,
   /** Requests one tick may start (a run being polled finishes its step). */
   requestsPerTick: 40,
   /** Requests per rolling hour, shared by every tracked run. */
@@ -54,9 +69,11 @@ export type FixRunTrackingConfig = { [K in keyof typeof FIX_RUN_TRACKING]: numbe
 /**
  * What polling does with a run: `link` finds its workflow run by run name, `run` follows the
  * workflow run, `publish` opens the fix PR, `pr` follows the PR and its checks, `ended_run` and
- * `ended_pr` watch a recently ended run for a re-run or a reopened PR.
+ * `ended_pr` watch a recently ended run for a re-run or a reopened PR, `deploy` links a merged
+ * run to the Coolify deploys that ship it, `verify` rescans the repo and compares the findings.
  */
-export type TrackingPhase = 'link' | 'run' | 'publish' | 'pr' | 'ended_run' | 'ended_pr'
+export type TrackingPhase =
+  'link' | 'run' | 'publish' | 'pr' | 'ended_run' | 'ended_pr' | 'deploy' | 'verify'
 
 const BEFORE_PUSH: readonly FixRunState[] = ['pending', 'dispatched', 'queued', 'running']
 export const TRACKED_PR_STATES: readonly FixRunState[] = [
@@ -74,9 +91,42 @@ export function dispatchTime(run: FixRunRow): Date {
   return run.dispatchedAt ?? run.createdAt
 }
 
+/** Apps that ship the fix: every linked app except those deploying another branch. */
+export function expectedApps(links: readonly FixRunDeployment[]): FixRunDeployment[] {
+  return links.filter((link) => link.status !== 'other_branch')
+}
+
+/** True when the run's verification waits for the next scheduled scan, not for a rescan. */
+function waitsForScheduledScan(run: FixRunRow): boolean {
+  return run.verification?.status === 'scheduled_scan' || run.verification?.status === 'done'
+}
+
 /**
- * The phase of a run, or null when the tracker leaves it alone (merged, deployed and
- * nothing_to_do wait for a deployment or a rescan; other ended runs never change).
+ * After the merge: `deploy` while the apps of the repo have not all shipped the fix (merged
+ * until the give-up warning is written, deployed for `otherAppsWaitMs` after the first app),
+ * then `verify`. A repo with no app to wait for goes straight to `verify`.
+ */
+function afterMergePhase(
+  run: FixRunRow,
+  now: Date,
+  config: FixRunTrackingConfig,
+): TrackingPhase | null {
+  const links = run.deployLinks
+  const verify = waitsForScheduledScan(run) ? null : 'verify'
+  if (run.state === 'merged') {
+    if (links !== null && expectedApps(links).length === 0) return verify
+    if (run.warnings.some((w) => w.code === 'deploy_not_seen')) return null
+    return 'deploy'
+  }
+  const waiting = (links ?? []).some((link) => link.status === 'waiting')
+  const since = run.deployedAt ?? run.stateChangedAt
+  if (waiting && now.getTime() - since.getTime() < config.otherAppsWaitMs) return 'deploy'
+  return verify
+}
+
+/**
+ * The phase of a run, or null when the tracker leaves it alone (a merged run that gave up on a
+ * deployment, a verification left to the next scheduled scan, ended runs that never change).
  */
 export function trackingPhase(
   run: FixRunRow,
@@ -86,6 +136,8 @@ export function trackingPhase(
   if (BEFORE_PUSH.includes(run.state)) return run.githubRunId === null ? 'link' : 'run'
   if (run.state === 'branch_pushed') return 'publish'
   if (TRACKED_PR_STATES.includes(run.state)) return run.prNumber === null ? null : 'pr'
+  if (run.state === 'merged' || run.state === 'deployed') return afterMergePhase(run, now, config)
+  if (run.state === 'nothing_to_do') return waitsForScheduledScan(run) ? null : 'verify'
   const recent = run.endedAt !== null && now.getTime() - run.endedAt.getTime() <= config.endedForMs
   if (!recent) return null
   if ((run.state === 'failed' || run.state === 'cancelled') && run.githubRunId !== null) {
@@ -119,7 +171,23 @@ export function pollIntervalMs(
     case 'ended_run':
     case 'ended_pr':
       return config.endedMs
+    case 'deploy': {
+      if (run.state === 'deployed') return config.deployMs
+      const age = now.getTime() - (run.mergedAt ?? run.stateChangedAt).getTime()
+      return age < config.deployFastForMs ? config.deployMs : config.deploySlowMs
+    }
+    case 'verify':
+      return rescanRetryDelayMs(run.verification?.attempts ?? 0, config)
   }
+}
+
+/** Wait before the next rescan after `attempts` failed ones: none before the first. */
+export function rescanRetryDelayMs(
+  attempts: number,
+  config: FixRunTrackingConfig = FIX_RUN_TRACKING,
+): number {
+  if (attempts <= 0) return 0
+  return config.rescanRetryBaseMs * 2 ** (attempts - 1)
 }
 
 /** Wait before publish attempt `attempt + 1` after `attempt` transient failures (1 based). */
