@@ -9,6 +9,7 @@ import {
 import { createGithubClient } from './client.js'
 import { fetchPull } from './pulls.js'
 import {
+  compareCommits,
   downloadArtifact,
   fetchBranchHead,
   fetchWorkflowRun,
@@ -198,6 +199,21 @@ describe('branches and pulls', () => {
     expect(await fetchBranchHead(c, REPO.owner, REPO.name, 'hinomi/fix-plan')).toBe('c'.repeat(40))
     expect(requests[0]?.url).toBe(`${BASE}/repos/kestrel-co/harbor/branches/hinomi%2Ffix-plan`)
     expect(await fetchBranchHead(c, REPO.owner, REPO.name, 'hinomi/fix-plan')).toBeNull()
+  })
+
+  it('compares two commits, null when GitHub does not know one', async () => {
+    const { client: c, requests } = client([
+      { body: { status: 'ahead', ahead_by: 3, behind_by: 0, commits: [] } },
+      { body: { status: 'identical', ahead_by: 0, behind_by: 0, commits: [] } },
+      { status: 404, body: { message: 'Not Found' } },
+    ])
+    const target = { ...REPO, base: 'e'.repeat(40), head: 'f'.repeat(40) }
+    expect(await compareCommits(c, target)).toBe('ahead')
+    expect(requests[0]?.url).toBe(
+      `${BASE}/repos/kestrel-co/harbor/compare/${'e'.repeat(40)}...${'f'.repeat(40)}?per_page=1`,
+    )
+    expect(await compareCommits(c, { ...target, head: target.base })).toBe('identical')
+    expect(await compareCommits(c, target)).toBeNull()
   })
 
   it('reads a merged PR with its merge commit', async () => {
