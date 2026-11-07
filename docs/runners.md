@@ -6,6 +6,7 @@ A fix runner applies a repo's fix plan, pushes the branch `hinomi/fix-plan` (or 
 |---|---|---|
 | `github_actions` (default) | A workflow in the repo's own Actions | [github.md](github.md#fix-runner) |
 | `webhook` | An external runner Hinomi posts the plan to | [below](#the-webhook-runner) |
+| `local` | The Hinomi host itself, opt in with `HINOMI_LOCAL_RUNNER=1` | [below](#the-local-runner) |
 
 Every kind is off until the runner is turned on for the repo. After the branch is pushed every kind is the same: the PR, its checks, the deploy and the verification rescan are tracked as described in [api.md](api.md#fix-runner-and-fix-runs). The design and its trade offs are in [design/fix-runner.md](design/fix-runner.md#21-65-webhook-and-local-runners).
 
@@ -90,3 +91,55 @@ A run that sends no result within 2 hours of the dispatch is marked `lost`.
 - Whoever holds the secret can report on runs whose id they know. Run ids are random and sent only to the configured URL. Rotate the secret if it leaks.
 - With private addresses allowed, the URL may point anywhere on Hinomi's network. Leave the switch off unless the runner really lives there.
 - Without private addresses allowed, the address check runs when the connection resolves the name, so a name cannot resolve to a public address for the check and a private one for the request.
+
+## The local runner
+
+For a Hinomi with no Actions minutes and no other runner: the plan is applied on the Hinomi host by the same fix runner action the GitHub workflow runs (`actions/fix-runner/dist`, shipped in the image), so the appliers, the release age gate, the file allowlist, the caps and the publish checks are the same code. It is the riskiest runner, so it is opt in twice: `HINOMI_LOCAL_RUNNER=1` in Hinomi's environment (the UI cannot turn it on), then the repo's kind.
+
+### Set it up
+
+1. Run Hinomi where the local runner may run code from your repos: a dedicated container or VM, with no host mounts beyond the data volume and no Docker socket. Never on a workstation with your own repos and credentials.
+2. The official image ships neither git nor package managers. Build a derived image that adds `git` and the package managers your repos use, for example:
+
+   ```dockerfile
+   FROM ghcr.io/shironex/hinomi:latest
+   USER root
+   RUN apk add --no-cache git && npm install --global corepack@0.36.0 && corepack enable
+   USER 10001:10001
+   ```
+
+3. Set `HINOMI_LOCAL_RUNNER=1`. The runner status then says whether the host can run it (`runners.local` in `GET /api/repos/:id/runner`); without git on the PATH it says so.
+4. Use a GitHub App source with Contents: write, Pull requests: write and Metadata: read. An installation token lasts an hour. A personal access token works too, but it stays valid after the run.
+5. Pick the `local` kind for the repo and turn its runner on.
+
+### What a run does
+
+Per run, a folder `<HINOMI_DATA_DIR>/runner/<run id>` with `apply/`, `publish/`, `out/`, `home/` and `tmp/`, removed when the run ends and swept on boot (runs a restart cut short are failed with that reason). One local run at a time; a second dispatch meanwhile is a 409.
+
+1. **Clone.** A fresh shallow clone of the default branch into `apply/`, never one of the host's repos.
+2. **Apply.** The action's `apply` step with `defer_checks: true`: lockfile only installs, which run no install scripts. The patch and the result are copied out of the checkout (regular files only, size capped).
+3. **Checks (optional).** With `HINOMI_LOCAL_RUNNER_CHECKS=1` the action's `check` step runs the full install and the checks in `apply/`. Without it neither install scripts nor tests run on the host, and the PR's own CI runs them.
+4. **Publish.** A second clean clone of the base commit in `publish/`, where the action's `publish` step checks the patch against the hash and file list of the apply step and pushes `hinomi/fix-plan`.
+5. **Report.** Hinomi checks the branch head on GitHub, records `branch_pushed` and opens the PR itself, as for the webhook runner.
+
+| Step | Timeout |
+|---|---|
+| clone, fetch | 5 minutes |
+| apply | 20 minutes |
+| check | 20 minutes |
+| publish | 5 minutes |
+
+Every child runs in its own process group, killed as a group when it exits or times out. Its environment is built from nothing: `PATH`, `HOME` and `TMPDIR` (the run's own folders), `LANG`, `CI=true`, the `GITHUB_*` and `RUNNER_TEMP` values the action reads, and its inputs. `HINOMI_SECRET_KEY` and every other variable of the Hinomi process never reach it. The token reaches git through `GIT_CONFIG_*` variables (an `http.<origin>/.extraheader`), never argv or `.git/config`, and only the clone, the fetch and the publish step get it. Output is scrubbed of the token, its base64 forms and GitHub token shapes before it is logged or stored. On shutdown a running child is killed and its run fails.
+
+The majors agent does not run on the local runner: its preset installs packages as root and needs a user namespace sandbox, which a Hinomi host should not grant. A majors dispatch for a local repo is left out with that reason; use GitHub Actions or the webhook runner for major upgrades. The local runner needs Linux or macOS.
+
+### Residual risks
+
+The UI shows this warning next to the kind (`LOCAL_RUNNER_WARNING`):
+
+> The local runner applies fix plans on this Hinomi host. The repo's package manager config and hooks run as the Hinomi user, next to the database and the encrypted tokens, and the push token sits in the runner's environment while it runs. Use it only in a dedicated container with no other mounts, never on a workstation.
+
+- **Repo code on the host.** The lockfile update runs the repo's own `.pnpmfile.cjs` or yarn plugins, and the package manager reads the repo's config files (`.npmrc`, `.yarnrc.yml`, `bunfig.toml`, `.cargo/config.toml`), as in the GitHub apply job. They run as the Hinomi user, with read access to the data folder (the database and the encrypted tokens). With `HINOMI_LOCAL_RUNNER_CHECKS=1` every install script and test of the repo runs there too.
+- **Isolation is not a sandbox.** Process groups and a scrubbed environment stop leaks by accident, not a hostile process: it can read files the Hinomi user can read, call `setsid` to leave its group, or reach the network.
+- **The token.** The push token is in the environment of the clone and publish processes while they run, readable by other processes of the same user. A personal access token stays valid after the run; prefer the GitHub App.
+- **The patch.** The publish step only pushes what the apply step hashed, and only the allowed dependency files; a person reviews the PR and Hinomi never merges.
