@@ -23,6 +23,7 @@ import {
   type AdvisorySeverity,
   type DeploymentFacts,
   type GuardEvidence,
+  type ImageScanEvidence,
   type DeploymentKind,
   type FixChecksMode,
   type FixPlan,
@@ -208,7 +209,10 @@ export const deployments = sqliteTable(
     factsVersion: text('facts_version'),
     /** When the facts were read from the source. */
     factsUpdatedAt: timestamp('facts_updated_at'),
-    /** When the image of this deployment was last scanned (image scan slices). */
+    /**
+     * When the scanner last scanned the image of this deployment (the newest `scanned_at` Coolify
+     * reported), so unchanged results are not fetched again. Null until read.
+     */
     imageScannedAt: timestamp('image_scanned_at'),
     firstSeenAt: timestamp('first_seen_at').notNull(),
     lastSeenAt: timestamp('last_seen_at').notNull(),
@@ -312,8 +316,11 @@ export const findings = sqliteTable(
     guardCheck: text('guard_check', { enum: GUARD_CHECKS }),
     /** Guard findings: the current level. Null for every other kind. */
     guardLevel: text('guard_level', { enum: GUARD_LEVELS }),
-    /** Guard findings: what the check read, validated against the check's evidence schema. */
-    evidence: text('evidence', { mode: 'json' }).$type<GuardEvidence>(),
+    /**
+     * Guard findings: what the check read, validated against the check's evidence schema. Image
+     * scan advisories: where the scanner saw it (imageScanEvidenceSchema). Null otherwise.
+     */
+    evidence: text('evidence', { mode: 'json' }).$type<GuardEvidence | ImageScanEvidence>(),
     /** Desktop release advisories: the release tag that was scanned. Null otherwise. */
     releaseTag: text('release_tag'),
     /**

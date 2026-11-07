@@ -8,6 +8,7 @@ import {
   type GuardCheck,
   type GuardEvidence,
   type GuardLevel,
+  type ImageScanEvidence,
   type Reporter,
 } from '@hinomi/shared'
 import { and, asc, desc, eq, gte, type SQL } from 'drizzle-orm'
@@ -83,9 +84,24 @@ export function imageAdvisoryFindingKey(advisoryId: number, deploymentId: number
   return `advisory:${advisoryId}:deployment:${deploymentId}:image`
 }
 
+/** An advisory an image scan reported on a deployment; keyed by deployment, not by repo. */
+export interface ObserveImageAdvisoryInput {
+  kind: Extract<FindingKind, 'advisory'>
+  image: true
+  advisoryId: number
+  deploymentId: number
+  /** Null for image only deployments. */
+  repoId: number | null
+  installedVersion: string | null
+  /** Written on create and on every later observation. */
+  evidence: ImageScanEvidence
+}
+
 export type ObserveFindingInput =
+  | ObserveImageAdvisoryInput
   | {
       kind: Extract<FindingKind, 'advisory'>
+      image?: undefined
       advisoryId: number
       repoId: number
       scope?: FindingScope
@@ -149,6 +165,9 @@ export interface ListFindingsFilter {
 export type FindingsRepository = ReturnType<typeof createFindingsRepository>
 
 function keyFor(input: ObserveFindingInput): string {
+  if (input.kind === 'advisory' && input.image) {
+    return imageAdvisoryFindingKey(input.advisoryId, input.deploymentId)
+  }
   if (input.kind === 'advisory') {
     return input.releaseTag === undefined
       ? advisoryFindingKey(input.advisoryId, input.repoId)
@@ -234,35 +253,45 @@ export function createFindingsRepository(db: Db) {
               kind: input.kind,
               firstSeenAt: seenAt,
               lastSeenAt: seenAt,
-              ...(input.kind === 'advisory'
+              ...(input.kind === 'advisory' && input.image
                 ? {
                     advisoryId: input.advisoryId,
                     repoId: input.repoId,
-                    scope: input.scope ?? 'unknown',
-                    reportedBy: union([], input.reportedBy),
-                    manifestPaths: input.manifestPaths ?? [],
-                    installedVersion: input.installedVersion ?? null,
-                    patchedInLockfile: input.patchedInLockfile ?? false,
-                    dependencyPath: input.dependencyPath ?? null,
-                    releaseTag: input.releaseTag ?? null,
-                    fixedOnDefaultBranch: input.fixedOnDefaultBranch ?? false,
+                    deploymentId: input.deploymentId,
+                    scope: 'runtime' as const,
+                    reportedBy: ['image' as const],
+                    installedVersion: input.installedVersion,
+                    evidence: input.evidence,
                   }
-                : input.kind === 'coverage_note'
-                  ? { deploymentId: input.deploymentId ?? null, repoId: input.repoId ?? null }
-                  : input.kind === 'guard'
-                    ? {
-                        guardCheck: input.guardCheck,
-                        guardLevel: input.guardLevel,
-                        evidence: input.evidence,
-                        repoId: 'repoId' in input.subject ? input.subject.repoId : null,
-                        deploymentId:
-                          'deploymentId' in input.subject ? input.subject.deploymentId : null,
-                      }
-                    : {
-                        blindSpotType: input.blindSpotType,
-                        repoId: input.repoId ?? null,
-                        deploymentId: input.deploymentId ?? null,
-                      }),
+                : input.kind === 'advisory'
+                  ? {
+                      advisoryId: input.advisoryId,
+                      repoId: input.repoId,
+                      scope: input.scope ?? 'unknown',
+                      reportedBy: union([], input.reportedBy),
+                      manifestPaths: input.manifestPaths ?? [],
+                      installedVersion: input.installedVersion ?? null,
+                      patchedInLockfile: input.patchedInLockfile ?? false,
+                      dependencyPath: input.dependencyPath ?? null,
+                      releaseTag: input.releaseTag ?? null,
+                      fixedOnDefaultBranch: input.fixedOnDefaultBranch ?? false,
+                    }
+                  : input.kind === 'coverage_note'
+                    ? { deploymentId: input.deploymentId ?? null, repoId: input.repoId ?? null }
+                    : input.kind === 'guard'
+                      ? {
+                          guardCheck: input.guardCheck,
+                          guardLevel: input.guardLevel,
+                          evidence: input.evidence,
+                          repoId: 'repoId' in input.subject ? input.subject.repoId : null,
+                          deploymentId:
+                            'deploymentId' in input.subject ? input.subject.deploymentId : null,
+                        }
+                      : {
+                          blindSpotType: input.blindSpotType,
+                          repoId: input.repoId ?? null,
+                          deploymentId: input.deploymentId ?? null,
+                        }),
             })
             .returning()
             .get()
@@ -274,22 +303,29 @@ export function createFindingsRepository(db: Db) {
           .update(findings)
           .set({
             lastSeenAt: seenAt,
-            ...(input.kind === 'advisory' && {
-              ...(input.scope !== undefined && { scope: input.scope }),
-              reportedBy: union(existing.reportedBy, input.reportedBy),
-              manifestPaths: union(existing.manifestPaths, input.manifestPaths ?? []),
-              ...(input.installedVersion !== undefined && {
+            ...(input.kind === 'advisory' &&
+              input.image && {
+                reportedBy: union(existing.reportedBy, ['image']),
                 installedVersion: input.installedVersion,
+                evidence: input.evidence,
               }),
-              ...(input.dependencyPath !== undefined && { dependencyPath: input.dependencyPath }),
-              ...(input.patchedInLockfile !== undefined && {
-                patchedInLockfile: input.patchedInLockfile,
+            ...(input.kind === 'advisory' &&
+              !input.image && {
+                ...(input.scope !== undefined && { scope: input.scope }),
+                reportedBy: union(existing.reportedBy, input.reportedBy),
+                manifestPaths: union(existing.manifestPaths, input.manifestPaths ?? []),
+                ...(input.installedVersion !== undefined && {
+                  installedVersion: input.installedVersion,
+                }),
+                ...(input.dependencyPath !== undefined && { dependencyPath: input.dependencyPath }),
+                ...(input.patchedInLockfile !== undefined && {
+                  patchedInLockfile: input.patchedInLockfile,
+                }),
+                ...(input.releaseTag !== undefined && { releaseTag: input.releaseTag }),
+                ...(input.fixedOnDefaultBranch !== undefined && {
+                  fixedOnDefaultBranch: input.fixedOnDefaultBranch,
+                }),
               }),
-              ...(input.releaseTag !== undefined && { releaseTag: input.releaseTag }),
-              ...(input.fixedOnDefaultBranch !== undefined && {
-                fixedOnDefaultBranch: input.fixedOnDefaultBranch,
-              }),
-            }),
             ...(input.kind === 'guard' && {
               guardLevel: input.guardLevel,
               evidence: input.evidence,

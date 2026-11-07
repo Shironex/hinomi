@@ -79,6 +79,11 @@ export function createDeploymentsRepository(db: Db) {
       return db.select().from(deployments).orderBy(asc(deployments.name)).all()
     },
 
+    /** Records when the scanner last scanned the deployment's image (null: unknown, read again). */
+    setImageScannedAt(id: number, at: Date | null): void {
+      db.update(deployments).set({ imageScannedAt: at }).where(eq(deployments.id, id)).run()
+    },
+
     listBySource(sourceId: number): DeploymentRow[] {
       return db
         .select()
