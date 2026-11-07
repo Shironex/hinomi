@@ -7298,10 +7298,17 @@ const runnerSetupPrSchema = object({
 	available: boolean(),
 	reason: string()
 });
-const runnerKindsStatusSchema = object({ webhook: object({
-	configured: boolean(),
-	message: string()
-}) });
+const runnerKindsStatusSchema = object({
+	webhook: object({
+		configured: boolean(),
+		message: string()
+	}),
+	local: object({
+		available: boolean(),
+		message: string(),
+		warning: string()
+	}).optional()
+});
 const runnerStatusSchema = object({
 	repoId: id,
 	settings: runnerSettingsSchema,
