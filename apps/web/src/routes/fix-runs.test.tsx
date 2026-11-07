@@ -468,4 +468,58 @@ describe('the majors agent', () => {
     await within(dialog).findByText(/3 safe steps clear/)
     expect(dialog).not.toHaveTextContent('majors agent')
   })
+
+  it('marks majors runs in the list and shows the draft PR, outcome, turns and cost', async () => {
+    wideScreen()
+    fixtureApi()
+    await renderApp('/fix-runs?sel=51')
+    const list = await screen.findByRole('list', { name: 'Fix plans and runs' })
+    expect(within(list).getByText(/Majors run 51, PR #\d+ draft/)).toBeVisible()
+    expect(within(list).getByText('Majors run 50')).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'PR open on kestrel-co/gateway' }),
+    ).toBeVisible()
+    expect(screen.getByRole('link', { name: /Open PR #\d+, draft/ })).toBeVisible()
+    const agent = screen
+      .getByRole('heading', { level: 2, name: 'Agent' })
+      .closest('div')!.parentElement!
+    expect(within(agent).getByText('Changed the code')).toBeVisible()
+    expect(agent).toHaveTextContent('Turns37')
+    expect(agent).toHaveTextContent('Cost$3.42 estimated')
+    expect(
+      within(agent).getByRole('list', { name: 'Paths left out of the patch' }),
+    ).toHaveTextContent('.github/workflows/ci.yml')
+    expect(screen.getByRole('heading', { level: 2, name: 'Major upgrades' })).toBeVisible()
+    expect(screen.getByText(/The runner runs no checks for a majors run/)).toBeVisible()
+    expect(screen.getByText('hinomi/majors')).toBeVisible()
+  })
+
+  it('shows a running majors run alone, with no agent result yet', async () => {
+    wideScreen()
+    fixtureApi()
+    await renderApp('/fix-runs?sel=50')
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Running on kestrel-co/exporter' }),
+    ).toBeVisible()
+    expect(screen.getByText(/The coding agent edits the code for the major upgrades/)).toBeVisible()
+    expect(screen.getByText(/The agent is working/)).toBeVisible()
+    expect(screen.getByText('The agent is editing the code for the major upgrades')).toBeVisible()
+  })
+
+  it('shows why a majors run failed, from the agent', async () => {
+    wideScreen()
+    fixtureApi()
+    await renderApp('/fix-runs?sel=53')
+    // The reason shows in the callout and again at the stage of the timeline that failed.
+    expect(
+      (await screen.findAllByText(/The agent timed out: the runner stopped it after 40 minutes/))
+        .length,
+    ).toBeGreaterThanOrEqual(1)
+    expect(screen.getByRole('list', { name: 'Fix run timeline' })).toHaveTextContent(
+      'Workflow run, failed',
+    )
+    expect(screen.getByText('Timed out', { selector: 'span' })).toBeVisible()
+    expect(screen.getByText('The runner stopped the agent after 40 minutes')).toBeVisible()
+    expect(screen.getByText(/Turns/).parentElement).toHaveTextContent('80')
+  })
 })

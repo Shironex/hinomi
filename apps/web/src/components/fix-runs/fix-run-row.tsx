@@ -11,8 +11,7 @@ export function FixRunRow({ run }: { run: FixRun }) {
       <span className="text-xs text-muted-foreground">{formatRelative(run.at.created)}</span>
       <span aria-hidden="true" />
       <span className="col-span-2 truncate text-xs text-muted-foreground">
-        Run {run.id}
-        {run.kind === 'majors' ? ', majors' : ''}
+        {run.kind === 'majors' ? 'Majors run' : 'Run'} {run.id}
         {run.pr ? `, PR #${run.pr.number}${run.pr.draft ? ' draft' : ''}` : ''}
       </span>
     </span>
