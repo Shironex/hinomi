@@ -143,7 +143,7 @@ export const BLIND_SPOT_INFO: Record<
     fix: [
       [
         'Commit the lockfile',
-        'pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lock or Cargo.lock.',
+        'pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lock, Cargo.lock or go.mod.',
       ],
       ['Rescan', 'The blind spot closes on the next scan.'],
     ],
@@ -406,6 +406,7 @@ const LOCKFILE_NAMES = [
   'bun.lock',
   'Cargo.lock',
   'requirements.txt',
+  'go.mod',
 ]
 const isLockfile = (path: string) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf('/') + 1))
 
