@@ -4,13 +4,18 @@ import {
   FINDING_KINDS,
   FINDING_SCOPES,
   FINDING_STATES,
+  FIX_RUN_KINDS,
+  FIX_RUN_STATES,
+  FIX_RUNNER_KINDS,
   SCAN_RUN_STATUSES,
   SCAN_TRIGGERS,
   SOURCE_AUTHS,
   SOURCE_KINDS,
   type AdvisorySeverity,
   type DeploymentKind,
+  type FixChecksMode,
   type FixPlan,
+  type FixResultV1,
   type Reporter,
   type SourceKind,
   currentTime,
@@ -321,6 +326,68 @@ export const fixPlans = sqliteTable(
   ],
 )
 
+/**
+ * One dispatch of a fix plan to a runner, tracked until a rescan verifies it (see
+ * repository/fix-run-transitions.ts for the state machine). The plan is referenced by its row,
+ * which survives plan pruning while the run is open, and by scan run and version, which survive
+ * even after the row is gone.
+ */
+export const fixRuns = sqliteTable(
+  'fix_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoId: integer('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    fixPlanId: integer('fix_plan_id').references(() => fixPlans.id, { onDelete: 'set null' }),
+    /** The scan that built the plan. No foreign key: it outlives scan run cleanup. */
+    planScanRunId: integer('plan_scan_run_id').notNull(),
+    planVersion: integer('plan_version').notNull(),
+    runner: text('runner', { enum: FIX_RUNNER_KINDS }).notNull(),
+    kind: text('kind', { enum: FIX_RUN_KINDS }).notNull(),
+    /** Random id sent with the dispatch and in the run name, unique across runs. */
+    correlationId: text('correlation_id').notNull(),
+    branch: text('branch').notNull(),
+    checksMode: text('checks_mode').$type<FixChecksMode>().notNull(),
+    state: text('state', { enum: FIX_RUN_STATES }).notNull().default('pending'),
+    stateReason: text('state_reason'),
+    githubRunId: integer('github_run_id'),
+    githubRunAttempt: integer('github_run_attempt'),
+    headSha: text('head_sha'),
+    prNumber: integer('pr_number'),
+    prUrl: text('pr_url'),
+    prDraft: integer('pr_draft', { mode: 'boolean' }).notNull().default(false),
+    mergeSha: text('merge_sha'),
+    /** The runner's result file once read and validated. */
+    result: text('result', { mode: 'json' }).$type<FixResultV1>(),
+    /** ETags of the last polls, sent back as If-None-Match. */
+    runEtag: text('run_etag'),
+    prEtag: text('pr_etag'),
+    checksEtag: text('checks_etag'),
+    createdAt: timestamp('created_at').notNull(),
+    dispatchedAt: timestamp('dispatched_at'),
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    pushedAt: timestamp('pushed_at'),
+    prOpenedAt: timestamp('pr_opened_at'),
+    checksUpdatedAt: timestamp('checks_updated_at'),
+    mergedAt: timestamp('merged_at'),
+    closedAt: timestamp('closed_at'),
+    deployedAt: timestamp('deployed_at'),
+    rescannedAt: timestamp('rescanned_at'),
+    /** When the run reached a terminal state. */
+    endedAt: timestamp('ended_at'),
+    stateChangedAt: timestamp('state_changed_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('fix_runs_correlation_unique').on(t.correlationId),
+    uniqueIndex('fix_runs_github_run_unique').on(t.repoId, t.githubRunId),
+    index('fix_runs_repo_kind_idx').on(t.repoId, t.kind, t.id),
+    index('fix_runs_state_idx').on(t.state),
+    index('fix_runs_plan_idx').on(t.fixPlanId),
+  ],
+)
+
 /** Free-form key/value settings (scan interval, notification targets, ...). */
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
@@ -343,3 +410,5 @@ export type NewFindingEventRow = typeof findingEvents.$inferInsert
 export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
 export type FixPlanRow = typeof fixPlans.$inferSelect
+export type FixRunRow = typeof fixRuns.$inferSelect
+export type NewFixRunRow = typeof fixRuns.$inferInsert

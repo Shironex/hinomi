@@ -1,6 +1,7 @@
 export * from './advisories.js'
 export * from './deployments.js'
 export * from './findings.js'
+export * from './fix-run-transitions.js'
 export * from './onboarding.js'
 export * from './plans.js'
 export * from './repos.js'
