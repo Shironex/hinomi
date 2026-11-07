@@ -1,9 +1,10 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { runDetect } from './pipeline.js'
 import { nodeRepoFs } from './repo-fs.js'
-import { commitAll, dispatch, fixtureRepo, git, inputs, step } from './testing.js'
+import { FIXTURES, commitAll, dispatch, fixtureRepo, git, inputs, step } from './testing.js'
 import { planToolchains, toolchainOutputs } from './toolchain.js'
 
 // The detect step names every toolchain the dispatch's projects need, so the reusable workflow
@@ -108,5 +109,24 @@ describe('runDetect toolchains', () => {
     await fs.write('package.json', JSON.stringify({ name: 'x', engines: { node: '>=24' } }))
     const toolchains = await planToolchains(fs, [{ root: '.', packageManager: 'npm' }])
     expect(toolchains.nodeVersionFile).toBe('package.json')
+  })
+})
+
+describe('the self test dispatch', () => {
+  it('validates and asks for npm and pnpm against the fixtures in this repo', async () => {
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
+    const plan = readFileSync(join(FIXTURES, 'selftest-dispatch.json'), 'utf8')
+    const detected = await runDetect(
+      { plan, encoding: 'json', runId: 'selftest', repository: 'Shironex/hinomi' },
+      nodeRepoFs(repoRoot),
+    )
+    expect(detected.problems).toEqual([])
+    expect(toolchainOutputs(detected.toolchains)).toMatchObject({
+      package_managers: 'npm,pnpm',
+      setup_node: 'true',
+      node_version_file: '.node-version',
+      pnpm_version: '',
+      pnpm_package_json: 'actions/fix-runner/fixtures/selftest-pnpm/package.json',
+    })
   })
 })

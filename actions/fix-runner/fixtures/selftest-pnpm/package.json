@@ -1,0 +1,9 @@
+{
+  "name": "kestrel-selftest-pnpm",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "dependencies": {
+    "ms": "^2.1.2"
+  }
+}

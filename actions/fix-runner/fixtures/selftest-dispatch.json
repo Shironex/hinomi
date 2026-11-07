@@ -1,0 +1,75 @@
+{
+  "schema": "hinomi.fix-dispatch/1",
+  "runId": "selftest",
+  "dispatchedAt": "2026-11-07T10:00:00.000Z",
+  "plan": {
+    "version": 1,
+    "scanRunId": 1,
+    "createdAt": "2026-11-07T09:00:00.000Z"
+  },
+  "repo": {
+    "id": 1,
+    "fullName": "Shironex/hinomi",
+    "baseBranch": "main"
+  },
+  "steps": [
+    {
+      "id": "manifest_bump:npm:ms:2.1.3:actions/fix-runner/fixtures/selftest-npm/package-lock.json",
+      "order": 1,
+      "tier": "exposed",
+      "ecosystem": "npm",
+      "packageName": "ms",
+      "relationship": "direct",
+      "lockfile": "actions/fix-runner/fixtures/selftest-npm/package-lock.json",
+      "packageManager": "npm",
+      "workspaces": [],
+      "from": ["2.1.2"],
+      "to": "2.1.3",
+      "level": "patch",
+      "apply": {
+        "type": "manifest_bump",
+        "manifests": ["actions/fix-runner/fixtures/selftest-npm/package.json"],
+        "packageName": "ms",
+        "version": "2.1.3"
+      },
+      "advisories": [],
+      "releasedAt": null,
+      "releaseAge": "unknown"
+    },
+    {
+      "id": "manifest_bump:npm:ms:2.1.3:actions/fix-runner/fixtures/selftest-pnpm/pnpm-lock.yaml",
+      "order": 2,
+      "tier": "exposed",
+      "ecosystem": "npm",
+      "packageName": "ms",
+      "relationship": "direct",
+      "lockfile": "actions/fix-runner/fixtures/selftest-pnpm/pnpm-lock.yaml",
+      "packageManager": "pnpm",
+      "workspaces": [],
+      "from": ["2.1.2"],
+      "to": "2.1.3",
+      "level": "patch",
+      "apply": {
+        "type": "manifest_bump",
+        "manifests": ["actions/fix-runner/fixtures/selftest-pnpm/package.json"],
+        "packageName": "ms",
+        "version": "2.1.3"
+      },
+      "advisories": [],
+      "releasedAt": null,
+      "releaseAge": "unknown"
+    }
+  ],
+  "risky": [],
+  "omitted": {
+    "steps": 0,
+    "risky": 0,
+    "advisories": false
+  },
+  "options": {
+    "checks": "full",
+    "agent": false,
+    "linksAllowed": false,
+    "releaseAgeDays": 7
+  }
+}

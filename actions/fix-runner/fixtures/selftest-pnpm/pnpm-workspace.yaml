@@ -1,0 +1,3 @@
+# Its own workspace root, so pnpm never walks up to the Hinomi workspace.
+packages:
+  - '.'
