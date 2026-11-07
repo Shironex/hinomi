@@ -423,14 +423,24 @@ async function checkReleases(
 }
 
 /**
- * Records the image scan on the Coolify tally: counts, and an error per instance that failed
- * (a 403 or an outage). An instance without the endpoint is not an error, only a count and a log.
+ * Records the image scan: Coolify counts on the Coolify tally, registry SBOM counts on the OSV
+ * tally, and an error per instance (a 403 or an outage) or for OSV that failed. An instance
+ * without the endpoint is not an error, only a count and a log.
  */
 function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
   if (ctx.sources.settings.imageScan === 'off') return
   const t = tally(ctx.tallies, 'coolify')
   bump(t, 'imagesScanned', result.scanned)
   bump(t, 'imagesUnchanged', result.unchanged)
+  if (ctx.sources.settings.imageScan === 'sbom' && ctx.sources.osv) {
+    const osv = tally(ctx.tallies, 'osv')
+    // Matching the SBOMs on OSV is one unit of work: an OSV outage then shows on the run.
+    if (result.sbom.scanned > 0 || result.errors.some((e) => e.source === 'osv')) osv.attempted++
+    bump(osv, 'imageSboms', result.sbom.scanned)
+    bump(osv, 'imageSbomsRead', result.sbom.read)
+    bump(osv, 'imageSbomsCached', result.sbom.cached)
+    bump(osv, 'imageSbomsUnavailable', result.sbom.unavailable)
+  }
   for (const entry of result.unavailable) {
     bump(t, 'imageScanUnavailable')
     ctx.log.info('scan: this Coolify has no image scan results', {
@@ -439,11 +449,15 @@ function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
     })
   }
   for (const failure of result.errors) {
-    // An instance whose inventory already failed this scan counts once.
-    const failed = ctx.errors.some((e) => e.source === 'coolify' && e.subject === failure.subject)
-    if (!failed) t.failed++
-    ctx.repositories.sources.markError(failure.sourceId, failure.error, ctx.now())
-    recordError(ctx, { source: 'coolify', subject: failure.subject, error: failure.error })
+    // A source whose inventory (or lockfile scan) already failed this scan counts once.
+    const failed = ctx.errors.some(
+      (e) => e.source === failure.source && e.subject === failure.subject,
+    )
+    if (!failed) tally(ctx.tallies, failure.source).failed++
+    if (failure.sourceId !== null) {
+      ctx.repositories.sources.markError(failure.sourceId, failure.error, ctx.now())
+    }
+    recordError(ctx, { source: failure.source, subject: failure.subject, error: failure.error })
   }
 }
 
@@ -578,6 +592,7 @@ export async function runScan(
     const images = await runImageScan(ctx.repositories, sources.coolify, index, {
       mode,
       now: now(),
+      sbom: { reader: sources.imageSbom ?? null, osv: sources.osv },
     })
     changes.push(...images.changes)
     recordImageScan(ctx, images)
