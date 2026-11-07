@@ -14,16 +14,18 @@ export function SegmentedChoice<T extends string>({
   options,
   value,
   onChange,
+  disabled = false,
 }: {
   legend: string
   options: readonly SegmentedOption<T>[]
   value: T
   onChange: (next: T) => void
+  disabled?: boolean
 }) {
   // Two groups can be on screen at once (adding a source while replacing another's token).
   const name = useId()
   return (
-    <fieldset className="flex flex-col gap-1.5">
+    <fieldset disabled={disabled} className="flex flex-col gap-1.5">
       <legend className="mb-1.5 text-sm font-medium">{legend}</legend>
       <div className="inline-flex w-fit flex-wrap gap-0.5 rounded-md bg-muted p-0.5">
         {options.map((option) => {
@@ -32,7 +34,7 @@ export function SegmentedChoice<T extends string>({
             <label
               key={option.value}
               className={cn(
-                'inline-flex cursor-pointer items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs text-foreground-2 transition-colors has-focus-visible:outline-2 has-focus-visible:outline-ring hover:text-foreground',
+                'inline-flex cursor-pointer items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs text-foreground-2 transition-colors has-focus-visible:outline-2 has-focus-visible:outline-ring hover:text-foreground in-disabled:cursor-not-allowed in-disabled:opacity-60',
                 value === option.value &&
                   'bg-card text-foreground shadow-[0_1px_2px_oklch(0.2_0.02_265/0.12)]',
               )}
