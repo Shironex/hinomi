@@ -16,7 +16,7 @@ export const SHORTCUT_HELP: readonly { label: string; keys: readonly string[] }[
   { label: 'Move down, up', keys: ['j', 'k'] },
   { label: 'Open selected, or the focus view', keys: ['Enter'] },
   { label: 'Back to the list', keys: ['Esc'] },
-  { label: 'Run the fix agent', keys: ['f'] },
+  { label: 'Fix with Hinomi', keys: ['f'] },
   { label: 'Snooze', keys: ['s'] },
   { label: 'Accept the risk', keys: ['a'] },
   { label: 'Go to exposure', keys: ['g', 'e'] },

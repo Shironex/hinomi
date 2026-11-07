@@ -286,4 +286,28 @@ describe('Fix with Hinomi', () => {
       '/fix-runs?sel=plan-3',
     )
   })
+
+  it('runs from a finding and says which step clears it', async () => {
+    fixtureApi()
+    const { user } = await setup('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    await user.click(screen.getAllByRole('button', { name: 'Fix with Hinomi' })[0]!)
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    expect(
+      await within(dialog).findByText('This finding is cleared by step 1, tessera 14.2.9.'),
+    ).toBeVisible()
+  })
+
+  it('lets the By fix view pick among the repos the bump touches', async () => {
+    wideScreen()
+    fixtureApi()
+    const { user } = await setup('/?tab=fixes')
+    await screen.findByRole('heading', { level: 1, name: /Upgrade tessera/ })
+    await user.keyboard('f')
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    const admin = within(dialog).getByRole('radio', { name: /kestrel-co\/admin/ })
+    expect(within(dialog).getByRole('radio', { name: /kestrel-co\/storefront/ })).toBeChecked()
+    await user.click(admin)
+    expect(await within(dialog).findByText(/2 safe steps clear 4 of 4 open findings/)).toBeVisible()
+  })
 })

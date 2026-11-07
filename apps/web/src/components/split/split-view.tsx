@@ -185,7 +185,7 @@ export function SplitView<T>(props: SplitViewProps<T>) {
         ]
   const hints: KeyHint[] = [
     ...listHints,
-    ...(actions?.fix ? [{ keys: ['f'], label: 'fix agent' }] : []),
+    ...(actions?.fix ? [{ keys: ['f'], label: 'fix with Hinomi' }] : []),
     ...(actions?.snooze ? [{ keys: ['s'], label: 'snooze' }] : []),
     ...(actions?.accept ? [{ keys: ['a'], label: 'accept' }] : []),
     ...(searchable ? [{ keys: ['/'], label: 'search' }] : []),

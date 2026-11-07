@@ -1,9 +1,16 @@
 import type { FindingListItem, FixItem } from '@hinomi/shared'
 import { blindSpotSubject } from './finding-meta'
+import type { FixRequestRepo } from './fix-request'
 
 /** Helpers of the triage lists and detail panes (Exposure, All alerts, By fix). */
 
-export const FIX_AGENT_NOTE = 'The fix agent arrives in phase 1.'
+/** Repos of a fix that have a plan to run, most findings first (as the fix lists them). */
+export function fixPlanRepos(fix: FixItem): FixRequestRepo[] {
+  if (!fix.target) return []
+  return fix.repos
+    .filter((r) => r.plan !== null)
+    .map((r) => ({ id: r.repo.id, fullName: r.repo.fullName, findings: r.findings }))
+}
 
 /** "a", "a and b", "a, b and c", "a, b and 3 more". */
 export function joinAnd(items: readonly string[], max = 3): string {

@@ -12,7 +12,6 @@ import {
   IconGitPullRequest,
   IconLock,
   IconPlugConnected,
-  IconRobot,
   IconServer2,
   IconWorld,
 } from '@tabler/icons-react'
@@ -45,10 +44,17 @@ import {
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { findingsQuery } from '@/lib/view-api'
-import { FIX_AGENT_NOTE, findingName, joinAnd, releaseKind } from '@/lib/triage'
+import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
+import { NO_PLAN_NOTE, type FixRequestRepo } from '@/lib/fix-request'
+import { findingName, joinAnd, releaseKind } from '@/lib/triage'
 import { FindingBadge } from './triage-row'
 
 const number = new Intl.NumberFormat('en-US')
+
+/** The finding's repo when it has a fix plan, for Fix with Hinomi. */
+function planRepos(f: FindingDetail): FixRequestRepo[] {
+  return f.repo && f.plan ? [{ id: f.repo.id, fullName: f.repo.fullName }] : []
+}
 
 /** A titled block of the detail pane. */
 export function PaneSection({
@@ -326,10 +332,7 @@ export function FindingHead({
       </div>
       <div className="mt-1 flex flex-wrap gap-2">
         {f.kind === 'advisory' ? (
-          <Button disabled title={FIX_AGENT_NOTE} aria-describedby="fix-agent-note">
-            <IconRobot aria-hidden="true" />
-            Run fix agent
-          </Button>
+          <FixWithHinomi repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
         ) : (
           <PrimaryGapAction f={f} />
         )}
@@ -350,9 +353,9 @@ export function FindingHead({
           </Button>
         ) : null}
       </div>
-      {f.kind === 'advisory' ? (
+      {f.kind === 'advisory' && !f.plan ? (
         <span id="fix-agent-note" className="sr-only">
-          {FIX_AGENT_NOTE}
+          {NO_PLAN_NOTE}
         </span>
       ) : null}
     </div>
@@ -485,10 +488,7 @@ export function WhyItRanks({ f, rank }: { f: FindingDetail; rank?: number }) {
 function FixButtons({ f }: { f: FindingDetail }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" disabled title={FIX_AGENT_NOTE} aria-describedby="fix-agent-note">
-        <IconRobot aria-hidden="true" />
-        Run fix agent
-      </Button>
+      <FixWithHinomi size="sm" repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
       {f.repo ? (
         <Button asChild size="sm" variant="outline">
           <a
@@ -572,15 +572,12 @@ export function FixCard({ f, compact = false }: { f: FindingDetail; compact?: bo
             : 'Clears this finding'}
           {f.deployments.length > 1 ? ` in ${f.deployments.length} apps` : ''}
         </p>
-        <Button
-          disabled
-          title={FIX_AGENT_NOTE}
-          aria-describedby="fix-agent-note"
+        <FixWithHinomi
+          repos={planRepos(f)}
+          findingId={f.id}
+          noteId="fix-agent-note"
           className="w-full"
-        >
-          <IconRobot aria-hidden="true" />
-          Run fix agent
-        </Button>
+        />
       </FixBox>
     )
   }
@@ -595,7 +592,10 @@ export function FixCard({ f, compact = false }: { f: FindingDetail; compact?: bo
         <Bump from={f.versions.installed} to={f.versions.firstPatched} />
       </span>
       <p className="text-sm text-foreground-2">
-        {clearsText(f)} {FIX_AGENT_NOTE}
+        {clearsText(f)}{' '}
+        {f.plan
+          ? "Fix with Hinomi runs the repo's whole plan in one pull request, this bump included."
+          : NO_PLAN_NOTE}
       </p>
       <FixButtons f={f} />
     </FixBox>

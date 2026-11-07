@@ -37,7 +37,8 @@ import { SourceHealthPanel } from '@/components/views/source-health-panel'
 import { useDeferRequests } from '@/hooks/use-defer-requests'
 import type { ExposureTab } from '@/lib/exposure-search'
 import { isDecided, SEVERITY_LABEL, TIER_INFO } from '@/lib/finding-meta'
-import { findingName, fixLabel } from '@/lib/triage'
+import { requestFix } from '@/lib/fix-request'
+import { findingName, fixLabel, fixPlanRepos } from '@/lib/triage'
 import {
   findingsInfiniteQuery,
   fixesInfiniteQuery,
@@ -300,6 +301,7 @@ export function OverviewPage() {
         listHeader={header}
         renderRow={(fix, { index }) => <FixRow fix={fix} rank={index + 1} />}
         renderDetail={(fix, { focused }) => <FixPane fix={fix} focused={focused} />}
+        actions={{ fix: (fix) => requestFix({ repos: fixPlanRepos(fix) }) }}
         emptyList={
           fixes.error ? (
             <div className="p-[18px]">
