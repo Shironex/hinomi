@@ -9,12 +9,14 @@ import {
   IconPlug,
   IconServer2,
   IconShieldCheck,
+  IconShieldHalf,
   IconSend,
   IconWebhook,
   type Icon,
 } from '@tabler/icons-react'
 import { AccessCallout } from '@/components/access-callout'
 import { AboutSection } from '@/components/settings/about-section'
+import { ChecksSection } from '@/components/settings/checks-section'
 import { MappingSection } from '@/components/settings/mapping-section'
 import { NotificationsSection } from '@/components/settings/notifications-section'
 import { ScansSection } from '@/components/settings/scans-section'
@@ -46,6 +48,7 @@ const SECTIONS: readonly SectionMeta[] = [
   { key: 'sources', label: 'Sources', icon: IconServer2 },
   { key: 'notifications', label: 'Notification channels', icon: IconBell },
   { key: 'scans', label: 'Scans', icon: IconClock },
+  { key: 'checks', label: 'Checks', icon: IconShieldHalf },
   { key: 'mapping', label: 'Repo mapping', icon: IconPlug },
   { key: 'webhook', label: 'GitHub webhook', icon: IconWebhook },
   { key: 'runner', label: 'Webhook runner', icon: IconSend },
@@ -133,6 +136,17 @@ function SectionDetail({
           intro="A scan reads Coolify and GitHub, then reranks. It never changes your servers or repos."
         >
           <ScansSection />
+        </SettingsSection>
+      )
+    case 'checks':
+      return (
+        <SettingsSection
+          id="settings-checks"
+          title="Checks"
+          note="Guards on every scan"
+          intro="Each guard check reads what a source reports about a deployment or a repo. A source that cannot give the signal makes the check say unknown, never pass."
+        >
+          <ChecksSection />
         </SettingsSection>
       )
     case 'mapping':
