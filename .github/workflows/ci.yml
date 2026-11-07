@@ -24,6 +24,10 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      # bun for the fix runner's real lockfile tests; yarn classic comes with the runner image.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint
