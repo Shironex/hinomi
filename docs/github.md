@@ -54,7 +54,7 @@ How it works: Hinomi dispatches a small caller workflow in the repo (`.github/wo
 |---|---|---|---|
 | Dispatch the workflow and follow its runs | Actions: write | Actions: write | `repo` (`public_repo` is enough for public repos) |
 | Read the caller workflow and the fix branch | Contents: read (scans already need it) | Contents: read | `repo` |
-| Open and update the fix pull request | Pull requests: write | Pull requests: write | `repo` |
+| Open and update the fix pull request, add the `dependencies` and `security` labels when the repo has them | Pull requests: write | Pull requests: write | `repo` |
 | Follow checks on the fix PR (optional) | Checks: read, Commit statuses: read | Checks: read, Commit statuses: read | `repo` |
 | Setup PR that adds the caller workflow (optional) | Contents: write, Workflows: write | Contents: write, Workflows: write | `workflow` |
 
