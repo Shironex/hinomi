@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
+import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
-import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
@@ -6697,7 +6697,7 @@ const ADVISORY_KEY = /^[A-Za-z0-9._:-]+$/;
 const REPO_FULL_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const RUN_ID = /^[A-Za-z0-9._-]+$/;
 const SHA = /^[a-f0-9]{40}$/;
-const SHA256 = /^[a-f0-9]{64}$/;
+const SHA256$1 = /^[a-f0-9]{64}$/;
 const exactVersion = string().max(64).regex(EXACT_VERSION);
 const looseVersion = string().max(64).regex(PLAIN_TOKEN);
 const packageName = string().max(214).refine((name) => NPM_NAME.test(name) || CRATE_NAME.test(name), "not a package name");
@@ -6907,7 +6907,7 @@ const fixResultV1Schema = object({
 	}),
 	checks: array(fixCheckResultSchema).max(20),
 	patch: object({
-		sha256: string().regex(SHA256),
+		sha256: string().regex(SHA256$1),
 		files: array(repoPath).max(500),
 		insertions: count,
 		deletions: count
@@ -6955,6 +6955,9 @@ function truncateCheckOutput(text) {
 		truncated: tail.length < scrubbed.length
 	};
 }
+
+// ../../packages/shared/src/runner-pr.ts
+const FIX_BRANCH = "hinomi/fix-plan";
 
 // ../../packages/shared/src/fix-runs.ts
 const FIX_RUN_STATES = [
@@ -7196,10 +7199,14 @@ function writeOutputs(file, outputs) {
 // src/artifacts.ts
 const RESULT_FILE = "hinomi-result.json";
 const PATCH_FILE = "fix.patch";
-async function writeArtifacts(dir, result, patch) {
+async function writeResult(dir, result) {
 	await mkdir(dir, { recursive: true });
 	const resultPath = join(dir, RESULT_FILE);
 	await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+	return resultPath;
+}
+async function writeArtifacts(dir, result, patch) {
+	const resultPath = await writeResult(dir, result);
 	let patchPath = null;
 	if (patch !== null) {
 		patchPath = join(dir, PATCH_FILE);
@@ -14970,11 +14977,18 @@ function parsePackageManagerField(value) {
 }
 async function declaredIn(fs, root) {
 	for (const folder of [.../* @__PURE__ */ new Set([root, "."])]) {
-		const text = await fs.read(repoJoin(folder, "package.json"));
+		const file = repoJoin(folder, "package.json");
+		const text = await fs.read(file);
 		if (text === null) continue;
 		try {
 			const { data } = parseJsonFile(text);
-			if (isJsonObject(data) && data.packageManager !== void 0) return parsePackageManagerField(data.packageManager);
+			if (isJsonObject(data) && data.packageManager !== void 0) {
+				const declared = parsePackageManagerField(data.packageManager);
+				return declared ? {
+					...declared,
+					file
+				} : null;
+			}
 		} catch {
 			return null;
 		}
@@ -15353,7 +15367,7 @@ const nodeCompressor = {
 };
 
 // src/git.ts
-const GIT_TIMEOUT_MS = 12e4;
+const GIT_TIMEOUT_MS$1 = 12e4;
 function createGit(exec, root) {
 	const run = async (args) => {
 		const result = await exec.run({
@@ -15366,7 +15380,7 @@ function createGit(exec, root) {
 			]
 		}, {
 			cwd: root,
-			timeoutMs: GIT_TIMEOUT_MS
+			timeoutMs: GIT_TIMEOUT_MS$1
 		});
 		if (result.code !== 0) throw new FixRunnerError(`git ${args[0] ?? ""} failed: ${result.output.trim().slice(-500)}`);
 		return result.output;
@@ -15477,6 +15491,96 @@ async function capturePatch(git, stepFiles) {
 		deletions,
 		sha256,
 		ignored
+	};
+}
+
+// src/toolchain.ts
+const DEFAULT_PNPM_VERSION = "10";
+const DEFAULT_BUN_VERSION = "latest";
+const NODE_FAMILY = [
+	"npm",
+	"pnpm",
+	"yarn",
+	"bun"
+];
+const NODE_VERSION_FILES = [".node-version", ".nvmrc"];
+async function hasEnginesNode(fs, file) {
+	const text = await fs.read(file);
+	if (text === null) return false;
+	try {
+		const { data } = parseJsonFile(text);
+		if (!isJsonObject(data)) return false;
+		const engines = data.engines;
+		return isJsonObject(engines) && typeof engines.node === "string" && engines.node !== "";
+	} catch {
+		return false;
+	}
+}
+async function findNodeVersionFile(fs, root) {
+	const folders = [.../* @__PURE__ */ new Set([root, "."])];
+	for (const folder of folders) for (const name of NODE_VERSION_FILES) {
+		const file = repoJoin(folder, name);
+		if (await fs.exists(file)) return file;
+	}
+	for (const folder of folders) {
+		const file = repoJoin(folder, "package.json");
+		if (await hasEnginesNode(fs, file)) return file;
+	}
+	return "";
+}
+async function planToolchains(fs, projects) {
+	const managers = [...new Set(projects.map((project) => project.packageManager))];
+	const firstOf = (manager) => projects.find((project) => project.packageManager === manager);
+	const firstNode = projects.find((project) => NODE_FAMILY.includes(project.packageManager));
+	let pnpm = null;
+	const pnpmProject = firstOf("pnpm");
+	if (pnpmProject) {
+		const declared = await declaredIn(fs, pnpmProject.root);
+		pnpm = declared?.name === "pnpm" && declared.version !== null ? {
+			version: "",
+			packageJsonFile: declared.file
+		} : {
+			version: "10",
+			packageJsonFile: repoJoin(pnpmProject.root, "package.json")
+		};
+	}
+	let yarn = null;
+	const yarnProject = firstOf("yarn");
+	if (yarnProject) {
+		const declared = await declaredIn(fs, yarnProject.root);
+		yarn = { version: (declared?.name === "yarn" ? declared.version : null) ?? "" };
+	}
+	let bun = null;
+	const bunProject = firstOf("bun");
+	if (bunProject) {
+		const declared = await declaredIn(fs, bunProject.root);
+		bun = { version: (declared?.name === "bun" ? declared.version : null) ?? "latest" };
+	}
+	const cargoProject = firstOf("cargo");
+	return {
+		managers,
+		node: firstNode !== void 0,
+		nodeVersionFile: firstNode ? await findNodeVersionFile(fs, firstNode.root) : "",
+		pnpm,
+		yarn,
+		bun,
+		rust: cargoProject ? { root: cargoProject.root } : null
+	};
+}
+function toolchainOutputs(toolchains) {
+	return {
+		package_managers: toolchains.managers.join(","),
+		setup_node: String(toolchains.node),
+		node_version_file: toolchains.nodeVersionFile,
+		setup_pnpm: String(toolchains.pnpm !== null),
+		pnpm_version: toolchains.pnpm?.version ?? "",
+		pnpm_package_json: toolchains.pnpm?.packageJsonFile ?? "",
+		setup_yarn: String(toolchains.yarn !== null),
+		yarn_version: toolchains.yarn?.version ?? "",
+		setup_bun: String(toolchains.bun !== null),
+		bun_version: toolchains.bun?.version ?? "",
+		setup_rust: String(toolchains.rust !== null),
+		rust_root: toolchains.rust?.root ?? ""
 	};
 }
 
@@ -15767,26 +15871,43 @@ var ApplyRun = class {
 };
 async function runDetect(inputs, fs) {
 	const dispatch = await readDispatch(inputs);
-	const first = groupProjects(dispatch.steps)[0];
-	const root = first?.root ?? ".";
+	const projects = groupProjects(dispatch.steps);
+	const matched = [];
+	const entries = [];
+	for (const project of projects) {
+		const entry = await detectOne(fs, project.root, project.packageManager);
+		if (entry.packageManager !== "") matched.push({
+			root: entry.root,
+			packageManager: entry.packageManager
+		});
+		entries.push(entry);
+	}
+	const first = entries[0] ?? await detectOne(fs, ".", null);
+	const problems = entries.filter((entry) => entry.problem !== "").map((entry) => `${entry.root}: ${entry.problem}`);
+	const toolchains = await planToolchains(fs, matched);
+	return {
+		dispatch,
+		...first,
+		toolchains,
+		problems
+	};
+}
+async function detectOne(fs, root, expected) {
 	const detected = await detectProject(fs, root);
 	if (!detected.ok) return {
-		dispatch,
 		packageManager: "",
 		packageManagerVersion: "",
 		lockfile: "",
 		root,
 		problem: detected.problem
 	};
-	const { project } = detected;
-	const mismatch = first && first.packageManager !== project.packageManager ? `the dispatch says ${first.packageManager}, the checkout has ${project.packageManager}` : "";
+	const found = detected.project;
 	return {
-		dispatch,
-		packageManager: project.packageManager,
-		packageManagerVersion: project.declaredVersion ?? "",
-		lockfile: project.lockfile,
+		packageManager: found.packageManager,
+		packageManagerVersion: found.declaredVersion ?? "",
+		lockfile: found.lockfile,
 		root,
-		problem: mismatch
+		problem: expected !== null && expected !== found.packageManager ? `the dispatch says ${expected}, the checkout has ${found.packageManager}` : ""
 	};
 }
 async function runApply(inputs, deps) {
@@ -15815,7 +15936,7 @@ async function runApply(inputs, deps) {
 	for (const entry of opened) for (const id of entry.applied) for (const file of run.records.get(id)?.files ?? []) run.stepFiles.add(file);
 	const captured = await capturePatch(run.git, run.stepFiles);
 	for (const path of captured.ignored) log.warning("Left out of the patch", { path });
-	if (selection.mode === "full" && captured.text !== null) {
+	if (selection.mode === "full" && captured.text !== null && inputs.deferChecks !== true) {
 		for (const entry of opened) if (entry.applied.length > 0 && !entry.installFailed) await run.checkProject(entry, selection);
 	}
 	const primary = opened[0];
@@ -15858,9 +15979,250 @@ async function runApply(inputs, deps) {
 		dispatch
 	};
 }
+async function runChecks(inputs, deps, result) {
+	const dispatch = await readDispatch(inputs);
+	if (result.runId !== dispatch.runId) throw new FixRunnerError(`The result is for run ${result.runId}, not ${dispatch.runId}`);
+	const selection = selectChecks(inputs.checks, dispatch.options.checks);
+	if (selection.mode !== "full" || result.patch === null) return result;
+	const applied = new Set(result.steps.filter((s) => s.status === "applied").map((s) => s.id));
+	const run = new ApplyRun(dispatch, deps, deps.now());
+	for (const project of groupProjects(dispatch.steps)) {
+		const ids = project.steps.filter((step) => applied.has(step.id)).map((step) => step.id);
+		if (ids.length === 0) continue;
+		const entry = await run.openProject(project);
+		if (!entry) continue;
+		entry.applied = ids;
+		await run.checkProject(entry, selection);
+	}
+	const tail = truncateCheckOutput(run.install.output);
+	return parseFixResult({
+		...result,
+		checks: run.checks,
+		install: {
+			status: run.install.failed ? "failed" : result.install.status,
+			durationMs: result.install.durationMs + run.install.durationMs,
+			output: tail.output === "" ? result.install.output : tail.output,
+			truncated: tail.output === "" ? result.install.truncated : tail.truncated
+		},
+		finishedAt: deps.now().toISOString()
+	});
+}
+
+// src/publish.ts
+const GIT_TIMEOUT_MS = 12e4;
+const SHA256 = /^[a-f0-9]{64}$/;
+const COMMIT_SHA = /^[a-f0-9]{40}$/;
+const REGULAR_MODES = /* @__PURE__ */ new Set(["100644", "100755"]);
+const BOT_NAME = "github-actions[bot]";
+const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
+const REFUSED_HEADERS = [
+	"rename from ",
+	"rename to ",
+	"copy from ",
+	"copy to ",
+	"similarity index ",
+	"dissimilarity index ",
+	"old mode ",
+	"new mode ",
+	"deleted file mode "
+];
+function refuse(message) {
+	throw new FixRunnerError(`Refusing the patch: ${message}`);
+}
+function parsePatchPaths(text) {
+	const paths = [];
+	let current = null;
+	let inBody = false;
+	for (const line of text.split("\n")) {
+		if (line.startsWith("diff --git ")) {
+			inBody = false;
+			const match = /^diff --git a\/(\S+) b\/(\S+)$/.exec(line);
+			if (!match?.[1] || match[1] !== match[2]) refuse(`unexpected file header ${line}`);
+			current = match[1];
+			if (paths.includes(current)) refuse(`${current} appears twice`);
+			paths.push(current);
+			continue;
+		}
+		if (current === null) {
+			if (line.trim() !== "") refuse("text before the first file");
+			continue;
+		}
+		if (inBody) continue;
+		if (line === "GIT binary patch") {
+			inBody = true;
+			continue;
+		}
+		if (REFUSED_HEADERS.some((prefix) => line.startsWith(prefix))) refuse(`${current}: ${line}`);
+		if (line.startsWith("new file mode ")) {
+			if (!REGULAR_MODES.has(line.slice(14))) refuse(`${current}: ${line}`);
+			continue;
+		}
+		const index = /^index [0-9a-f]+\.\.[0-9a-f]+(?: (\d+))?$/.exec(line);
+		if (index) {
+			if (index[1] !== void 0 && !REGULAR_MODES.has(index[1])) refuse(`${current}: ${line}`);
+			continue;
+		}
+		if (line.startsWith("--- ") && line !== `--- a/${current}` && line !== "--- /dev/null") refuse(`${current}: ${line}`);
+		if (line.startsWith("+++ ")) {
+			if (line !== `+++ b/${current}`) refuse(`${current}: ${line}`);
+			inBody = true;
+			continue;
+		}
+		if (line.startsWith("Binary files ")) refuse(`${current}: a binary change without its data`);
+	}
+	if (paths.length === 0) refuse("it changes no file");
+	return paths;
+}
+function verifyPublish(input) {
+	const { result } = input;
+	if (!SHA256.test(input.expectedSha256)) refuse("the apply job reported no patch hash");
+	if (!COMMIT_SHA.test(input.baseSha)) refuse("the apply job reported no base commit");
+	if (result.repo.toLowerCase() !== input.repository.toLowerCase()) refuse(`the result is for ${result.repo}, this run is in ${input.repository}`);
+	if (input.runId !== "" && result.runId !== input.runId) refuse(`the result is for run ${result.runId}, not ${input.runId}`);
+	if (result.baseSha !== input.baseSha) refuse("the result names another base commit");
+	const sha256 = createHash("sha256").update(input.patch).digest("hex");
+	if (sha256 !== input.expectedSha256) refuse("its SHA-256 differs from the apply job output");
+	if (result.patch?.sha256 !== sha256) refuse("its SHA-256 differs from hinomi-result.json");
+	const expected = [...input.expectedFiles].sort();
+	const paths = parsePatchPaths(input.patch.toString("utf8")).sort();
+	if (paths.join("\n") !== expected.join("\n")) refuse(`it touches ${paths.join(", ")} but the apply job listed ${expected.join(", ")}`);
+	const listed = new Set(expected);
+	for (const path of paths) if (!isAllowedPatchPath(path, listed)) refuse(`${path} is not a dependency file`);
+	return paths;
+}
+function commitMessage(result) {
+	const applied = result.steps.filter((step) => step.status === "applied").length;
+	return [
+		`fix(deps): apply hinomi fix plan ${result.planScanRunId}`,
+		"",
+		`Hinomi fix run ${result.runId}: ${applied} of ${result.steps.length} steps applied.`,
+		""
+	].join("\n");
+}
+async function publishPatch(options) {
+	const { exec, root, log } = options;
+	const git = async (args, env) => {
+		const command = {
+			file: "git",
+			args: [
+				"-c",
+				"core.quotepath=off",
+				"-c",
+				"core.hooksPath=/dev/null",
+				"--no-pager",
+				...args
+			],
+			...env && { env }
+		};
+		const result = await exec.run(command, {
+			cwd: root,
+			timeoutMs: GIT_TIMEOUT_MS
+		});
+		if (result.code !== 0) throw new FixRunnerError(`git ${args[0] ?? ""} failed: ${result.output.trim().slice(-500)}`);
+		return result.output;
+	};
+	const head = (await git(["rev-parse", "HEAD"])).trim();
+	if (head !== options.baseSha) throw new FixRunnerError(`The checkout is at ${head}, the patch is for ${options.baseSha}`);
+	if ((await git([
+		"status",
+		"--porcelain",
+		"--untracked-files=no"
+	])).trim() !== "") throw new FixRunnerError("The publish checkout has local changes");
+	await git([
+		"apply",
+		"--check",
+		"--whitespace=nowarn",
+		options.patchPath
+	]);
+	await git([
+		"apply",
+		"--index",
+		"--whitespace=nowarn",
+		options.patchPath
+	]);
+	const staged = (await git([
+		"diff",
+		"--cached",
+		"--name-only",
+		"-z",
+		"--no-renames"
+	])).split("\0").filter((path) => path !== "").sort();
+	if (staged.join("\n") !== [...options.paths].sort().join("\n")) throw new FixRunnerError(`Applying the patch staged ${staged.join(", ")}`);
+	const identity = {
+		GIT_AUTHOR_NAME: BOT_NAME,
+		GIT_AUTHOR_EMAIL: BOT_EMAIL,
+		GIT_COMMITTER_NAME: BOT_NAME,
+		GIT_COMMITTER_EMAIL: BOT_EMAIL
+	};
+	await git([
+		"commit",
+		"--no-verify",
+		"--no-gpg-sign",
+		"--quiet",
+		"-m",
+		commitMessage(options.result)
+	], identity);
+	const commitSha = (await git(["rev-parse", "HEAD"])).trim();
+	log.info("committed", {
+		commit: commitSha,
+		files: staged.join(",")
+	});
+	if (options.dryRun) {
+		log.info("dry run, nothing pushed", { branch: FIX_BRANCH });
+		return {
+			branch: FIX_BRANCH,
+			commitSha,
+			pushed: false
+		};
+	}
+	if (options.token === "") throw new FixRunnerError("No token to push with");
+	const server = new URL(options.serverUrl);
+	if (server.protocol !== "https:") throw new FixRunnerError("The server URL must be https");
+	if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(options.repository)) throw new FixRunnerError(`Unexpected repository ${options.repository}`);
+	const basic = Buffer.from(`x-access-token:${options.token}`, "utf8").toString("base64");
+	options.write(`::add-mask::${basic}`);
+	await git([
+		"push",
+		"--force",
+		"--no-verify",
+		`${server.origin}/${options.repository}.git`,
+		`HEAD:refs/heads/${FIX_BRANCH}`
+	], {
+		GIT_TERMINAL_PROMPT: "0",
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: `http.${server.origin}/.extraheader`,
+		GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`
+	});
+	log.info("pushed", {
+		branch: FIX_BRANCH,
+		commit: commitSha
+	});
+	return {
+		branch: FIX_BRANCH,
+		commitSha,
+		pushed: true
+	};
+}
 
 // src/main.ts
 const OUTPUT_DIR = ".hinomi";
+async function readResult(dir) {
+	const text = await readFile(join(dir, RESULT_FILE), "utf8").catch(() => null);
+	if (text === null) throw new FixRunnerError(`No ${RESULT_FILE} in ${dir}`);
+	try {
+		return parseFixResult(JSON.parse(text));
+	} catch (error) {
+		if (error instanceof FixPayloadError) throw error;
+		throw new FixRunnerError(`${RESULT_FILE} is not JSON`, { cause: error });
+	}
+}
+function parseFileList(value) {
+	try {
+		const list = JSON.parse(value);
+		if (Array.isArray(list) && list.every((item) => typeof item === "string")) return list;
+	} catch {}
+	throw new FixRunnerError("The patch_files input is not a JSON list of paths");
+}
 async function main(io) {
 	const { env } = io;
 	const log = consoleLogger(io.write);
@@ -15878,35 +16240,92 @@ async function main(io) {
 			runId: getInput(env, "run_id"),
 			repository: env.GITHUB_REPOSITORY ?? ""
 		};
+		const outputDir = resolve(workspace, OUTPUT_DIR);
 		if (step === "detect") {
 			const detected = await runDetect(dispatchInputs, fs);
-			if (detected.problem !== "") log.warning("Detection failed", { problem: detected.problem });
+			for (const problem of detected.problems) log.warning("Detection failed", { problem });
 			Object.assign(outputs, {
 				package_manager: detected.packageManager,
 				package_manager_version: detected.packageManagerVersion,
 				lockfile: detected.lockfile,
 				project_root: detected.root,
+				...toolchainOutputs(detected.toolchains),
+				artifact_name: `hinomi-fix-${detected.dispatch.runId}`,
 				agent_needed: String(detected.dispatch.options.agent && detected.dispatch.risky.length > 0)
 			});
 			flush();
 			return 0;
 		}
-		if (step !== "apply") throw new FixRunnerError(`Unknown step ${JSON.stringify(step)}`);
 		const exec = nodeExec({
 			env,
 			echo: (chunk) => io.write(chunk.replace(/\n$/, ""))
 		});
-		const outcome = await runApply({
-			...dispatchInputs,
-			checks: getInput(env, "checks")
-		}, {
+		if (step === "publish") {
+			const dir = resolve(workspace, getInput(env, "artifact_dir") || ".hinomi");
+			const result = await readResult(dir);
+			const patchPath = join(dir, PATCH_FILE);
+			const patch = await readFile(patchPath).catch(() => null);
+			if (patch === null) throw new FixRunnerError(`No ${PATCH_FILE} in ${dir}`);
+			const baseSha = getInput(env, "base_sha");
+			const paths = verifyPublish({
+				patch,
+				result,
+				expectedSha256: getInput(env, "patch_sha256"),
+				expectedFiles: parseFileList(getInput(env, "patch_files")),
+				baseSha,
+				repository: dispatchInputs.repository,
+				runId: dispatchInputs.runId
+			});
+			const published = await publishPatch({
+				exec,
+				log,
+				root: workspace,
+				patchPath,
+				paths,
+				result,
+				baseSha,
+				dryRun: getInput(env, "dry_run") === "true",
+				token: getInput(env, "token"),
+				serverUrl: env.GITHUB_SERVER_URL ?? "https://github.com",
+				repository: dispatchInputs.repository,
+				write: io.write
+			});
+			Object.assign(outputs, {
+				branch: published.branch,
+				commit_sha: published.commitSha,
+				pushed: String(published.pushed)
+			});
+			flush();
+			return 0;
+		}
+		const runnerDeps = {
 			fs,
 			exec,
 			publishTimes: registryPublishTimes(io.fetch),
 			log,
 			now: io.now ?? currentTime
-		});
-		const written = await writeArtifacts(resolve(workspace, OUTPUT_DIR), outcome.result, outcome.patch);
+		};
+		const applyInputs = {
+			...dispatchInputs,
+			checks: getInput(env, "checks")
+		};
+		if (step === "check") {
+			const result = await runChecks(applyInputs, runnerDeps, await readResult(outputDir));
+			await writeResult(outputDir, result);
+			const failed = result.checks.filter((check) => check.status !== "passed").length;
+			log.info("checks done", {
+				checks: result.checks.length,
+				failed
+			});
+			flush();
+			return 0;
+		}
+		if (step !== "apply") throw new FixRunnerError(`Unknown step ${JSON.stringify(step)}`);
+		const outcome = await runApply({
+			...applyInputs,
+			deferChecks: getInput(env, "defer_checks") === "true"
+		}, runnerDeps);
+		const written = await writeArtifacts(outputDir, outcome.result, outcome.patch);
 		const applied = outcome.result.steps.filter((s) => s.status === "applied").length;
 		log.info("done", {
 			applied,
@@ -15918,8 +16337,11 @@ async function main(io) {
 			agent_needed: String(outcome.dispatch.options.agent && outcome.dispatch.risky.length > 0),
 			result_path: written.resultPath,
 			patch_path: written.patchPath ?? "",
-			output_dir: resolve(workspace, OUTPUT_DIR),
-			package_manager: outcome.result.packageManager
+			output_dir: outputDir,
+			package_manager: outcome.result.packageManager,
+			base_sha: outcome.result.baseSha,
+			patch_sha256: outcome.result.patch?.sha256 ?? "",
+			patch_files: JSON.stringify(outcome.result.patch?.files ?? [])
 		});
 		flush();
 		return 0;
