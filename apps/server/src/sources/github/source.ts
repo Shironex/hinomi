@@ -72,3 +72,39 @@ export function createGithubAppSource(options: GithubAppSourceOptions): GithubAp
     listAccountRepos: () => listInstallationRepos(source.client),
   }
 }
+
+/** How a stored GitHub source signs in, without its secret. */
+export interface GithubSourceConfig {
+  name: string
+  auth: 'token' | 'github_app'
+  baseUrl: string | null
+  appId: string | null
+  installationId: string | null
+}
+
+/**
+ * The source for a stored config and its decrypted secret: the token, or the app's private key.
+ * Throws when an app source lacks its App ID or installation ID.
+ */
+export function createGithubSourceFromConfig(
+  config: GithubSourceConfig,
+  secret: string,
+  options: Omit<GithubClientOptions, 'token' | 'auth' | 'baseUrl'> = {},
+): GithubSource | GithubAppSource {
+  const shared = { ...options, ...(config.baseUrl && { baseUrl: config.baseUrl }) }
+  if (config.auth !== 'github_app') return createGithubSource({ token: secret, ...shared })
+  if (config.appId === null || config.installationId === null) {
+    throw new Error(`GitHub source "${config.name}" is missing its App ID or installation ID`)
+  }
+  return createGithubAppSource({
+    appId: config.appId,
+    installationId: config.installationId,
+    privateKey: secret,
+    ...shared,
+  })
+}
+
+/** True for a source signed in as a GitHub App installation. */
+export function isGithubAppSource(source: GithubSource): source is GithubAppSource {
+  return 'app' in source
+}
