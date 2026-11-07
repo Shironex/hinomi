@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - actions/*
 
 # Refuse packages published less than 7 days ago (in minutes).
 minimumReleaseAge: 10080

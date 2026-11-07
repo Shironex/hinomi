@@ -1,0 +1,56 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+overrides:
+  heron-log@<2.0.0: 1.8.0
+
+importers:
+
+  .: {}
+
+  apps/api:
+    devDependencies:
+      plover-parse:
+        specifier: ~1.2.0
+        version: 1.2.0
+
+  apps/web:
+    dependencies:
+      plover-parse:
+        specifier: ^1.2.0
+        version: 1.2.0
+      tern-stream:
+        specifier: 3.0.1
+        version: 3.0.1
+
+packages:
+
+  heron-log@1.8.0:
+    resolution: {integrity: sha512-aGVyb24tbG9nLTEuOC4w}
+
+  plover-parse@1.2.0:
+    resolution: {integrity: sha512-cGxvdmVyLXBhcnNlLTEuMi4w}
+
+  tern-stream@3.0.1:
+    resolution: {integrity: sha512-dGVybi1zdHJlYW0tMy4wLjE=}
+
+  wren-util@2.1.0:
+    resolution: {integrity: sha512-d3Jlbi11dGlsLTIuMS4w}
+
+snapshots:
+
+  heron-log@1.8.0: {}
+
+  plover-parse@1.2.0:
+    dependencies:
+      wren-util: 2.1.0
+
+  tern-stream@3.0.1:
+    dependencies:
+      heron-log: 1.8.0
+      wren-util: 2.1.0
+
+  wren-util@2.1.0: {}
