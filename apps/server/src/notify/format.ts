@@ -30,6 +30,7 @@ export const EVENT_LABELS: Record<ItemEvent, string> = {
   fixed: 'Fixed',
   resolved: 'Resolved',
   expired: 'Snooze ended',
+  escalated: 'Escalated',
 }
 
 const truncate = (text: string, max: number) =>
@@ -257,6 +258,8 @@ export function sampleItem(baseUrl: string | null): NotificationItem {
     severity: 'high',
     title: 'example-lib',
     blindSpotType: null,
+    guardCheck: null,
+    guardLevel: null,
     repo: 'kestrel-co/harbor-web',
     package: 'example-lib',
     ecosystem: 'npm',

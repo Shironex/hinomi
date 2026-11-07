@@ -5,6 +5,9 @@ import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories, TEST_SECRET } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, ScanSummary } from '../scan/index.js'
+import { indexDeployments } from '../scan/deployments.js'
+import { runGuards } from '../scan/guards/index.js'
+import { fakeGuard, rootUserEvidence } from '../scan/guards/testing.js'
 import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
 import { maskWebhookUrl, type ResolvedEmail } from './channels.js'
 import { SmtpError, type MailMessage } from './email.js'
@@ -325,6 +328,8 @@ describe('immediate messages', () => {
           severity: 'critical',
           title: 'example-lib',
           blindSpotType: null,
+          guardCheck: null,
+          guardLevel: null,
           repo: 'kestrel-co/harbor-web',
           package: 'example-lib',
           ecosystem: 'npm',
@@ -498,6 +503,80 @@ describe('findings dismissed upstream', () => {
     advance(10)
     await n.sendDigest()
 
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('guard findings', () => {
+  /** Runs a fake root user check on the deployment, at the given level, through the framework. */
+  async function guardScan(level: 'warn' | 'fail' | 'unknown') {
+    const fake = fakeGuard('root_user')
+    const deployment = repos.deployments.list()[0]!
+    fake.state.results = [
+      { subject: { deploymentId: deployment.id }, level, evidence: rootUserEvidence() },
+    ]
+    const index = indexDeployments(repos)
+    const ctx = { deployments: index.deployments, repos: [], index, scans: new Map(), now: clock }
+    return summary(await runGuards(repos, [fake.guard], ctx, { warn: () => {} }))
+  }
+
+  const titles = () =>
+    calls.flatMap((c) => c.body.items.map((i) => [c.body.type, i.event, i.title]))
+
+  it('sends fail right away, warn in the digest, and unknown never', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    seedDeployedRepo()
+
+    await n.handleScanFinished(await guardScan('unknown'))
+    advance(60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(0)
+
+    advance(60)
+    await n.handleScanFinished(await guardScan('warn'))
+    expect(calls).toHaveLength(0)
+    advance(24 * 60)
+    await n.sendDigest()
+    expect(titles()).toEqual([['digest', 'escalated', 'Container runs as root']])
+    const [item] = calls[0]!.body.items as unknown as { guardCheck: string; guardLevel: string }[]
+    expect(item).toMatchObject({ guardCheck: 'root_user', guardLevel: 'warn' })
+
+    advance(60)
+    await n.handleScanFinished(await guardScan('fail'))
+    expect(titles().at(-1)).toEqual(['immediate', 'escalated', 'Container runs as root'])
+    expect(calls).toHaveLength(2)
+
+    // The same level again, and an improvement, send nothing; the digest skips the announced escalation.
+    advance(60)
+    await n.handleScanFinished(await guardScan('fail'))
+    await n.handleScanFinished(await guardScan('warn'))
+    advance(24 * 60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(2)
+  })
+
+  it('sends a new fail right away as opened', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    seedDeployedRepo()
+    await n.handleScanFinished(await guardScan('fail'))
+    expect(calls[0]?.body.embeds.map((e) => e.title)).toEqual(['[HIGH] Container runs as root'])
+  })
+
+  it('never sends a guard whose check is turned off', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    seedDeployedRepo()
+    const deployment = repos.deployments.list()[0]!
+    repos.checkOverrides.create({
+      check: 'root_user',
+      subject: { deploymentId: deployment.id },
+      reason: 'sandboxed on purpose',
+    })
+    await n.handleScanFinished(await guardScan('fail'))
+    advance(24 * 60)
+    await n.sendDigest()
     expect(calls).toHaveLength(0)
   })
 })
