@@ -42,6 +42,21 @@ pnpm build
 
 `pnpm format` fixes formatting. A Husky hook runs lint-staged and commitlint on commit.
 
+## Screenshots
+
+The README images come from a fixture mode of the web app, captured with [`@noctcore/showcase-kit`](https://www.npmjs.com/package/@noctcore/showcase-kit). Regenerate them after a UI change:
+
+```sh
+pnpm exec playwright install chromium   # once
+pnpm showcase                           # dark, light and phone sets, then the hero
+pnpm showcase dark phone                # only some sets
+pnpm showcase readme                    # print the README table of the dark set
+```
+
+The kit runs `vite build --mode fixtures` and serves it on `localhost:15190`, so no server, token or network access is needed. Framed images land in `assets/showcase` (commit them); raw captures go to `showcase-out/`, which is ignored. Two runs on the same machine give the same bytes.
+
+Fixture mode lives in `apps/web/src/fixtures`: `dataset.ts` is the invented instance (the `kestrel-co` organization, `example.dev` hosts, made up packages and advisories) on a clock frozen at 5 November 2026, 10:00 UTC (dates are formatted in UTC whatever the machine's time zone), and `routes.ts` answers every `/api` read from it. Writes are refused. Only the `fixtures` Vite mode boots through it, so a normal build never contains it and there is no flag to turn it on in production. To click around it yourself, run `pnpm --filter @hinomi/web dev:fixtures` (add `?fixture=setup` to the URL for the first run).
+
 ## Commits
 
 Small commits, one logical change each, written as conventional commits with a scope:
