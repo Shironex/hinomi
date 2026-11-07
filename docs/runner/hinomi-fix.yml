@@ -29,3 +29,7 @@ jobs:
       run_id: ${{ inputs.run_id }}
       plan: ${{ inputs.plan }}
       encoding: ${{ inputs.encoding }}
+    # To let the optional majors agent run (off unless turned on in Hinomi), add the repo
+    # secret and uncomment these lines (docs/github.md):
+    # secrets:
+    #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAJORS_BRANCH } from './runner-majors.js'
 import { FIX_BRANCH } from './runner-pr.js'
 import { fixChecksModeSchema, fixResultV1Schema } from './runner.js'
 
@@ -83,7 +84,7 @@ export type FixRunKind = z.infer<typeof fixRunKindSchema>
 /** The branch a run of each kind pushes. One per repo, so a new dispatch reuses it. */
 export const FIX_RUN_BRANCHES: Record<FixRunKind, string> = {
   fix: FIX_BRANCH,
-  majors: 'hinomi/majors',
+  majors: MAJORS_BRANCH,
 }
 
 const isoDate = z.iso.datetime({ offset: true })
