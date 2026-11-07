@@ -187,6 +187,7 @@ No environment variables are required; see [.env.example](.env.example).
 | `HINOMI_TRUSTED_PROXIES` | unset | Comma separated IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `CF-Connecting-IP` and Tailscale identity headers are believed. Unset, they are all ignored. See [docs/access.md](docs/access.md). |
 | `HINOMI_CF_ACCESS_TEAM_DOMAIN` | unset | Cloudflare Access team name or `https://<team>.cloudflareaccess.com`. With `HINOMI_CF_ACCESS_AUD`, Hinomi verifies the Access token and shows "Protected by Cloudflare Access". |
 | `HINOMI_CF_ACCESS_AUD` | unset | Application Audience (AUD) tag of the Access application. Set both Cloudflare variables or neither. |
+| `HINOMI_WEBHOOK_PORT` | unset | A second port that serves only the optional GitHub webhook path, so a tunnel pointed at it reaches nothing else. Must differ from `PORT`. See [docs/github-webhook.md](docs/github-webhook.md). |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | `25` | How long a stop (SIGTERM or SIGINT) waits for a running scan before it is marked interrupted. Whole seconds from 0 to 3600. Keep it below the stop grace of your platform, or the container is killed first. |
 
 Tokens and GitHub App private keys are never logged and never sent to the browser; the API only says whether one is set. GitHub connects with a personal access token or a GitHub App, see [docs/github.md](docs/github.md).

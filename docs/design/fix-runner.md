@@ -625,3 +625,14 @@ What announcing fix run events settled, where it differs from the slice plan. Th
 3. **Dedup in settings.** `notify.fixRunState` holds `sent[runId][event]` as the channel ids that got it. No migration. Failed deliveries stay open for the next change of the run; records of deleted runs are pruned on write.
 4. **Immediate, not batched.** Fix events skip the first scan summary, the batching and the digest, and ignore a channel's minimum severity.
 5. **Links.** The PR on GitHub always; the Hinomi run page only when the run was dispatched for a private repo (`checksMode` is `install`) and a public base URL is set, as in the PR body (decision 13).
+
+## 19. Built in 63.5: the webhook
+
+What the optional webhook settled, where it differs from section 6.4. The user facing description is in [github-webhook.md](../github-webhook.md).
+
+1. **Poll now, not transitions.** A delivery never feeds the state machine. It picks the followed runs it may concern (workflow run id or run name, PR number or branch, head commit) and the tracker's `pollNow` makes them due at once; the next tick polls them inside the request budget and after any rate limit pause, and a publish retry keeps its backoff. A forged or stale payload can therefore only cause an early poll. The timer's `wake` brings the tick forward, two seconds after the first delivery of a burst.
+2. **Polling keeps its cadence.** Section 6.4's "polling drops to a 15 min safety net" is not built: the webhook only adds polls. Lowering the cadence while deliveries arrive can come later, once the delivery history shows the webhook is reliable.
+3. **Path.** `/api/github/webhook`, as section 6.4 named it. It is mounted before the API, outside its 64 KiB body limit, with its own 1 MiB cap on the raw body. `HINOMI_WEBHOOK_PORT` adds a listener that serves this path alone, the recommended target for a tunnel or funnel.
+4. **Secret.** One secret per Hinomi (not per installation), 256 random bits, stored encrypted with `HINOMI_SECRET_KEY`, shown once on rotation. Off, without a secret or with a secret that cannot be decrypted, the path answers 404 like an unknown route.
+5. **Replays.** Delivery ids are kept in memory for 24 hours (at most 10,000). No migration: settings and the last delivery live in the settings table.
+6. **Events.** `workflow_run`, `pull_request`, `check_suite`, `check_run`, `status`, `ping`, and `push` when switched on (the fix branch, and the default branch for runs with a PR). Any action of these events counts.
