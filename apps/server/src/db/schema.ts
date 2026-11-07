@@ -10,6 +10,7 @@ import {
   SOURCE_KINDS,
   type AdvisorySeverity,
   type DeploymentKind,
+  type FixPlan,
   type Reporter,
   type SourceKind,
   currentTime,
@@ -291,6 +292,35 @@ export const scanRuns = sqliteTable(
   (t) => [index('scan_runs_started_idx').on(t.startedAt)],
 )
 
+/**
+ * The fix plan of one repo as one scan built it (see scan/plans.ts). `plan` holds the
+ * versioned contract as served; the counts are copied out for cheap lists.
+ */
+export const fixPlans = sqliteTable(
+  'fix_plans',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    repoId: integer('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    scanRunId: integer('scan_run_id')
+      .notNull()
+      .references(() => scanRuns.id, { onDelete: 'cascade' }),
+    /** FIX_PLAN_VERSION the plan was built with. */
+    version: integer('version').notNull(),
+    plan: text('plan', { mode: 'json' }).$type<FixPlan>().notNull(),
+    findingsCleared: integer('findings_cleared').notNull().default(0),
+    safeSteps: integer('safe_steps').notNull().default(0),
+    riskySteps: integer('risky_steps').notNull().default(0),
+    unfixed: integer('unfixed').notNull().default(0),
+    createdAt: timestamp('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('fix_plans_repo_scan_unique').on(t.repoId, t.scanRunId),
+    index('fix_plans_scan_idx').on(t.scanRunId),
+  ],
+)
+
 /** Free-form key/value settings (scan interval, notification targets, ...). */
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
@@ -312,3 +342,4 @@ export type FindingEventRow = typeof findingEvents.$inferSelect
 export type NewFindingEventRow = typeof findingEvents.$inferInsert
 export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
+export type FixPlanRow = typeof fixPlans.$inferSelect

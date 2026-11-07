@@ -13,6 +13,7 @@ import { applyRepoAdvisories, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
 import { collectGithub, collectOsv, errorMessage, type RepoScan } from './collect.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
+import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
 
@@ -334,6 +335,16 @@ function overallStatus(tallies: Tallies): ScanSummary['status'] {
   return 'succeeded'
 }
 
+/** Fix plans are derived data: a failure is logged and never fails the scan. */
+function savePlans(ctx: ScanContext, scanRunId: number, scans: Map<number, RepoScan>): void {
+  try {
+    const plans = saveScanPlans(ctx.repositories, scanRunId, scans, ctx.now())
+    ctx.log.info('scan: fix plans saved', { scanRunId, plans: plans.length })
+  } catch (error) {
+    ctx.log.warn('scan: fix plans failed', { scanRunId, error: errorMessage(error) })
+  }
+}
+
 function countChanges(changes: FindingChange[]) {
   return {
     findingsOpened: changes.filter((c) => c.change === 'opened' || c.change === 'reopened').length,
@@ -398,6 +409,7 @@ export async function runScan(
     changes.push(...result.changes)
     ctx.progress('ranking', 0, 0)
     changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
+    savePlans(ctx, run.id, result.scans)
   } catch (error) {
     failure = errorMessage(error)
     ctx.log.error('scan: failed unexpectedly', { error: failure })

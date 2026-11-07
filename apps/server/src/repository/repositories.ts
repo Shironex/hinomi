@@ -3,6 +3,7 @@ import type { Db } from '../db/client.js'
 import { createAdvisoriesRepository } from './advisories.js'
 import { createDeploymentsRepository } from './deployments.js'
 import { createFindingsRepository } from './findings.js'
+import { createFixPlansRepository } from './plans.js'
 import { createReposRepository } from './repos.js'
 import { createScanRunsRepository } from './scan-runs.js'
 import { createSettingsRepository } from './settings.js'
@@ -25,6 +26,7 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
     advisories: createAdvisoriesRepository(db),
     findings: createFindingsRepository(db),
     scanRuns: createScanRunsRepository(db),
+    fixPlans: createFixPlansRepository(db),
     settings: createSettingsRepository(db),
   }
 }
