@@ -4,7 +4,9 @@ import { useEffect } from 'react'
 import { ErrorState } from '@/components/states/error-state'
 
 /** Shown inside the shell when a route throws while loading or rendering. */
-export function RouteError({ error, reset }: ErrorComponentProps) {
+export type RouteErrorProps = ErrorComponentProps
+
+export function RouteError({ error, reset }: RouteErrorProps) {
   const router = useRouter()
   const queryReset = useQueryErrorResetBoundary()
 

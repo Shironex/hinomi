@@ -130,7 +130,9 @@ const shape = testGithubAppRequestSchema.shape
  * Tests GitHub App credentials with the server, then saves them. The private key never comes
  * back from the server, so its field always starts empty, also when replacing.
  */
-export function GithubAppConnectForm({ source, onConnected, onCancel }: ConnectFormProps) {
+export type GithubAppConnectFormProps = ConnectFormProps
+
+export function GithubAppConnectForm({ source, onConnected, onCancel }: GithubAppConnectFormProps) {
   const queryClient = useQueryClient()
   const replacing = source !== undefined
   const [url, setUrl] = useState(source?.baseUrl ?? '')
