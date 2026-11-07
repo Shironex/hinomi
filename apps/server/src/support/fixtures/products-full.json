@@ -1,0 +1,550 @@
+{
+  "schema_version": "1.2.1",
+  "generated_at": "2026-11-07T02:38:40+00:00",
+  "total": 5,
+  "result": [
+    {
+      "name": "nodejs",
+      "aliases": ["node"],
+      "label": "Node.js",
+      "category": "framework",
+      "tags": ["framework", "herodevs", "javascript-runtime", "linux-foundation"],
+      "identifiers": [
+        {
+          "type": "purl",
+          "id": "pkg:generic/node"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:docker/library/node"
+        }
+      ],
+      "labels": {
+        "eoas": "Active Support",
+        "discontinued": null,
+        "eol": "Security Support",
+        "eoes": "Commercial Support"
+      },
+      "links": {},
+      "releases": [
+        {
+          "name": "26",
+          "codename": null,
+          "label": "26 (LTS)",
+          "releaseDate": "2026-05-05",
+          "isLts": true,
+          "ltsFrom": "2026-10-28",
+          "isEoas": false,
+          "eoasFrom": "2027-10-27",
+          "isEol": false,
+          "eolFrom": "2029-04-30",
+          "isEoes": null,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "26.13.0",
+            "date": "2026-10-28",
+            "link": "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V26.md#26.13.0"
+          },
+          "custom": null
+        },
+        {
+          "name": "25",
+          "codename": null,
+          "label": "25",
+          "releaseDate": "2025-10-15",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEoas": true,
+          "eoasFrom": "2026-04-01",
+          "isEol": true,
+          "eolFrom": "2026-06-01",
+          "isEoes": null,
+          "eoesFrom": null,
+          "isMaintained": false,
+          "latest": {
+            "name": "25.9.0",
+            "date": "2026-04-01",
+            "link": "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V25.md#25.9.0"
+          },
+          "custom": null
+        },
+        {
+          "name": "24",
+          "codename": null,
+          "label": "24 (LTS)",
+          "releaseDate": "2025-05-06",
+          "isLts": true,
+          "ltsFrom": "2025-10-28",
+          "isEoas": true,
+          "eoasFrom": "2026-10-20",
+          "isEol": false,
+          "eolFrom": "2028-04-30",
+          "isEoes": null,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "24.22.2",
+            "date": "2026-10-28",
+            "link": "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V24.md#24.22.2"
+          },
+          "custom": null
+        },
+        {
+          "name": "22",
+          "codename": null,
+          "label": "22 (LTS)",
+          "releaseDate": "2024-04-24",
+          "isLts": true,
+          "ltsFrom": "2024-10-29",
+          "isEoas": true,
+          "eoasFrom": "2025-10-21",
+          "isEol": false,
+          "eolFrom": "2027-04-30",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "22.23.4",
+            "date": "2026-10-21",
+            "link": "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V22.md#22.23.4"
+          },
+          "custom": null
+        },
+        {
+          "name": "20",
+          "codename": null,
+          "label": "20 (LTS)",
+          "releaseDate": "2023-04-18",
+          "isLts": true,
+          "ltsFrom": "2023-10-24",
+          "isEoas": true,
+          "eoasFrom": "2024-10-22",
+          "isEol": true,
+          "eolFrom": "2026-04-30",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "20.20.2",
+            "date": "2026-03-24",
+            "link": "https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V20.md#20.20.2"
+          },
+          "custom": null
+        }
+      ]
+    },
+    {
+      "name": "bun",
+      "aliases": [],
+      "label": "Bun",
+      "category": "framework",
+      "tags": ["framework", "javascript-runtime"],
+      "identifiers": [
+        {
+          "type": "purl",
+          "id": "pkg:docker/oven/bun"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:github/oven-sh/bun"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:brew/oven-sh/bun/bun"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:npm/bun"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:scoop/bun"
+        }
+      ],
+      "labels": {
+        "eoas": null,
+        "discontinued": null,
+        "eol": "Security Support",
+        "eoes": null
+      },
+      "links": {},
+      "releases": [
+        {
+          "name": "1",
+          "codename": null,
+          "label": "1",
+          "releaseDate": "2023-09-07",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": false,
+          "eolFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "1.4.4",
+            "date": "2026-10-22",
+            "link": "https://github.com/oven-sh/bun/releases/tag/bun-v1.4.4"
+          },
+          "custom": null
+        }
+      ]
+    },
+    {
+      "name": "rust",
+      "aliases": ["rustlang", "rust-lang"],
+      "label": "Rust",
+      "category": "lang",
+      "tags": ["lang", "rust-foundation"],
+      "identifiers": [],
+      "labels": {
+        "eoas": null,
+        "discontinued": null,
+        "eol": "Supported",
+        "eoes": null
+      },
+      "links": {},
+      "releases": [
+        {
+          "name": "1.99",
+          "codename": null,
+          "label": "1.99",
+          "releaseDate": "2026-10-01",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": false,
+          "eolFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "1.99.1",
+            "date": "2026-10-15",
+            "link": "https://github.com/rust-lang/rust/releases/tag/1.99.1"
+          },
+          "custom": null
+        },
+        {
+          "name": "1.98",
+          "codename": null,
+          "label": "1.98",
+          "releaseDate": "2026-08-20",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2026-10-01",
+          "isMaintained": false,
+          "latest": {
+            "name": "1.98.1",
+            "date": "2026-09-03",
+            "link": "https://github.com/rust-lang/rust/releases/tag/1.98.1"
+          },
+          "custom": null
+        },
+        {
+          "name": "1.97",
+          "codename": null,
+          "label": "1.97",
+          "releaseDate": "2026-07-09",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2026-08-20",
+          "isMaintained": false,
+          "latest": {
+            "name": "1.97.1",
+            "date": "2026-07-16",
+            "link": "https://github.com/rust-lang/rust/releases/tag/1.97.1"
+          },
+          "custom": null
+        },
+        {
+          "name": "1.96",
+          "codename": null,
+          "label": "1.96",
+          "releaseDate": "2026-05-28",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2026-07-09",
+          "isMaintained": false,
+          "latest": {
+            "name": "1.96.1",
+            "date": "2026-06-30",
+            "link": "https://doc.rust-lang.org/stable/releases.html#version-1961-2026-06-30"
+          },
+          "custom": null
+        }
+      ]
+    },
+    {
+      "name": "nextjs",
+      "aliases": ["next-js", "nextdotjs"],
+      "label": "Next.js",
+      "category": "framework",
+      "tags": ["framework", "javascript-runtime", "vercel"],
+      "identifiers": [
+        {
+          "type": "purl",
+          "id": "pkg:npm/next"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:github/vercel/next.js"
+        }
+      ],
+      "labels": {
+        "eoas": null,
+        "discontinued": null,
+        "eol": "Security Support",
+        "eoes": null
+      },
+      "links": {},
+      "releases": [
+        {
+          "name": "16",
+          "codename": null,
+          "label": "16 (LTS)",
+          "releaseDate": "2025-10-22",
+          "isLts": true,
+          "ltsFrom": null,
+          "isEol": false,
+          "eolFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "16.4.5",
+            "date": "2026-11-03",
+            "link": "https://github.com/vercel/next.js/releases/tag/v16.4.5"
+          },
+          "custom": null
+        },
+        {
+          "name": "15",
+          "codename": null,
+          "label": "15 (LTS)",
+          "releaseDate": "2024-10-21",
+          "isLts": true,
+          "ltsFrom": null,
+          "isEol": false,
+          "eolFrom": "2027-01-31",
+          "isMaintained": true,
+          "latest": {
+            "name": "15.5.29",
+            "date": "2026-11-03",
+            "link": "https://github.com/vercel/next.js/releases/tag/v15.5.29"
+          },
+          "custom": null
+        },
+        {
+          "name": "14",
+          "codename": null,
+          "label": "14 (LTS)",
+          "releaseDate": "2023-10-26",
+          "isLts": true,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2025-10-26",
+          "isMaintained": false,
+          "latest": {
+            "name": "14.2.35",
+            "date": "2025-12-11",
+            "link": "https://github.com/vercel/next.js/releases/tag/v14.2.35"
+          },
+          "custom": null
+        },
+        {
+          "name": "13",
+          "codename": null,
+          "label": "13",
+          "releaseDate": "2022-10-25",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2024-12-21",
+          "isMaintained": false,
+          "latest": {
+            "name": "13.5.11",
+            "date": "2025-03-27",
+            "link": "https://github.com/vercel/next.js/releases/tag/v13.5.11"
+          },
+          "custom": null
+        },
+        {
+          "name": "12",
+          "codename": null,
+          "label": "12",
+          "releaseDate": "2021-10-26",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2022-11-21",
+          "isMaintained": false,
+          "latest": {
+            "name": "12.3.7",
+            "date": "2025-03-28",
+            "link": "https://github.com/vercel/next.js/releases/tag/v12.3.7"
+          },
+          "custom": null
+        },
+        {
+          "name": "11",
+          "codename": null,
+          "label": "11",
+          "releaseDate": "2021-06-15",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2022-01-27",
+          "isMaintained": false,
+          "latest": {
+            "name": "11.1.4",
+            "date": "2022-01-27",
+            "link": "https://github.com/vercel/next.js/releases/tag/v11.1.4"
+          },
+          "custom": null
+        },
+        {
+          "name": "10",
+          "codename": null,
+          "label": "10",
+          "releaseDate": "2020-10-27",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2021-06-15",
+          "isMaintained": false,
+          "latest": {
+            "name": "10.2.3",
+            "date": "2021-05-24",
+            "link": "https://github.com/vercel/next.js/releases/tag/v10.2.3"
+          },
+          "custom": null
+        },
+        {
+          "name": "9",
+          "codename": null,
+          "label": "9",
+          "releaseDate": "2019-07-08",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEol": true,
+          "eolFrom": "2020-10-27",
+          "isMaintained": false,
+          "latest": {
+            "name": "9.5.5",
+            "date": "2020-10-10",
+            "link": "https://github.com/vercel/next.js/releases/tag/v9.5.5"
+          },
+          "custom": null
+        }
+      ]
+    },
+    {
+      "name": "angular",
+      "aliases": [],
+      "label": "Angular",
+      "category": "framework",
+      "tags": ["framework", "google", "herodevs", "javascript-runtime"],
+      "identifiers": [
+        {
+          "type": "purl",
+          "id": "pkg:npm/%40angular/core"
+        },
+        {
+          "type": "purl",
+          "id": "pkg:github/angular/angular"
+        }
+      ],
+      "labels": {
+        "eoas": "Active Support",
+        "discontinued": null,
+        "eol": "Security Support",
+        "eoes": "Commercial Support"
+      },
+      "links": {},
+      "releases": [
+        {
+          "name": "20",
+          "codename": null,
+          "label": "20",
+          "releaseDate": "2025-05-28",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEoas": true,
+          "eoasFrom": "2025-11-19",
+          "isEol": false,
+          "eolFrom": "2026-11-28",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "20.3.35",
+            "date": "2026-11-02",
+            "link": "https://github.com/angular/angular/releases/tag/v20.3.35"
+          },
+          "custom": null
+        },
+        {
+          "name": "19",
+          "codename": null,
+          "label": "19",
+          "releaseDate": "2024-11-19",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEoas": true,
+          "eoasFrom": "2025-05-28",
+          "isEol": true,
+          "eolFrom": "2026-05-19",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "19.2.25",
+            "date": "2026-06-02",
+            "link": "https://github.com/angular/angular/releases/tag/v19.2.25"
+          },
+          "custom": null
+        },
+        {
+          "name": "18",
+          "codename": null,
+          "label": "18",
+          "releaseDate": "2024-05-22",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEoas": true,
+          "eoasFrom": "2024-11-19",
+          "isEol": true,
+          "eolFrom": "2025-11-21",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "18.2.14",
+            "date": "2025-09-10",
+            "link": "https://github.com/angular/angular/releases/tag/18.2.14"
+          },
+          "custom": null
+        },
+        {
+          "name": "17",
+          "codename": null,
+          "label": "17",
+          "releaseDate": "2023-11-08",
+          "isLts": false,
+          "ltsFrom": null,
+          "isEoas": true,
+          "eoasFrom": "2024-05-08",
+          "isEol": true,
+          "eolFrom": "2025-05-15",
+          "isEoes": false,
+          "eoesFrom": null,
+          "isMaintained": true,
+          "latest": {
+            "name": "17.3.12",
+            "date": "2024-07-17",
+            "link": "https://github.com/angular/angular/releases/tag/17.3.12"
+          },
+          "custom": null
+        }
+      ]
+    }
+  ]
+}
