@@ -205,6 +205,16 @@ How a dispatch goes:
 4. The run is stored as `pending`, then Hinomi calls `POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches` with `{ ref: <default branch>, inputs: { run_id, plan, encoding }, return_run_details: true }`. `run_id` is the run's `correlationId`, also in the workflow's run name.
 5. Accepted: the run moves to `dispatched` with `github.runId` from the response (null on a GitHub that answers 204 without details). Refused: the run moves to `failed` and `stateReason` says what to fix (404 no caller workflow on the default branch, 403 no Actions write, 422 inputs the caller does not declare). Either way the answer is 201 with the run. A dispatch is never retried after a 5xx or a network error, since GitHub may have acted on it.
 
+How the fix PR is opened (mode A, Hinomi opens it with its own credential):
+
+1. Once the run's result artifact was read, the tracker calls `publishFixPr(run, result, headSha)` (`apps/server/src/runner/publisher.ts`). The run records `branch_pushed` with `headSha`.
+2. Hinomi lists the open PRs of the branch (`GET /repos/{owner}/{repo}/pulls?state=open&head=<owner>:hinomi/fix-plan&base=<default branch>`) and picks the one the run tracks, else the one with the hidden `<!-- hinomi:fix repo=<id> ... -->` marker, else the first.
+3. An open PR gets the rendered title and body (`PATCH /pulls/{n}`, only when they differ) and the draft state (GraphQL `markPullRequestReadyForReview` or `convertPullRequestToDraft`, since REST cannot change it). Without one, Hinomi opens it (`POST /pulls`, `draft` when a check, the install or a step failed). The run records `pr_opened` and `pr_draft_changed`, so `pr` on the run carries `{ number, url, draft }`.
+4. Labels: `dependencies` and `security` are added (`POST /issues/{n}/labels`) only when the repo has them (`GET /labels/{name}`). Hinomi never creates labels.
+5. Links: the body links to `<public base URL>/fix-runs?sel=<run id>` only on private repos with a public base URL set (`PATCH /api/notifications/settings`). Public repos never show the instance's address.
+6. A PR closed without merging is never reopened. When Hinomi had recorded that close before the run was dispatched (so the dispatch asked, see above), a fresh PR opens with "Replaces #n" in its body. Otherwise the run takes that PR on and ends `closed_unmerged`, and the next dispatch asks.
+7. Publishing the same result again writes nothing. A 403, 404 or 422 from GitHub fails a run that has no PR yet, with `stateReason` saying what to fix (Pull requests: write missing, the branch was not pushed, no commits ahead of the default branch); a run that already has its PR keeps its state. A network error, rate limit or 5xx leaves the run as it is for another try; writes are never repeated. A refused label or draft change is a warning, not a failure.
+
 ### Deployments and repo mapping
 
 | Method and path | Does |
