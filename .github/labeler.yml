@@ -23,6 +23,7 @@ area:infra:
   - changed-files:
       - any-glob-to-any-file:
           - .github/**
+          - actions/**
           - Dockerfile
           - .dockerignore
           - docker-compose.yml

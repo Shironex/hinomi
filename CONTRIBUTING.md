@@ -67,7 +67,7 @@ type(scope): lowercase summary
 
 Types are the usual ones (`feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`). The scope is required and must be one of:
 
-`repo`, `server`, `web`, `shared`, `sources`, `infra`, `ci`, `deps`, `docs`, `spec`
+`repo`, `server`, `web`, `shared`, `sources`, `runner` (the GitHub Actions fix runner under `actions/`), `infra`, `ci`, `deps`, `docs`, `spec`
 
 Pull request titles follow the same shape.
 
