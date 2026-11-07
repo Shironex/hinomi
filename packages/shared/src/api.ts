@@ -1267,11 +1267,50 @@ export const notifyChannelTestResultSchema = z.object({
 })
 export type NotifyChannelTestResult = z.infer<typeof notifyChannelTestResultSchema>
 
+/**
+ * Fix run events a notification can announce, one switch each:
+ * `prOpened` (the fix PR is open, with its draft state), `checksFailing` (the PR checks
+ * failed), `verified` (the rescan found every targeted finding gone), `notCleared` (the rescan
+ * left some open), `failed` (the run failed, was lost or was cancelled) and `warnings` (a
+ * merged run's `watch_paths_skip` or `deploy_not_seen`).
+ */
+export const FIX_RUN_NOTIFY_EVENTS = [
+  'prOpened',
+  'checksFailing',
+  'verified',
+  'notCleared',
+  'failed',
+  'warnings',
+] as const
+export type FixRunNotifyEvent = (typeof FIX_RUN_NOTIFY_EVENTS)[number]
+
+export const fixRunNotifyEventsSchema = z.object({
+  prOpened: z.boolean(),
+  checksFailing: z.boolean(),
+  verified: z.boolean(),
+  notCleared: z.boolean(),
+  failed: z.boolean(),
+  warnings: z.boolean(),
+})
+export type FixRunNotifyEvents = z.infer<typeof fixRunNotifyEventsSchema>
+
+/** Every fix run event is announced until switched off. */
+export const DEFAULT_FIX_RUN_NOTIFY_EVENTS: FixRunNotifyEvents = {
+  prOpened: true,
+  checksFailing: true,
+  verified: true,
+  notCleared: true,
+  failed: true,
+  warnings: true,
+}
+
 export const notifySettingsSchema = z.object({
   /** Public address of this Hinomi for links in messages, null when not set. */
   publicBaseUrl: z.string().nullable(),
   /** Hour of the day (0 to 23, server local time) the digest goes out. */
   digestHour: z.number().int().min(0).max(23),
+  /** Which fix run events are announced on the enabled channels. */
+  fixRunEvents: fixRunNotifyEventsSchema.default(DEFAULT_FIX_RUN_NOTIFY_EVENTS),
 })
 export type NotifySettingsDto = z.infer<typeof notifySettingsSchema>
 
@@ -1285,6 +1324,11 @@ export const updateNotifySettingsRequestSchema = z
       .regex(/^(https?:\/\/[^\s/?#]+[^\s]*)?$/i, 'Must be an http or https URL, or empty')
       .optional(),
     digestHour: z.number().int().min(0).max(23).optional(),
+    /** Switches to change; the events left out keep their value. */
+    fixRunEvents: z
+      .strictObject(fixRunNotifyEventsSchema.partial().shape)
+      .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
+      .optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateNotifySettingsRequest = z.infer<typeof updateNotifySettingsRequestSchema>

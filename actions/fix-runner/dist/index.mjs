@@ -6667,13 +6667,31 @@ const notifyChannelTestResultSchema = object({
 	ok: boolean(),
 	error: string().optional()
 });
+const fixRunNotifyEventsSchema = object({
+	prOpened: boolean(),
+	checksFailing: boolean(),
+	verified: boolean(),
+	notCleared: boolean(),
+	failed: boolean(),
+	warnings: boolean()
+});
+const DEFAULT_FIX_RUN_NOTIFY_EVENTS = {
+	prOpened: true,
+	checksFailing: true,
+	verified: true,
+	notCleared: true,
+	failed: true,
+	warnings: true
+};
 const notifySettingsSchema = object({
 	publicBaseUrl: string().nullable(),
-	digestHour: number$1().int().min(0).max(23)
+	digestHour: number$1().int().min(0).max(23),
+	fixRunEvents: fixRunNotifyEventsSchema.default(DEFAULT_FIX_RUN_NOTIFY_EVENTS)
 });
 const updateNotifySettingsRequestSchema = strictObject({
 	publicBaseUrl: string().trim().max(500).regex(/^(https?:\/\/[^\s/?#]+[^\s]*)?$/i, "Must be an http or https URL, or empty").optional(),
-	digestHour: number$1().int().min(0).max(23).optional()
+	digestHour: number$1().int().min(0).max(23).optional(),
+	fixRunEvents: strictObject(fixRunNotifyEventsSchema.partial().shape).refine((value) => Object.keys(value).length > 0, "Nothing to update").optional()
 }).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 const onboardingStateSchema = object({
 	finished: boolean(),
