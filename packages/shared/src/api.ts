@@ -15,6 +15,7 @@ import {
 import { deploymentKindSchema } from './sources/coolify.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
+import { nowMs } from './clock.js'
 
 // Contract of the JSON API under /api (see docs/api.md). The server validates
 // every request with these schemas and every response before it is sent;
@@ -652,7 +653,7 @@ export type FindingDetail = z.infer<typeof findingDetailSchema>
 
 const reason = z.string().trim().min(1, 'A reason is required').max(500)
 
-const futureDate = isoDate.refine((value) => Date.parse(value) > Date.now(), {
+const futureDate = isoDate.refine((value) => Date.parse(value) > nowMs(), {
   message: 'The expiry must be in the future',
 })
 
