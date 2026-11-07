@@ -27,6 +27,7 @@ export {
 } from './settings.js'
 export {
   BLIND_SPOT_SEVERITY,
+  GUARD_SEVERITY,
   allStopped,
   compareByRank,
   isStoppedStatus,
@@ -47,7 +48,28 @@ export {
   type BlindSpotCounts,
   type CountableFinding,
   type FindingCounts,
+  type GuardCounts,
 } from './counts.js'
+export {
+  GUARDS,
+  applyGuards,
+  evaluateGuards,
+  runGuards,
+  toOutcomes,
+  type Guard,
+  type GuardContext,
+  type GuardOutcome,
+  type GuardSubject,
+  type GuardSubjectResult,
+} from './guards/index.js'
+export {
+  applyOverridesNow,
+  indexOverrides,
+  isTurnedOff,
+  loadOverrideIndex,
+  type CoveringOverride,
+  type OverrideIndex,
+} from './overrides.js'
 export {
   acceptFinding,
   canUserTransition,

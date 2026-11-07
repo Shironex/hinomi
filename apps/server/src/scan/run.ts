@@ -14,6 +14,7 @@ import { applyBlindSpots } from './blind-spots.js'
 import { collectGithub, collectOsv, collectRepo, errorMessage, type RepoScan } from './collect.js'
 import { repoKey } from './ownership.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
+import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
@@ -33,6 +34,8 @@ export interface RunScanOptions {
   concurrency?: number
   /** Called when a phase starts and after each unit of it. A listener that throws is ignored. */
   onProgress?: (progress: ScanProgress) => void
+  /** Guard checks to run in the ranking phase. Defaults to the registered ones (GUARDS). */
+  guards?: readonly Guard[]
 }
 
 export interface ScanProgress {
@@ -426,7 +429,7 @@ function countChanges(changes: FindingChange[]) {
 /**
  * One full scan: expire snoozes, sync Coolify deployments, scan every
  * deployed repo (plus account repos when enabled) with GitHub and OSV, join
- * the results into findings and blind spots, and record the run. Per source
+ * the results into findings and blind spots, run the guard checks, and record the run. Per source
  * and per repo failures are recorded and never abort the scan. Never throws:
  * an unexpected failure ends the run as `failed`.
  */
@@ -482,6 +485,15 @@ export async function runScan(
     changes.push(...result.changes)
     ctx.progress('ranking', 0, 0)
     changes.push(...applyBlindSpots(ctx.repositories, index, result.scans, now()))
+    const guardContext = {
+      deployments: index.deployments,
+      repos,
+      index,
+      scans: result.scans,
+      now: now(),
+    }
+    const guards = options.guards ?? GUARDS
+    changes.push(...(await runGuards(ctx.repositories, guards, guardContext, ctx.log)))
     await savePlans(ctx, run.id, result.scans)
   } catch (error) {
     failure = errorMessage(error)

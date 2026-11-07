@@ -17,7 +17,19 @@ import {
 /** A finding the scan created or changed, for notifications and the scan summary. */
 export interface FindingChange {
   findingId: number
-  change: 'opened' | 'reopened' | 'fixed' | 'reporters_changed' | 'expired' | 'dismissed_upstream'
+  change:
+    | 'opened'
+    | 'reopened'
+    | 'fixed'
+    | 'reporters_changed'
+    | 'expired'
+    | 'dismissed_upstream'
+    /** Guards: the level got worse. */
+    | 'escalated'
+    /** Guards: the level got better. */
+    | 'level_changed'
+    /** A check override accepted the finding. */
+    | 'turned_off'
 }
 
 interface Observation {
