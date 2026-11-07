@@ -85,6 +85,17 @@ const deploymentRoute = createRoute({
   },
 })
 
+const repoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/repos/$id',
+  component: lazyRouteComponent(() => import('@/routes/repo-detail'), 'RepoDetailPage'),
+  staticData: {
+    nav: 'alerts',
+    crumb: 'Repo',
+    parent: { label: 'All alerts', to: '/alerts' },
+  },
+})
+
 const fixRunsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/fix-runs',
@@ -133,6 +144,7 @@ export const routeTree = rootRoute.addChildren([
   findingRoute,
   deploymentsRoute,
   deploymentRoute,
+  repoRoute,
   fixRunsRoute,
   guardsRoute,
   driftRoute,
