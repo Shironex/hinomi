@@ -7,7 +7,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { createTestApi, seedFixWorld } from './testing.js'
 
-// GET /api/fixes (#51). Every name and domain is fictional.
+// GET /api/fixes. Every name and domain is fictional.
 
 async function getFixes(call: ReturnType<typeof createTestApi>['call'], query = '') {
   const res = await call('GET', `/fixes${query}`)

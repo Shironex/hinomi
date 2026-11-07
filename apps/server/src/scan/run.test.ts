@@ -406,7 +406,7 @@ describe('runScan', () => {
     expect(repos.sources.listByKind('github')[0]?.lastError).toMatch(/1 of 3 failed/)
     expect(repos.scanRuns.get(second.scanRunId)?.sourceResults.github?.status).toBe('error')
 
-    // Day 2: GitHub answers again and no longer reports it either.
+    // Day 2: GitHub answers again and does not report it either.
     world.repoStatus['harbor-web'] = 200
     world.githubAlerts['harbor-web'] = []
     const third = await scan(2)
