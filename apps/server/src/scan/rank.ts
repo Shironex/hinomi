@@ -5,11 +5,16 @@ import type {
   FindingKind,
   FindingScope,
   FindingTier,
+  GuardCheck,
+  GuardLevel,
   Severity,
 } from '@hinomi/shared'
 
-/** How far a finding reaches: a public deployment, only internal ones, or nothing deployed. */
-export type ExposureReach = 'public' | 'internal' | 'none'
+/**
+ * How far a finding reaches: a public deployment, only internal ones, a released desktop app
+ * (the latest release tag of a repo nothing deploys), or nothing.
+ */
+export type ExposureReach = 'public' | 'internal' | 'released' | 'none'
 
 export interface ExposureInput {
   /** Coverage notes rank below every advisory (see rankExposure). */
@@ -18,6 +23,9 @@ export interface ExposureInput {
   severity?: AdvisorySeverity | null
   /** Blind spot type, required when kind is `blind_spot`. */
   blindSpotType?: BlindSpotType | null
+  /** Guard check and level, required when kind is `guard`. */
+  guardCheck?: GuardCheck | null
+  guardLevel?: GuardLevel | null
   scope: FindingScope
   reach: ExposureReach
   /** CVSS base score, only used to order findings that tie on every factor. */
@@ -47,7 +55,16 @@ export interface ExposureRank {
 }
 
 const SEVERITY_WEIGHT: Record<Severity, number> = { critical: 4, high: 3, moderate: 2, low: 1 }
-const REACH_WEIGHT: Record<ExposureReach, number> = { public: 2, internal: 1, none: 0 }
+/** A released desktop app weighs like an internal deployment (decision Q18). */
+const REACH_WEIGHT: Record<ExposureReach, number> = {
+  public: 2,
+  internal: 1,
+  released: 1,
+  none: 0,
+}
+
+/** Reaches that run in a deployment. A released app is in users' hands, not deployed. */
+const isDeployedReach = (reach: ExposureReach) => reach === 'public' || reach === 'internal'
 
 /**
  * How severe each blind spot counts. Alerts switched off on a deployed repo
@@ -60,6 +77,22 @@ export const BLIND_SPOT_SEVERITY: Record<BlindSpotType, Severity> = {
   lockfile_missing: 'moderate',
   lockfile_unparseable: 'moderate',
   no_repo_mapping: 'moderate',
+}
+
+/**
+ * How severe each guard level counts, like BLIND_SPOT_SEVERITY. A check only produces the levels
+ * its copy lists (GUARD_COPY); the others are here so the table is total. `unknown` never ranks
+ * by severity: it ranks like a coverage note.
+ */
+export const GUARD_SEVERITY: Record<GuardCheck, Record<'warn' | 'fail', Severity>> = {
+  docker_socket: { fail: 'critical', warn: 'high' },
+  root_user: { fail: 'high', warn: 'moderate' },
+  shared_network: { fail: 'high', warn: 'moderate' },
+  runtime_support: { fail: 'high', warn: 'moderate' },
+  framework_support: { fail: 'high', warn: 'moderate' },
+  watch_paths_skip: { fail: 'moderate', warn: 'moderate' },
+  runtime_pins_disagree: { fail: 'low', warn: 'low' },
+  action_runtime: { fail: 'moderate', warn: 'low' },
 }
 
 function effectiveSeverity(input: ExposureInput): { severity: Severity; unscored: boolean } {
@@ -82,6 +115,7 @@ function effectiveSeverity(input: ExposureInput): { severity: Severity; unscored
  */
 export function rankExposure(input: ExposureInput): ExposureRank {
   if (input.kind === 'coverage_note') return rankCoverageNote(input.reach)
+  if (input.kind === 'guard') return rankGuard(input)
   if (input.kind === 'advisory' && input.patchedInLockfile) return rankPatched(input)
   const { severity, unscored } = effectiveSeverity(input)
   const runtime = input.kind === 'blind_spot' || input.scope !== 'dev'
@@ -94,10 +128,30 @@ export function rankExposure(input: ExposureInput): ExposureRank {
     factors: {
       severity,
       runtime,
-      deployed: input.reach !== 'none',
+      deployed: isDeployedReach(input.reach),
       public: input.reach === 'public',
     },
     unscored,
+  }
+}
+
+/**
+ * A guard finding: `reach * 10 + running * 5 + severity`, with no CVSS part. A guard is about
+ * the shipped app, so "runtime" means it runs: a stopped deployment (reach none) keeps its
+ * finding, ranked low. `unknown` (the source cannot tell) ranks like a coverage note.
+ */
+function rankGuard(input: ExposureInput): ExposureRank {
+  if (!input.guardCheck || !input.guardLevel) {
+    throw new Error('A guard finding needs its check and level to be ranked')
+  }
+  if (input.guardLevel === 'unknown') return rankCoverageNote(input.reach)
+  const severity = GUARD_SEVERITY[input.guardCheck][input.guardLevel]
+  const running = isDeployedReach(input.reach)
+  const rank = REACH_WEIGHT[input.reach] * 10 + (running ? 5 : 0) + SEVERITY_WEIGHT[severity]
+  return {
+    rank,
+    factors: { severity, runtime: running, deployed: running, public: input.reach === 'public' },
+    unscored: false,
   }
 }
 
@@ -113,7 +167,7 @@ function rankPatched(input: ExposureInput): ExposureRank {
     factors: {
       severity,
       runtime: input.scope !== 'dev',
-      deployed: input.reach !== 'none',
+      deployed: isDeployedReach(input.reach),
       public: input.reach === 'public',
     },
     unscored,
@@ -131,7 +185,7 @@ function rankCoverageNote(reach: ExposureReach): ExposureRank {
     factors: {
       severity: 'low',
       runtime: true,
-      deployed: reach !== 'none',
+      deployed: isDeployedReach(reach),
       public: reach === 'public',
     },
     unscored: false,
@@ -180,16 +234,24 @@ export function reachOf(deployments: readonly ReachInput[]): ExposureReach {
   return running.some((d) => d.reach !== 'internal') ? 'public' : 'internal'
 }
 
-/** Display tier of a ranked finding (see FINDING_TIERS in the shared contract). */
+/**
+ * Display tier of a ranked finding (see FINDING_TIERS in the shared contract). Guards take the
+ * reach tiers like advisories (decision Q2), except `unknown`, which goes to `coverage`.
+ */
 export function tierOf(ranked: {
   kind: FindingKind
   factors: ExposureFactors
   patchedInLockfile?: boolean
+  reach?: ExposureReach
+  guardLevel?: GuardLevel | null
 }): FindingTier {
   if (ranked.kind === 'blind_spot') return 'blind_spot'
   if (ranked.kind === 'coverage_note') return 'coverage'
+  if (ranked.kind === 'guard' && ranked.guardLevel === 'unknown') return 'coverage'
   if (ranked.patchedInLockfile) return 'patched'
   const { factors } = ranked
+  // Dev dependencies are not shipped in an installer.
+  if (ranked.reach === 'released') return factors.runtime ? 'released' : 'dev'
   if (!factors.deployed) return 'not_deployed'
   if (!factors.runtime) return 'dev'
   if (!factors.public) return 'internal'

@@ -158,6 +158,54 @@ describe('rankExposure', () => {
   })
 })
 
+describe('guards and the released tier', () => {
+  const guard = (
+    guardCheck: 'docker_socket' | 'root_user' | 'runtime_pins_disagree',
+    guardLevel: 'warn' | 'fail' | 'unknown',
+    reach: ExposureReach,
+  ) => rankExposure({ kind: 'guard', guardCheck, guardLevel, scope: 'unknown', reach })
+
+  it.each([
+    // check, level, reach, rank, tier
+    ['docker_socket', 'fail', 'public', 29, 'exposed'],
+    ['root_user', 'fail', 'public', 28, 'exposed'],
+    ['root_user', 'warn', 'public', 27, 'public_low'],
+    ['root_user', 'fail', 'internal', 18, 'internal'],
+    ['runtime_pins_disagree', 'warn', 'internal', 16, 'internal'],
+    ['root_user', 'fail', 'none', 3, 'not_deployed'],
+  ] as const)('ranks %s at %s on %s as %d in %s', (check, level, reach, rank, tier) => {
+    const ranked = guard(check, level, reach)
+    expect(ranked.rank).toBe(rank)
+    expect(tierOf({ kind: 'guard', guardLevel: level, factors: ranked.factors, reach })).toBe(tier)
+  })
+
+  it('ranks an unknown guard like a coverage note, in the coverage tier', () => {
+    const ranked = guard('root_user', 'unknown', 'public')
+    expect(ranked.rank).toBeLessThan(1)
+    expect(tierOf({ kind: 'guard', guardLevel: 'unknown', factors: ranked.factors })).toBe(
+      'coverage',
+    )
+  })
+
+  it('refuses a guard without its check and level', () => {
+    expect(() => rankExposure({ kind: 'guard', scope: 'unknown', reach: 'public' })).toThrow()
+  })
+
+  it('weighs a released app like internal, runtime in released and dev in dev', () => {
+    const runtime = advisory('critical', 'runtime', 'released')
+    expect(runtime.rank).toBe(advisory('critical', 'runtime', 'internal').rank)
+    expect(runtime.factors).toMatchObject({ deployed: false, public: false })
+    const tier = (scope: FindingScope) =>
+      tierOf({
+        kind: 'advisory',
+        reach: 'released',
+        factors: advisory('high', scope, 'released').factors,
+      })
+    expect(tier('runtime')).toBe('released')
+    expect(tier('dev')).toBe('dev')
+  })
+})
+
 describe('reachOf', () => {
   it('takes the widest reach and counts unknown as public', () => {
     expect(reachOf([])).toBe('none')

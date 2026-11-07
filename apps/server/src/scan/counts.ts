@@ -1,4 +1,12 @@
-import type { FindingKind, FindingState, FunnelStep } from '@hinomi/shared'
+import {
+  GUARD_CHECKS,
+  GUARD_LEVELS,
+  type FindingKind,
+  type FindingState,
+  type FunnelStep,
+  type GuardCheck,
+  type GuardLevel,
+} from '@hinomi/shared'
 import type { ExposureFactors } from './rank.js'
 
 /** The fields of a ranked finding the counts need. */
@@ -9,6 +17,9 @@ export interface CountableFinding {
   factors: ExposureFactors
   /** GitHub's alert is stale: the lockfile is already patched. Left out of every count. */
   patchedInLockfile?: boolean
+  /** Guard findings: the check and the current level. */
+  guardCheck?: GuardCheck | null
+  guardLevel?: GuardLevel | null
 }
 
 /**
@@ -38,9 +49,29 @@ export interface BlindSpotCounts {
   needsAction: number
 }
 
+export interface GuardCounts {
+  /** Guard findings not fixed, accepted ones (turned off checks) included. */
+  total: number
+  /** Not fixed, per check and level. */
+  byCheck: Record<GuardCheck, Record<GuardLevel, number>>
+  /**
+   * `warn` or `fail` on a running deployment, with no snooze or acceptance in force (a turned
+   * off check is an acceptance). The nav badge.
+   */
+  needsAction: number
+}
+
 export interface FindingCounts {
   advisories: AdvisoryFunnel
   blindSpots: BlindSpotCounts
+  guards: GuardCounts
+}
+
+function emptyGuardCounts(): GuardCounts {
+  const byCheck = Object.fromEntries(
+    GUARD_CHECKS.map((check) => [check, Object.fromEntries(GUARD_LEVELS.map((l) => [l, 0]))]),
+  ) as GuardCounts['byCheck']
+  return { total: 0, byCheck, needsAction: 0 }
 }
 
 /** A snooze or acceptance counts until it expires; scans flip it back to open afterwards. */
@@ -101,6 +132,7 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
     dismissedUpstream: 0,
   }
   const blindSpots: BlindSpotCounts = { total: 0, deployed: 0, public: 0, needsAction: 0 }
+  const guards = emptyGuardCounts()
 
   for (const finding of findings) {
     // Coverage notes are neither advisories nor blind spots: counted nowhere here.
@@ -113,6 +145,15 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
       if (factors.deployed) blindSpots.deployed++
       if (factors.public) blindSpots.public++
       if (!isDeferred(finding, now)) blindSpots.needsAction++
+      continue
+    }
+    if (finding.kind === 'guard') {
+      if (!finding.guardCheck || !finding.guardLevel) continue
+      guards.total++
+      guards.byCheck[finding.guardCheck][finding.guardLevel]++
+      if (finding.guardLevel !== 'unknown' && factors.deployed && !isDeferred(finding, now)) {
+        guards.needsAction++
+      }
       continue
     }
     advisories.total++
@@ -129,5 +170,5 @@ export function countFindings(findings: readonly CountableFinding[], now: Date):
     advisories.exposed++
     if (!isDeferred(finding, now)) advisories.needsAction++
   }
-  return { advisories, blindSpots }
+  return { advisories, blindSpots, guards }
 }
