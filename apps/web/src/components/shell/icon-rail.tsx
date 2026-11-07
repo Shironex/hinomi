@@ -83,7 +83,9 @@ function RailLink({
           )}
         >
           {badge}
-          <span className="sr-only">{item.hot ? ' need action' : ' running'}</span>
+          <span className="sr-only">
+            {item.badgeNote ?? (item.hot ? ' need action' : ' running')}
+          </span>
         </span>
       ) : null}
     </>

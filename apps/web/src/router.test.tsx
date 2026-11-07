@@ -18,7 +18,7 @@ describe('routes', () => {
     ['/deployments', 'Deployments'],
     ['/deployments/storefront-web', 'storefront-web'],
     ['/fix-runs', 'Fix runs'],
-    ['/drift', 'Drift guards'],
+    ['/guards', 'Guards'],
     ['/settings', 'Settings'],
     ['/no-such-page', 'Page not found'],
   ])('%s renders its page inside the shell', async (path, heading) => {

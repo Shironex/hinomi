@@ -15,7 +15,9 @@ import {
   IconPlugConnected,
   IconRadar2,
   IconShieldCheck,
+  IconShieldHalf,
 } from '@tabler/icons-react'
+import { GuardLevelCounts, GuardsCard } from '@/components/guards/guards-card'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
 import { SplitListHeader } from '@/components/split/split-parts'
@@ -37,6 +39,7 @@ import { SourceHealthPanel } from '@/components/views/source-health-panel'
 import { useDeferRequests } from '@/hooks/use-defer-requests'
 import type { ExposureTab } from '@/lib/exposure-search'
 import { isDecided, SEVERITY_LABEL, TIER_INFO } from '@/lib/finding-meta'
+import { guardLevelTotals } from '@/lib/guard-meta'
 import { requestFix } from '@/lib/fix-request'
 import { findingName, fixLabel, fixPlanRepos } from '@/lib/triage'
 import {
@@ -106,6 +109,26 @@ function SourceProblems({ overview }: { overview: OverviewResponse }) {
   )
 }
 
+/**
+ * One line in the list header when guards report something, so a guard on a public app is never
+ * out of sight while advisories fill the list. The card with every check is on the guards view.
+ */
+function GuardsLine({ overview }: { overview: OverviewResponse }) {
+  const totals = guardLevelTotals(overview.guardCounts)
+  if (totals.fail + totals.warn + totals.unknown === 0) return null
+  return (
+    <Link
+      to="/guards"
+      className="flex items-center gap-2 rounded-md text-xs text-foreground-2 no-underline hover:text-foreground"
+    >
+      <IconShieldHalf aria-hidden="true" className="size-3.5 shrink-0" stroke={1.75} />
+      <b className="font-semibold">Guards</b>
+      <GuardLevelCounts counts={totals} />
+      <IconChevronRight aria-hidden="true" className="ml-auto size-3.5 shrink-0" />
+    </Link>
+  )
+}
+
 const BELOW: FindingTier[] = ['internal', 'public_low', 'dev']
 
 const MIX: { key: keyof SeverityCounts; color: string }[] = [
@@ -144,6 +167,9 @@ function SeverityMix({ counts }: { counts: SeverityCounts | undefined }) {
 /** The detail pane when nothing needs action: what ranks below, source health, activity. */
 function QuietDetail({ overview }: { overview: OverviewResponse }) {
   const notDeployed = overview.tiers.not_deployed ?? 0
+  // Released desktop apps sit between internal and public low, once a repo ships releases.
+  const below: FindingTier[] =
+    (overview.tiers.released ?? 0) > 0 ? ['internal', 'released', 'public_low', 'dev'] : BELOW
   return (
     <>
       <div className="flex flex-col gap-2">
@@ -161,8 +187,10 @@ function QuietDetail({ overview }: { overview: OverviewResponse }) {
         <h2 id="below-title" className="text-md">
           Below the line
         </h2>
-        <div className="grid gap-3 tab:grid-cols-3">
-          {BELOW.map((tier) => (
+        <div
+          className={`grid gap-3 ${below.length > 3 ? 'tab:grid-cols-2 desk:grid-cols-4' : 'tab:grid-cols-3'}`}
+        >
+          {below.map((tier) => (
             <Link
               key={tier}
               to="/alerts"
@@ -196,6 +224,7 @@ function QuietDetail({ overview }: { overview: OverviewResponse }) {
         </Link>
       </section>
       <div className="grid items-start gap-4 desk:grid-cols-2">
+        <GuardsCard counts={overview.guardCounts} />
         <SourceHealthPanel sources={overview.sources} />
         <ActivityPanel items={overview.recentActivity} />
       </div>
@@ -287,6 +316,7 @@ export function OverviewPage() {
     <SplitListHeader title="Exposure" meta={data ? <FunnelLine overview={data} /> : undefined}>
       <SegmentTabs tabs={tabs} current={tab} param="tab" label="Exposure views" />
       {data ? <SourceProblems overview={data} /> : null}
+      {data ? <GuardsLine overview={data} /> : null}
     </SplitListHeader>
   )
 

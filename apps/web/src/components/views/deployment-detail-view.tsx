@@ -13,6 +13,7 @@ import {
   IconWorld,
 } from '@tabler/icons-react'
 import { FindingRow } from '@/components/findings/finding-row'
+import { DeploymentGuardsPanel } from '@/components/guards/deployment-guards-panel'
 import { SeverityBadge } from '@/components/findings/severity-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -423,6 +424,7 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
           <div className="flex min-w-0 flex-col gap-6">
             {notes}
             {exposed}
+            <DeploymentGuardsPanel d={d} />
             {alerts}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
@@ -444,6 +446,7 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
       {notes}
       <Bumps d={d} />
       {exposed}
+      <DeploymentGuardsPanel d={d} />
       {alerts}
       <div className="grid items-start gap-4 desk:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-4">

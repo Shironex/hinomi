@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { formatCount, PRIMARY_NAV, SETTINGS_NAV, type NavKey } from './nav'
 import { cn } from '@/lib/utils'
 
-const MORE_KEYS: readonly (NavKey | undefined)[] = ['settings', 'drift', 'onboarding']
+const MORE_KEYS: readonly (NavKey | undefined)[] = ['settings', 'guards', 'onboarding']
 
 /** Phone navigation (up to 760 px): four views plus More, which holds settings and the rest. */
 export function MobileTabs({

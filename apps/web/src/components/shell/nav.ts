@@ -2,18 +2,18 @@ import {
   IconListDetails,
   IconRadar2,
   IconRobot,
-  IconRouteAltLeft,
   IconServer2,
   IconSettings2,
+  IconShieldHalf,
   type Icon,
 } from '@tabler/icons-react'
 import type { NavCounts } from '@/hooks/use-shell-data'
 
 /** Which rail item a route lights up. Detail routes point at their list. */
 export type NavKey =
-  'overview' | 'deployments' | 'alerts' | 'fix-runs' | 'drift' | 'settings' | 'onboarding'
+  'overview' | 'deployments' | 'alerts' | 'fix-runs' | 'guards' | 'settings' | 'onboarding'
 
-export type NavPath = '/' | '/deployments' | '/alerts' | '/fix-runs' | '/drift' | '/settings'
+export type NavPath = '/' | '/deployments' | '/alerts' | '/fix-runs' | '/guards' | '/settings'
 
 export interface NavItem {
   key: NavKey
@@ -29,6 +29,8 @@ export interface NavItem {
   hot?: boolean
   /** Shows the count as a quiet badge while it is not zero (fix runs in progress). */
   live?: boolean
+  /** Words after the badge count for screen readers; defaults to "need action" or "running". */
+  badgeNote?: string
 }
 
 export const PRIMARY_NAV: readonly NavItem[] = [
@@ -72,13 +74,16 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   },
 ]
 
-export const DRIFT_NAV: NavItem = {
-  key: 'drift',
-  to: '/drift',
-  label: 'Drift guards',
-  railLabel: 'Drift',
-  tabLabel: 'Drift',
-  icon: IconRouteAltLeft,
+export const GUARDS_NAV: NavItem = {
+  key: 'guards',
+  to: '/guards',
+  label: 'Guards',
+  railLabel: 'Guards',
+  tabLabel: 'Guards',
+  icon: IconShieldHalf,
+  count: 'guards',
+  live: true,
+  badgeNote: ' failing or warning on a running app',
 }
 
 export const SETTINGS_NAV: NavItem = {
@@ -91,7 +96,7 @@ export const SETTINGS_NAV: NavItem = {
 }
 
 /** The rail, top to bottom; settings sits apart at the bottom. */
-export const RAIL_NAV: readonly NavItem[] = [...PRIMARY_NAV, DRIFT_NAV]
+export const RAIL_NAV: readonly NavItem[] = [...PRIMARY_NAV, GUARDS_NAV]
 
 const countFormat = new Intl.NumberFormat('en-US')
 

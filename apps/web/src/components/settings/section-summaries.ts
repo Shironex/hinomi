@@ -10,6 +10,7 @@ import {
   settingsQuery,
   sourcesQuery,
 } from '@/lib/settings-api'
+import { guardsQuery, overridesQuery } from '@/lib/guards-api'
 import { versionQuery } from '@/lib/queries'
 import { useTheme } from '@/lib/theme'
 import { versionLabel } from '@/lib/version'
@@ -19,6 +20,7 @@ export type SettingsSectionKey =
   | 'sources'
   | 'notifications'
   | 'scans'
+  | 'checks'
   | 'mapping'
   | 'webhook'
   | 'runner'
@@ -56,6 +58,8 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const webhook = useQuery(githubWebhookQuery)
   const runner = useQuery(webhookRunnerQuery)
   const version = useQuery(versionQuery)
+  const guards = useQuery(guardsQuery)
+  const overrides = useQuery(overridesQuery)
   const scan = useScanStatus()
   const access = useAccessStatus()
   const theme = useTheme()
@@ -89,6 +93,16 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
         : scan.state === 'unconfigured'
           ? `${every}, paused until a source is connected`
           : every
+  }
+
+  if (guards.data) {
+    const off = overrides.data?.items.length
+    out.checks = [
+      plural(guards.data.items.length, 'check'),
+      off === undefined ? null : off === 0 ? 'none turned off' : `${off} turned off`,
+    ]
+      .filter(Boolean)
+      .join(', ')
   }
 
   if (deployments.data) {

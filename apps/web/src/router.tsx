@@ -11,6 +11,7 @@ import { AppShell } from '@/components/shell/app-shell'
 import { alertsSearchSchema } from '@/lib/alerts-search'
 import { deploymentsSearchSchema } from '@/lib/deployments-search'
 import { exposureSearchSchema } from '@/lib/exposure-search'
+import { guardsSearchSchema } from '@/lib/guards-search'
 import { splitSearchSchema } from '@/lib/split-search'
 import { NotFoundPage } from '@/routes/not-found'
 import { RouteError } from '@/routes/route-error'
@@ -92,12 +93,23 @@ const fixRunsRoute = createRoute({
   staticData: { nav: 'fix-runs', crumb: 'Fix runs', layout: 'split' },
 })
 
+const guardsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/guards',
+  component: lazyRouteComponent(() => import('@/routes/guards'), 'GuardsPage'),
+  validateSearch: guardsSearchSchema,
+  staticData: { nav: 'guards', crumb: 'Guards', layout: 'split' },
+})
+
+/** The view was called Drift guards before the checks shipped; old links land on Guards. */
 const driftRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/drift',
-  component: lazyRouteComponent(() => import('@/routes/drift'), 'DriftPage'),
-  validateSearch: splitSearchSchema,
-  staticData: { nav: 'drift', crumb: 'Drift guards', layout: 'split' },
+  beforeLoad: () => {
+    // TanStack Router redirects by throwing its redirect object.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw redirect({ to: '/guards', replace: true })
+  },
 })
 
 const settingsRoute = createRoute({
@@ -122,6 +134,7 @@ export const routeTree = rootRoute.addChildren([
   deploymentsRoute,
   deploymentRoute,
   fixRunsRoute,
+  guardsRoute,
   driftRoute,
   settingsRoute,
   onboardingRoute,
