@@ -31,7 +31,7 @@ import {
 import { findingNotifications } from '../../notify/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { tierOf, toFindingDetail, toFindingListItem } from '../serialize.js'
+import { tierOf, toFindingDetail, toFindingListItem, toFixPlanRef } from '../serialize.js'
 
 type FindingsFilter = z.output<typeof findingsQuerySchema>
 
@@ -159,11 +159,13 @@ function detail(deps: ApiDeps, id: number) {
   const ranked = all.find((r) => r.finding.id === id)
   if (!ranked) throw notFound('Finding')
   const events = deps.repositories.findings.listEvents(id)
+  const plan = ranked.repo ? deps.repositories.fixPlans.forRepo(ranked.repo.id) : undefined
   return toFindingDetail(
     ranked,
     events,
     findingNotifications(deps.repositories.settings, id, events),
     fixOf(groupFixes(all), id)?.findings.length ?? 0,
+    plan ? toFixPlanRef(plan) : null,
   )
 }
 

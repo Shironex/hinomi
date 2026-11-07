@@ -652,6 +652,8 @@ export const fixRepoSchema = z.object({
   /** Lowest version that clears every advisory of the package in this repo. Null: no patch yet. */
   target: z.string().nullable(),
   findings: z.number().int(),
+  /** The repo's latest fix plan, null until a scan has built one. */
+  plan: fixPlanRefSchema.nullable(),
 })
 export type FixRepo = z.infer<typeof fixRepoSchema>
 
@@ -855,6 +857,8 @@ export const findingDetailSchema = findingListItemSchema.extend({
    * 0 when the finding is not part of a fix: not open, patched in the lockfile, or not an advisory.
    */
   sameFixClears: z.number().int(),
+  /** The latest fix plan of the finding's repo, null without a repo or before a plan exists. */
+  plan: fixPlanRefSchema.nullable(),
   /** Decision and scan history, newest first. */
   history: z.array(findingEventSchema),
   /** Notifications sent about it, newest first. Daily digests are not recorded per finding. */
