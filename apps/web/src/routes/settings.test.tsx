@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import { DEFAULT_FIX_RUN_NOTIFY_EVENTS } from '@hinomi/shared'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -175,6 +176,28 @@ describe('settings', () => {
     expect(
       await region.findByText('Test failed: The webhook answered HTTP 404.'),
     ).toBeInTheDocument()
+  })
+
+  it('switches one fix run event off and sends only that switch', async () => {
+    const api = mockApi({
+      ...configuredRoutes(),
+      'PATCH /notifications/settings': {
+        publicBaseUrl: null,
+        digestHour: 8,
+        fixRunEvents: { ...DEFAULT_FIX_RUN_NOTIFY_EVENTS, verified: false },
+      },
+    })
+    const user = userEvent.setup()
+    await renderApp('/settings?sel=notifications')
+    const events = within(await screen.findByRole('list', { name: 'Fix run events' }))
+    const verified = events.getByRole('switch', { name: 'Notify when: Verified' })
+    expect(verified).toBeChecked()
+    await user.click(verified)
+    await waitFor(() => expect(verified).not.toBeChecked())
+    expect(api.called('PATCH', '/notifications/settings')[0]?.body).toEqual({
+      fixRunEvents: { verified: false },
+    })
+    expect(events.getByRole('switch', { name: 'Notify when: Fix PR opened' })).toBeChecked()
   })
 
   it('saves the scan interval when it changes', async () => {

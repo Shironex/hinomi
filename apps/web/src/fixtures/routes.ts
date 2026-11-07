@@ -1,5 +1,5 @@
 import type { FindingGroup, FindingListItem, FindingsResponse, FindingTier } from '@hinomi/shared'
-import { FINDING_TIERS } from '@hinomi/shared'
+import { DEFAULT_FIX_RUN_NOTIFY_EVENTS, FINDING_TIERS } from '@hinomi/shared'
 import {
   ACCESS,
   CHANNELS,
@@ -214,7 +214,11 @@ export function fixtureRoute(
     case '/plans':
       return ok({ items: setup ? [] : PLAN_REFS })
     case '/notifications/settings':
-      return ok({ publicBaseUrl: 'https://hinomi.example.dev', digestHour: 8 })
+      return ok({
+        publicBaseUrl: 'https://hinomi.example.dev',
+        digestHour: 8,
+        fixRunEvents: { ...DEFAULT_FIX_RUN_NOTIFY_EVENTS, verified: false },
+      })
   }
 
   const findingId = idFrom(path, /^\/findings\/(\d+)$/)

@@ -35,6 +35,7 @@ import {
   updateNotifySettings,
 } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
+import { FixRunEventSettings } from './fix-run-event-settings'
 import { Panel, SetBox, SetRow, SubHeading } from './settings-section'
 
 export function NotificationsSection() {
@@ -109,6 +110,7 @@ export function NotificationsSection() {
         </div>
       ) : null}
       <DeliverySettings />
+      <FixRunEventSettings />
     </>
   )
 }
