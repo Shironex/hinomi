@@ -4,9 +4,12 @@ import {
   currentTime,
   type FixChecksMode,
   type FixResultV1,
+  type FixRunDeployment,
   type FixRunKind,
   type FixRunState,
   type FixRunnerKind,
+  type FixRunVerification,
+  type FixRunWarning,
 } from '@hinomi/shared'
 import { and, desc, eq, gte, inArray, isNotNull, lt, lte, ne, notInArray, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
@@ -45,6 +48,13 @@ export interface FixRunEtags {
   run?: string | null
   pr?: string | null
   checks?: string | null
+}
+
+/** What the deployment link and the verification store on a run. Undefined keeps a value. */
+export interface FixRunVerifyPatch {
+  deployLinks?: FixRunDeployment[] | null
+  warnings?: FixRunWarning[]
+  verification?: FixRunVerification | null
 }
 
 /** Default page of run lists. */
@@ -178,6 +188,39 @@ export function createFixRunsRepository(db: Db) {
         const run = tx.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
         if (!run) return { ok: false, rejection: { code: 'not_found', message: `no run ${id}` } }
         return applyTo(tx, run, event, now)
+      })
+    },
+
+    /**
+     * Stores deployment links, warnings and the verification, and applies `event` with them in
+     * one transaction. When the event is refused nothing is written, so a run that already ended
+     * keeps what it recorded.
+     */
+    saveVerify(
+      id: number,
+      patch: FixRunVerifyPatch,
+      event: FixRunEvent | null = null,
+      now: Date = currentTime(),
+    ): ApplyFixRunEventResult {
+      return db.transaction((tx) => {
+        const run = tx.select().from(fixRuns).where(eq(fixRuns.id, id)).get()
+        if (!run) return { ok: false, rejection: { code: 'not_found', message: `no run ${id}` } }
+        let current = run
+        let changed = false
+        if (event) {
+          const applied = applyTo(tx, run, event, now)
+          if (!applied.ok) return applied
+          current = applied.run
+          changed = applied.changed
+        }
+        const set = {
+          ...(patch.deployLinks !== undefined && { deployLinks: patch.deployLinks }),
+          ...(patch.warnings !== undefined && { warnings: patch.warnings }),
+          ...(patch.verification !== undefined && { verification: patch.verification }),
+        }
+        if (Object.keys(set).length === 0) return { ok: true, run: current, changed }
+        const row = tx.update(fixRuns).set(set).where(eq(fixRuns.id, id)).returning().get()
+        return { ok: true, run: row ?? current, changed: true }
       })
     },
 

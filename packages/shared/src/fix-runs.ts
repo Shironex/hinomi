@@ -163,8 +163,119 @@ export const fixRunTrackingSchema = z.object({
 })
 export type FixRunTracking = z.infer<typeof fixRunTrackingSchema>
 
-/** GET /api/fix-runs/:id: the run and its tracking state. */
+/**
+ * Where a merged run stands on one Coolify application that deploys its repo.
+ *
+ * - `waiting`: no finished deploy of the merge commit (or a later commit) yet.
+ * - `deployed`: a finished deploy whose commit is the merge commit or comes after it.
+ * - `other_branch`: the app deploys another branch than the one the fix PR merged into, so it
+ *   does not ship the fix and is not waited for.
+ */
+export const FIX_RUN_DEPLOY_STATUSES = ['waiting', 'deployed', 'other_branch'] as const
+export const fixRunDeployStatusSchema = z.enum(FIX_RUN_DEPLOY_STATUSES)
+export type FixRunDeployStatus = z.infer<typeof fixRunDeployStatusSchema>
+
+/** How a deploy's commit relates to the merge commit (GitHub's compare status). */
+export const fixRunDeployRelationSchema = z.enum(['identical', 'ahead'])
+export type FixRunDeployRelation = z.infer<typeof fixRunDeployRelationSchema>
+
+/** One app of the repo and the deploy that shipped the fix, once seen. */
+export const fixRunDeploymentSchema = z.object({
+  deploymentId: id,
+  name: z.string(),
+  /** The branch the app deploys, null when Coolify does not say. */
+  branch: z.string().nullable(),
+  status: fixRunDeployStatusSchema,
+  /** The Coolify deploy that shipped the fix. */
+  deploy: z
+    .object({
+      id: z.string(),
+      commit: z.string(),
+      relation: fixRunDeployRelationSchema,
+      finishedAt: isoDate.nullable(),
+    })
+    .nullable(),
+  /** The last time Hinomi read the app's deploys, null before the first read. */
+  checkedAt: isoDate.nullable(),
+  /** Why the last read of the app's deploys failed, cleared by the next good read. */
+  error: z.string().nullable(),
+})
+export type FixRunDeployment = z.infer<typeof fixRunDeploymentSchema>
+
+/**
+ * Warnings about a merged run, shown as they are:
+ *
+ * - `watch_paths_skip`: the app's Coolify watch paths match none of the files the fix changed,
+ *   so Coolify may not deploy the merge on its own.
+ * - `deploy_not_seen`: no deploy of the merge commit showed up within the wait window; Hinomi
+ *   stopped waiting and the run stays `merged`.
+ */
+export const FIX_RUN_WARNING_CODES = ['watch_paths_skip', 'deploy_not_seen'] as const
+export const fixRunWarningCodeSchema = z.enum(FIX_RUN_WARNING_CODES)
+export type FixRunWarningCode = z.infer<typeof fixRunWarningCodeSchema>
+
+export const fixRunWarningSchema = z.object({
+  code: fixRunWarningCodeSchema,
+  /** The app it is about, null for warnings about the run as a whole. */
+  deploymentId: id.nullable(),
+  message: z.string(),
+  at: isoDate,
+})
+export type FixRunWarning = z.infer<typeof fixRunWarningSchema>
+
+/**
+ * What the verification rescan waits for: `deploy` (every app shipped the fix, or the wait for
+ * the others ran out), `merge` (no app deploys the repo, so the lockfile on the default branch is
+ * what counts) or `empty_diff` (the plan changed nothing, a rescan confirms it was already fixed).
+ */
+export const FIX_RUN_VERIFY_AFTER = ['deploy', 'merge', 'empty_diff'] as const
+export const fixRunVerifyAfterSchema = z.enum(FIX_RUN_VERIFY_AFTER)
+export type FixRunVerifyAfter = z.infer<typeof fixRunVerifyAfterSchema>
+
+/**
+ * Where the verification stands: `pending` (the rescan has not run yet), `retrying` (a rescan of
+ * the repo failed and is tried again), `scheduled_scan` (rescans failed too often, the next
+ * scheduled scan verifies the run), `done` (compared, see the counts).
+ */
+export const FIX_RUN_VERIFY_STATUSES = ['pending', 'retrying', 'scheduled_scan', 'done'] as const
+export const fixRunVerifyStatusSchema = z.enum(FIX_RUN_VERIFY_STATUSES)
+export type FixRunVerifyStatus = z.infer<typeof fixRunVerifyStatusSchema>
+
+/** The rescan after the merge and how the plan's findings came out of it. */
+export const fixRunVerificationSchema = z.object({
+  after: fixRunVerifyAfterSchema,
+  status: fixRunVerifyStatusSchema,
+  /** The scan the comparison used: a rescan of the repo, or a full scan (with its run id). */
+  scan: z
+    .object({
+      kind: z.enum(['repo', 'full']),
+      scanRunId: id.nullable(),
+      at: isoDate,
+    })
+    .nullable(),
+  /** Findings the applied steps targeted. */
+  targeted: z.array(id),
+  /** Of those, fixed (or gone) after the rescan. */
+  cleared: z.array(id),
+  /** Of those, still open (snoozed, accepted and dismissed upstream count as open). */
+  stillOpen: z.array(id),
+  /** Findings of the repo the rescan opened or reopened, outside the targeted ones. */
+  new: z.array(id),
+  /** Rescans of the repo that failed. */
+  attempts: z.number().int().nonnegative(),
+  lastError: z.string().nullable(),
+  /** When the next rescan of the repo is tried, null when none is planned. */
+  nextAttemptAt: isoDate.nullable(),
+})
+export type FixRunVerification = z.infer<typeof fixRunVerificationSchema>
+
+/** GET /api/fix-runs/:id: the run, its tracking state, deployments and verification. */
 export const fixRunDetailSchema = fixRunSchema.extend({
   tracking: fixRunTrackingSchema.nullable(),
+  /** The Coolify applications of the repo, once the run merged. Empty before. */
+  deployments: z.array(fixRunDeploymentSchema),
+  warnings: z.array(fixRunWarningSchema),
+  /** Null until the run waits for a rescan. */
+  verification: fixRunVerificationSchema.nullable(),
 })
 export type FixRunDetail = z.infer<typeof fixRunDetailSchema>

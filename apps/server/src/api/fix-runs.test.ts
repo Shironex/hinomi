@@ -175,7 +175,13 @@ describe('POST /api/repos/:id/fix-runs', () => {
     )
     expect(list.items.map((r) => r.id)).toEqual([body.run.id])
     const one = fixRunDetailSchema.parse((await call('GET', `/fix-runs/${body.run.id}`)).json)
-    expect(one).toMatchObject({ correlationId: body.run.correlationId, tracking: null })
+    expect(one).toMatchObject({
+      correlationId: body.run.correlationId,
+      tracking: null,
+      deployments: [],
+      warnings: [],
+      verification: null,
+    })
     expect((await call('GET', '/fix-runs/9999')).status).toBe(404)
     expect((await call('GET', `/repos/${harbor.id}/fix-runs?limit=0`)).status).toBe(400)
 
@@ -258,5 +264,62 @@ describe('fix run tracking state', () => {
       lastError: 'GitHub answered 502',
       pausedUntil: null,
     })
+  })
+})
+
+describe('fix run deployments and verification', () => {
+  it('serves the linked deploys, warnings and the verification summary', async () => {
+    const { repos, harbor, call } = setup()
+    const plan = saveRunnerPlan(repos, harbor, T0)
+    const { run } = repos.fixRuns.create(
+      {
+        repoId: harbor.id,
+        plan: { fixPlanId: plan.id, scanRunId: plan.scanRunId, version: plan.version },
+        runner: 'github_actions',
+        kind: 'fix',
+        correlationId: 'corr-9',
+        checksMode: 'full',
+      },
+      T0,
+    )
+    const deployments = [
+      {
+        deploymentId: 3,
+        name: 'harbor-web',
+        branch: 'main',
+        status: 'deployed' as const,
+        deploy: {
+          id: 'dep-1',
+          commit: 'f'.repeat(40),
+          relation: 'ahead' as const,
+          finishedAt: T0.toISOString(),
+        },
+        checkedAt: T0.toISOString(),
+        error: null,
+      },
+    ]
+    const warnings = [
+      {
+        code: 'watch_paths_skip' as const,
+        deploymentId: 3,
+        message: 'The watch paths of harbor-web match none of the files the fix changed.',
+        at: T0.toISOString(),
+      },
+    ]
+    const verification = {
+      after: 'deploy' as const,
+      status: 'done' as const,
+      scan: { kind: 'repo' as const, scanRunId: null, at: T0.toISOString() },
+      targeted: [1, 2],
+      cleared: [1],
+      stillOpen: [2],
+      new: [],
+      attempts: 0,
+      lastError: null,
+      nextAttemptAt: null,
+    }
+    repos.fixRuns.saveVerify(run.id, { deployLinks: deployments, warnings, verification })
+    const one = fixRunDetailSchema.parse((await call('GET', `/fix-runs/${run.id}`)).json)
+    expect(one).toMatchObject({ deployments, warnings, verification })
   })
 })

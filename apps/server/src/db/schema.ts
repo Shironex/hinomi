@@ -16,6 +16,9 @@ import {
   type FixChecksMode,
   type FixPlan,
   type FixResultV1,
+  type FixRunDeployment,
+  type FixRunVerification,
+  type FixRunWarning,
   type Reporter,
   type SourceKind,
   currentTime,
@@ -368,6 +371,12 @@ export const fixRuns = sqliteTable(
     runEtag: text('run_etag'),
     prEtag: text('pr_etag'),
     checksEtag: text('checks_etag'),
+    /** The repo's Coolify applications after the merge. Null until the tracker looked. */
+    deployLinks: text('deploy_links', { mode: 'json' }).$type<FixRunDeployment[]>(),
+    /** Watch path and deploy wait warnings, as the API serves them. */
+    warnings: text('warnings', { mode: 'json' }).$type<FixRunWarning[]>().notNull().default([]),
+    /** The verification rescan and its comparison. Null until the run waits for one. */
+    verification: text('verification', { mode: 'json' }).$type<FixRunVerification>(),
     createdAt: timestamp('created_at').notNull(),
     dispatchedAt: timestamp('dispatched_at'),
     startedAt: timestamp('started_at'),
