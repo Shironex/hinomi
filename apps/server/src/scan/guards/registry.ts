@@ -1,3 +1,4 @@
+import { dockerSocketGuard } from './docker-socket.js'
 import { frameworkSupportGuard } from './framework-support.js'
 import { rootUserGuard } from './root-user.js'
 import { sharedNetworkGuard } from './shared-network.js'
@@ -13,4 +14,5 @@ export const GUARDS: readonly Guard[] = [
   watchPathsSkipGuard,
   frameworkSupportGuard,
   rootUserGuard,
+  dockerSocketGuard,
 ]
