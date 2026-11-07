@@ -660,6 +660,14 @@ describe('renderFixPrBody', () => {
     expect(renderFixPrBody(harbor, result(), { linksAllowed: true }).body).not.toContain('](')
   })
 
+  it('names the closed fix PR it replaces', () => {
+    const body = renderFixPrBody(harbor, result(), { linksAllowed: false, replaces: 12 }).body
+    expect(body).toContain('Replaces #12, which was closed without merging.')
+    expect(renderFixPrBody(harbor, result(), { linksAllowed: false }).body).not.toContain(
+      'Replaces',
+    )
+  })
+
   it('renders a draft with the failure output when a check failed', () => {
     const token = 'npm_' + 'Q'.repeat(36)
     const tail = truncateCheckOutput(`FAIL harbor.test.ts\n\`\`\`\nexpected 2\n\`\`\`\n${token}`)
