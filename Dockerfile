@@ -39,6 +39,17 @@ COPY --from=build --chown=10001:10001 /repo/apps/web/dist apps/web/dist
 # The fix runner action, spawned by the local runner (HINOMI_LOCAL_RUNNER=1). Inert otherwise.
 COPY --from=build --chown=10001:10001 /repo/actions/fix-runner/dist actions/fix-runner/dist
 
+# What this build says about itself (GET /api/version, the rail footer, Settings, About). The
+# release workflow passes all three; a hand built image gets `dev` unless you pass them, for
+# example --build-arg HINOMI_BUILD_COMMIT=$(git rev-parse HEAD). Placed last so a new value
+# never invalidates the install and build layers above.
+ARG HINOMI_BUILD_VERSION=dev
+ARG HINOMI_BUILD_COMMIT=
+ARG HINOMI_BUILD_DATE=
+ENV HINOMI_BUILD_VERSION=$HINOMI_BUILD_VERSION \
+    HINOMI_BUILD_COMMIT=$HINOMI_BUILD_COMMIT \
+    HINOMI_BUILD_DATE=$HINOMI_BUILD_DATE
+
 USER 10001:10001
 EXPOSE 3000
 
