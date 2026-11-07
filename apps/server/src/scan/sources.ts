@@ -6,7 +6,11 @@ import type {
 } from '@hinomi/shared'
 import { cachedFactsOf, type Repositories, type Source } from '../repository/index.js'
 import { fetchCoolifyInventory } from '../sources/coolify/index.js'
-import { createGithubSourceFromConfig, type GithubSource } from '../sources/github/index.js'
+import {
+  createGithubSourceFromConfig,
+  readRepoFile,
+  type GithubSource,
+} from '../sources/github/index.js'
 import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
@@ -51,6 +55,18 @@ export interface ScanSources {
     ref: string,
     sourceId: number | null,
   ): Promise<FetchedLockfile[]>
+  /**
+   * Reads one text file of a repo at a ref through the given GitHub source; null when the file
+   * does not exist, throws when the read fails. Absent in hand-built sources: guard checks that
+   * need a repo file then say `unknown`.
+   */
+  readRepoFile?(
+    owner: string,
+    name: string,
+    path: string,
+    ref: string,
+    sourceId: number,
+  ): Promise<string | null>
   settings: ScanSettings
 }
 
@@ -106,7 +122,12 @@ function githubSource(
   repositories: Repositories,
   source: Source,
   options: BuildScanSourcesOptions,
-): { github: GithubScanSource; token: () => Promise<string>; apiUrl: string | null } {
+): {
+  github: GithubScanSource
+  token: () => Promise<string>
+  apiUrl: string | null
+  readFile: (owner: string, name: string, path: string, ref: string) => Promise<string | null>
+} {
   const secret = readToken(repositories, source)
   let bound: GithubSource | null = null
   const client = (): GithubSource => {
@@ -119,6 +140,8 @@ function githubSource(
   return {
     token: async () => client().getToken(),
     apiUrl: source.baseUrl,
+    readFile: async (owner, name, path, ref) =>
+      readRepoFile(client().client, owner, name, path, ref),
     github: {
       sourceId: source.id,
       name: source.name,
@@ -166,6 +189,11 @@ export function buildScanSources(
     github: [...github.values()].map((g) => g.github),
     osv,
     settings,
+    readRepoFile: async (owner, name, path, ref, sourceId) => {
+      const gh = github.get(sourceId)
+      if (!gh) throw new Error(`GitHub source ${sourceId} is not available`)
+      return gh.readFile(owner, name, path, ref)
+    },
     fetchLockfiles: async (owner, name, ref, sourceId) => {
       const gh = sourceId === null ? undefined : github.get(sourceId)
       return fetchLockfiles(owner, name, ref, gh ? await gh.token() : null, {
