@@ -1,5 +1,6 @@
 import type {
   DeployRecord,
+  FixRunAfterMerge,
   FixRunDeployment,
   FixRunVerification,
   FixRunWarning,
@@ -14,6 +15,8 @@ import {
 } from '../sources/github/index.js'
 import { readAppDeploys } from './coolify.js'
 import {
+  afterMergeExpectation,
+  deploysOtherBranch,
   expectedApps,
   rescanRetryDelayMs,
   trackingPhase,
@@ -90,6 +93,15 @@ function gitApps(repositories: Repositories, repoId: number): DeploymentRow[] {
   return repositories.deployments
     .listByRepo(repoId)
     .filter((d) => d.kind === 'application' && d.gitRepository !== null)
+}
+
+/** What the run waits for after the merge (the tracker's own rule, see `afterMergeExpectation`). */
+export function fixRunAfterMerge(
+  repositories: Repositories,
+  run: FixRunRow,
+  repo: RepoRow | undefined,
+): FixRunAfterMerge {
+  return afterMergeExpectation(run, gitApps(repositories, run.repoId), repo?.defaultBranch ?? null)
 }
 
 function save(
@@ -219,7 +231,7 @@ export async function pollDeployments(
       links.push({ ...before, name: app.name, branch: app.gitBranch })
       continue
     }
-    if (app.gitBranch && branch && app.gitBranch !== branch) {
+    if (deploysOtherBranch(app, branch)) {
       links.push({ ...waitingLink(app), status: 'other_branch', checkedAt: now.toISOString() })
       continue
     }

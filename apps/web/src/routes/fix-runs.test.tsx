@@ -176,6 +176,29 @@ describe('fix runs page', () => {
     expect(await screen.findByText('The next scheduled scan verifies this run')).toBeVisible()
   })
 
+  it('does not wait for a deploy after the merge when no app deploys the repo', async () => {
+    wideScreen()
+    fixtureApi()
+    await renderApp('/fix-runs?sel=66')
+    expect(
+      await screen.findByText(
+        'No app deploys the fix, so Hinomi rescans the repo right after the merge.',
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText(/Waiting for a deploy/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText('No app deploys the fix, so the rescan reads the default branch'),
+    ).toBeVisible()
+
+    cleanup()
+    await renderApp('/fix-runs?sel=39')
+    expect(
+      await screen.findByText(
+        'Waiting for a deploy of the merge commit by the app, then a rescan of the repo.',
+      ),
+    ).toBeVisible()
+  })
+
   it('shows the plan as a diff, its steps and the runner with an outdated pin', async () => {
     wideScreen()
     fixtureApi()

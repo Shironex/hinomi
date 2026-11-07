@@ -7147,10 +7147,15 @@ const fixRunVerificationSchema = object({
 	lastError: string().nullable(),
 	nextAttemptAt: isoDate$3.nullable()
 });
+const fixRunAfterMergeSchema = discriminatedUnion("expects", [object({
+	expects: literal("deploy"),
+	apps: number$1().int().positive()
+}), object({ expects: literal("rescan_after_merge") })]);
 const fixRunDetailSchema = fixRunSchema.extend({
 	tracking: fixRunTrackingSchema.nullable(),
 	deployments: array(fixRunDeploymentSchema),
 	warnings: array(fixRunWarningSchema),
+	afterMerge: fixRunAfterMergeSchema,
 	verification: fixRunVerificationSchema.nullable()
 });
 

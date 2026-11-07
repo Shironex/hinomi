@@ -9,6 +9,7 @@ import {
   type FixPlanStep,
   type FixResultV1,
   type FixRun,
+  type FixRunAfterMerge,
   type FixRunnerKind,
   type FixRunDeployStatus,
   type FixRunDetail,
@@ -259,8 +260,23 @@ const MAJORS_NEXT: Partial<Record<FixRunState, string>> = {
     'The draft pull request was closed without merging. Hinomi asks before it opens a fresh one.',
 }
 
+/** Why no app deploys the fix: the rescan reads the default branch right after the merge. */
+const NO_DEPLOY_DETAIL = 'No app deploys the fix, so the rescan reads the default branch'
+
+/** What a merged run waits for, from the server's expectation. */
+function mergedNext(afterMerge: FixRunAfterMerge): string {
+  if (afterMerge.expects === 'rescan_after_merge') {
+    return 'No app deploys the fix, so Hinomi rescans the repo right after the merge.'
+  }
+  const apps = afterMerge.apps === 1 ? 'the app' : `${afterMerge.apps} apps`
+  return `Waiting for a deploy of the merge commit by ${apps}, then a rescan of the repo.`
+}
+
 /** One line on what happens next, for a fix run or a majors run. */
-export function runNext(run: Pick<FixRun, 'state' | 'kind'> & { runner?: FixRunnerKind }): string {
+export function runNext(
+  run: Pick<FixRun, 'state' | 'kind'> & { runner?: FixRunnerKind; afterMerge?: FixRunAfterMerge },
+): string {
+  if (run.state === 'merged' && run.afterMerge) return mergedNext(run.afterMerge)
   const external = run.runner && run.runner !== 'github_actions' ? run.runner : null
   return (
     (external ? EXTERNAL_NEXT[external][run.state] : undefined) ??
@@ -334,10 +350,15 @@ const STAGES: { key: TimelineStep['key']; title: string }[] = [
 
 /** A run as the timeline reads it: the list row, or the detail with deployments and verification. */
 export type TimelineRun = FixRun &
-  Partial<Pick<FixRunDetail, 'deployments' | 'warnings' | 'verification'>>
+  Partial<Pick<FixRunDetail, 'deployments' | 'warnings' | 'verification' | 'afterMerge'>>
 
-/** True when no app ships the fix, so the rescan reads the default branch right after the merge. */
-const verifiesAfterMerge = (run: TimelineRun) => run.verification?.after === 'merge'
+/**
+ * True when no app ships the fix, so the rescan reads the default branch right after the merge:
+ * known from the server's expectation as soon as the run merged, and from the verification after.
+ */
+const verifiesAfterMerge = (run: TimelineRun) =>
+  run.verification?.after === 'merge' ||
+  (run.state === 'merged' && run.afterMerge?.expects === 'rescan_after_merge')
 
 const deployNotSeen = (run: TimelineRun) =>
   run.state === 'merged' && (run.warnings ?? []).some((w) => w.code === 'deploy_not_seen')
@@ -508,8 +529,7 @@ function stageDetail(run: TimelineRun, key: TimelineStep['key'], status: StepSta
       return 'Hinomi never merges'
     case 'deployed':
       if (run.state === 'nothing_to_do') return 'Nothing to deploy'
-      if (verifiesAfterMerge(run))
-        return 'No app deploys the fix, so the rescan reads the default branch'
+      if (verifiesAfterMerge(run)) return NO_DEPLOY_DETAIL
       if (status === 'fail') return 'No deploy of the merge commit within 3 days'
       if (status === 'now') return 'Waiting for a deploy of the merge commit'
       if (status === 'done') return shippedBy(run) ?? 'A deploy shipped the merge commit'

@@ -255,7 +255,7 @@ function StepResults({ result, majors }: { result: FixResultV1; majors: boolean 
 /** States GitHub polling leaves to the deploy link and the rescan. */
 const WAITS_FOR_RESCAN: readonly FixRun['state'][] = ['deployed', 'nothing_to_do']
 
-function Tracking({ run }: { run: FixRunDetail }) {
+function Tracking({ run }: { run: Omit<FixRunDetail, 'afterMerge'> }) {
   const t = run.tracking
   if (!t) {
     return (
@@ -312,13 +312,15 @@ export function RunPane({
   focused: boolean
 }) {
   const query = useQuery(fixRunQuery(listed.id))
-  const run: FixRunDetail = query.data ?? {
-    ...listed,
-    tracking: null,
-    deployments: [],
-    warnings: [],
-    verification: null,
-  }
+  // Until the detail arrives the run has no expectation of what follows the merge.
+  const run: Omit<FixRunDetail, 'afterMerge'> & Partial<Pick<FixRunDetail, 'afterMerge'>> =
+    query.data ?? {
+      ...listed,
+      tracking: null,
+      deployments: [],
+      warnings: [],
+      verification: null,
+    }
   const info = RUN_STATE_INFO[run.state]
   const actionsUrl = run.github
     ? `https://github.com/${repo.fullName}/actions/runs/${run.github.runId}`

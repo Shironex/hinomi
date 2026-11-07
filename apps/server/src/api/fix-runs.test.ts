@@ -208,6 +208,7 @@ describe('POST /api/repos/:id/fix-runs', () => {
       deployments: [],
       warnings: [],
       verification: null,
+      afterMerge: { expects: 'rescan_after_merge' },
     })
     expect((await call('GET', '/fix-runs/9999')).status).toBe(404)
     expect((await call('GET', `/repos/${harbor.id}/fix-runs?limit=0`)).status).toBe(400)
@@ -424,5 +425,54 @@ describe('fix run deployments and verification', () => {
     repos.fixRuns.saveVerify(run.id, { deployLinks: deployments, warnings, verification })
     const one = fixRunDetailSchema.parse((await call('GET', `/fix-runs/${run.id}`)).json)
     expect(one).toMatchObject({ deployments, warnings, verification })
+  })
+
+  it('expects a deploy of every app that builds the default branch, else a rescan', async () => {
+    const { repos, harbor, call } = setup()
+    repos.repos.upsert({ owner: 'kestrel-co', name: 'harbor', defaultBranch: 'main' })
+    const plan = saveRunnerPlan(repos, harbor, T0)
+    const { run } = repos.fixRuns.create(
+      {
+        repoId: harbor.id,
+        plan: { fixPlanId: plan.id, scanRunId: plan.scanRunId, version: plan.version },
+        runner: 'github_actions',
+        kind: 'fix',
+        correlationId: 'corr-10',
+        checksMode: 'full',
+      },
+      T0,
+    )
+    const expects = async () =>
+      fixRunDetailSchema.parse((await call('GET', `/fix-runs/${run.id}`)).json).afterMerge
+    expect(await expects()).toEqual({ expects: 'rescan_after_merge' })
+
+    const source = repos.sources.create({
+      kind: 'coolify',
+      name: 'edge',
+      baseUrl: 'https://coolify.example.dev',
+      token: 'coolify-token-fictional-0001',
+    })
+    const app = (externalId: string, gitBranch: string) =>
+      repos.deployments.upsert(
+        {
+          sourceId: source.id,
+          externalId,
+          kind: 'application',
+          name: `harbor-${externalId}`,
+          domains: [],
+          reach: 'internal',
+          server: 'edge-1',
+          status: 'running:healthy',
+          gitRepository: 'kestrel-co/harbor',
+          gitBranch,
+          watchPaths: null,
+          repoId: harbor.id,
+        },
+        T0,
+      )
+    app('web', 'main')
+    app('api', 'main')
+    app('staging', 'next')
+    expect(await expects()).toEqual({ expects: 'deploy', apps: 2 })
   })
 })
