@@ -243,3 +243,26 @@ export async function fetchBranchHead(
   if (result.status === 404) return null
   return parsePayload(branchSchema, result.data, 'branch').commit.sha
 }
+
+/** How `head` relates to `base` in GitHub's compare API. */
+export type GithubCompareStatus = 'ahead' | 'behind' | 'identical' | 'diverged'
+
+const compareSchema = z.object({ status: z.enum(['ahead', 'behind', 'identical', 'diverged']) })
+
+/**
+ * Whether commit `head` contains commit `base`
+ * (GET /repos/{owner}/{repo}/compare/{base}...{head}): `identical` or `ahead` means it does.
+ * One commit per page keeps the answer small. Null when GitHub does not know either commit.
+ */
+export async function compareCommits(
+  client: GithubClient,
+  target: { owner: string; name: string; base: string; head: string },
+): Promise<GithubCompareStatus | null> {
+  const range = `${encodeURIComponent(target.base)}...${encodeURIComponent(target.head)}`
+  const result = await client.rest(
+    `${repoPath(target.owner, target.name)}/compare/${range}?per_page=1`,
+    { acceptStatus: [404] },
+  )
+  if (result.status === 404) return null
+  return parsePayload(compareSchema, result.data, 'compare').status
+}

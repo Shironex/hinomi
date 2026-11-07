@@ -65,6 +65,7 @@ export {
   type GithubPull,
 } from './pulls.js'
 export {
+  compareCommits,
   conditionalGet,
   downloadArtifact,
   fetchBranchHead,
@@ -74,6 +75,7 @@ export {
   type ConditionalRead,
   type DownloadArtifactOptions,
   type GithubArtifact,
+  type GithubCompareStatus,
   type GithubWorkflowRun,
 } from './runs.js'
 export {
