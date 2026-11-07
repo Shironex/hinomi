@@ -37,8 +37,16 @@ export function resolveTheme(theme: Theme): 'light' | 'dark' {
   return theme
 }
 
+/** The page background of each theme, for the browser chrome. Keep in sync with index.html. */
+export const THEME_COLORS = { light: '#f8f5fb', dark: '#160f1e' } as const
+
 function applyTheme(theme: Theme) {
-  document.documentElement.classList.toggle('dark', resolveTheme(theme) === 'dark')
+  const resolved = resolveTheme(theme)
+  document.documentElement.classList.toggle('dark', resolved === 'dark')
+  // An explicit choice can differ from the OS setting the media-split meta tags follow.
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    meta.setAttribute('content', THEME_COLORS[resolved])
+  }
 }
 
 let current: Theme = readStoredTheme()
