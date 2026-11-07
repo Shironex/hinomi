@@ -16,3 +16,11 @@ onlyBuiltDependencies:
 # package. Its binding.gyp would make pnpm run node-gyp, which is not needed.
 ignoredBuiltDependencies:
   - better-sqlite3
+
+# Security overrides. Re-check each against its advisory when touching this block.
+overrides:
+  # GHSA-67mh-4wv8-2f99: drizzle-kit's legacy esbuild-kit loader pins esbuild ~0.18.20.
+  # Use the 0.25.x that drizzle-kit itself already installs (patched in 0.25.0).
+  '@esbuild-kit/core-utils>esbuild': 0.25.12
+  # GHSA-g3hv-75wg-m249: minimatch >=7.0.0 <11.0.1 (eslint, typescript-eslint, ts-morph).
+  'minimatch@<11.0.1': ^11.0.3
