@@ -1,0 +1,9 @@
+{
+  "name": "kestrel-selftest-npm",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "npm@11.6.2",
+  "dependencies": {
+    "ms": "2.1.2"
+  }
+}

@@ -1,0 +1,232 @@
+name: Hinomi fix (reusable)
+
+# Called by the hinomi-fix.yml caller each target repo adds (docs/runner/hinomi-fix.yml), pinned
+# to a commit of this file. The caller sets `run-name: hinomi fix <run_id>`; a called workflow
+# cannot name the run itself.
+#
+# Trust split (docs/design/fix-runner.md, section 7):
+# - apply: read only token, no secrets. Edits manifests and updates lockfiles without running
+#   any install script, reports the patch hash as a job output, then runs the full install and
+#   the repo's checks in a later step. Dependency code only ever runs after the hash is set.
+# - publish: contents write, runs no repo or dependency code. Verifies the patch against the
+#   apply job's outputs and the dependency file allowlist, commits it on the base commit and
+#   force pushes hinomi/fix-plan. Hinomi opens the PR.
+#
+# The action comes from this repo at the commit of this workflow (`$/`, the self repository
+# reference), so a caller's pin covers the workflow and the action together, and the action's
+# code never sits in the checkout the repo's lint and tests see. Nothing saves a cache.
+
+on:
+  workflow_call:
+    inputs:
+      run_id:
+        description: Hinomi run id
+        type: string
+        required: true
+      plan:
+        description: Fix plan from Hinomi (JSON, or gzip plus base64)
+        type: string
+        required: true
+      encoding:
+        description: json or gzip-base64
+        type: string
+        default: json
+      checks:
+        description: auto (the dispatch decides), install, full, or a comma list such as lint,test
+        type: string
+        default: auto
+      dry_run:
+        description: Verify, apply and commit the patch in the publish job, but push nothing
+        type: boolean
+        default: false
+    outputs:
+      has_changes:
+        description: true when the plan produced a patch
+        value: ${{ jobs.apply.outputs.has_changes }}
+      patch_sha256:
+        description: SHA-256 of the patch
+        value: ${{ jobs.apply.outputs.patch_sha256 }}
+      branch:
+        description: The fix branch, when publish ran
+        value: ${{ jobs.publish.outputs.branch }}
+      pushed:
+        description: true when publish pushed the branch
+        value: ${{ jobs.publish.outputs.pushed }}
+
+permissions: {}
+
+# One fix run per repo at a time; a second dispatch waits instead of racing on the branch.
+concurrency:
+  group: hinomi-fix-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Apply the plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      has_changes: ${{ steps.apply.outputs.has_changes }}
+      agent_needed: ${{ steps.apply.outputs.agent_needed }}
+      base_sha: ${{ steps.apply.outputs.base_sha }}
+      patch_sha256: ${{ steps.apply.outputs.patch_sha256 }}
+      patch_files: ${{ steps.apply.outputs.patch_files }}
+      artifact_name: ${{ steps.detect.outputs.artifact_name }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the plan and detect the toolchains
+        id: detect
+        uses: $/actions/fix-runner
+        with:
+          step: detect
+          plan: ${{ inputs.plan }}
+          encoding: ${{ inputs.encoding }}
+          run_id: ${{ inputs.run_id }}
+
+      # Every package manager among the plan's projects is set up, so a repo with a pnpm app
+      # and a Rust crate gets both. Caches stay off: a save from this job would publish files
+      # dependency code could have touched.
+      - name: Set up Node
+        if: steps.detect.outputs.setup_node == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ steps.detect.outputs.node_version_file != '' && steps.detect.outputs.node_version_file || '' }}
+          node-version: ${{ steps.detect.outputs.node_version_file == '' && 'lts/*' || '' }}
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        if: steps.detect.outputs.setup_pnpm == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ steps.detect.outputs.pnpm_version }}
+          package_json_file: ${{ steps.detect.outputs.pnpm_package_json }}
+
+      # yarn without corepack (no longer bundled with current Node majors): the version the
+      # packageManager field names, installed with npm at that exact version and without
+      # scripts, yarn 2 and later from @yarnpkg/cli-dist. Without a field, the yarn classic on
+      # the runner image, which follows a yarnPath in .yarnrc.yml.
+      - name: Set up yarn
+        if: steps.detect.outputs.setup_yarn == 'true'
+        env:
+          YARN_VERSION: ${{ steps.detect.outputs.yarn_version }}
+        run: |
+          if [ -n "$YARN_VERSION" ]; then
+            if ! [[ "$YARN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::packageManager names yarn $YARN_VERSION, not an exact version"
+              exit 1
+            fi
+            if [ "${YARN_VERSION%%.*}" = 1 ]; then
+              npm install --global --ignore-scripts "yarn@$YARN_VERSION"
+            else
+              npm install --global --ignore-scripts "@yarnpkg/cli-dist@$YARN_VERSION"
+            fi
+          fi
+          yarn --version
+
+      - name: Set up bun
+        if: steps.detect.outputs.setup_bun == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ steps.detect.outputs.bun_version }}
+          no-cache: true
+
+      - name: Set up Rust
+        if: steps.detect.outputs.setup_rust == 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
+        with:
+          toolchain: stable
+
+      # A rust-toolchain file in the crate's folder or above overrides stable; install it now
+      # so the apply step's cargo calls do not download it halfway.
+      - name: Install the repo's pinned Rust toolchain
+        if: steps.detect.outputs.setup_rust == 'true'
+        env:
+          RUST_ROOT: ${{ steps.detect.outputs.rust_root }}
+        run: |
+          dir="$GITHUB_WORKSPACE/$RUST_ROOT"
+          while :; do
+            if [ -f "$dir/rust-toolchain.toml" ] || [ -f "$dir/rust-toolchain" ]; then
+              (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && rustup toolchain install --no-self-update)
+              break
+            fi
+            if [ "$dir" = "$GITHUB_WORKSPACE" ]; then break; fi
+            dir=$(dirname "$dir")
+          done
+          (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && cargo --version)
+
+      # No install script runs here: lockfiles are updated in lockfile only mode.
+      - name: Apply the plan
+        id: apply
+        uses: $/actions/fix-runner
+        with:
+          step: apply
+          plan: ${{ inputs.plan }}
+          encoding: ${{ inputs.encoding }}
+          run_id: ${{ inputs.run_id }}
+          checks: ${{ inputs.checks }}
+          defer_checks: 'true'
+
+      # Install scripts and the repo's checks run from here on (full mode only). Whatever
+      # they do, the publish job checks the patch against the outputs set above.
+      - name: Install and run the checks
+        if: steps.apply.outputs.has_changes == 'true'
+        uses: $/actions/fix-runner
+        with:
+          step: check
+          plan: ${{ inputs.plan }}
+          encoding: ${{ inputs.encoding }}
+          run_id: ${{ inputs.run_id }}
+          checks: ${{ inputs.checks }}
+
+      - name: Upload the patch and the result
+        if: always() && steps.apply.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.detect.outputs.artifact_name }}
+          path: .hinomi/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Push the fix branch
+    needs: apply
+    if: needs.apply.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      branch: ${{ steps.publish.outputs.branch }}
+      pushed: ${{ steps.publish.outputs.pushed }}
+    steps:
+      - name: Check out the base commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.apply.outputs.base_sha }}
+          persist-credentials: false
+
+      - name: Download the patch and the result
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.apply.outputs.artifact_name }}
+          path: ${{ runner.temp }}/hinomi-fix
+
+      - name: Verify the patch and push the fix branch
+        id: publish
+        uses: $/actions/fix-runner
+        with:
+          step: publish
+          run_id: ${{ inputs.run_id }}
+          artifact_dir: ${{ runner.temp }}/hinomi-fix
+          base_sha: ${{ needs.apply.outputs.base_sha }}
+          patch_sha256: ${{ needs.apply.outputs.patch_sha256 }}
+          patch_files: ${{ needs.apply.outputs.patch_files }}
+          dry_run: ${{ inputs.dry_run }}
+          token: ${{ github.token }}

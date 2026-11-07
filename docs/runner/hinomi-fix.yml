@@ -1,0 +1,31 @@
+# .github/workflows/hinomi-fix.yml
+name: Hinomi fix
+run-name: hinomi fix ${{ inputs.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Hinomi run id
+        type: string
+        required: true
+      plan:
+        description: Fix plan from Hinomi (JSON, or gzip plus base64)
+        type: string
+        required: true
+      encoding:
+        type: choice
+        options: [json, gzip-base64]
+        default: json
+
+permissions: {}
+
+jobs:
+  fix:
+    uses: Shironex/hinomi/.github/workflows/fix.yml@<40 char sha>
+    permissions:
+      contents: write
+    with:
+      run_id: ${{ inputs.run_id }}
+      plan: ${{ inputs.plan }}
+      encoding: ${{ inputs.encoding }}

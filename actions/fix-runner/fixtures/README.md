@@ -24,3 +24,7 @@ nothing here is ever installed (except by the real tool test). Every package nam
   if it ever runs, and a Cargo.lock that the real cargo test updates against a sparse
   registry it serves on 127.0.0.1.
 - `dispatches`: dispatches the runner must refuse.
+- `selftest-npm`, `selftest-pnpm`, `selftest-dispatch.json`: what `.github/workflows/fix-selftest.yml`
+  runs the reusable workflow against, inside this repo's own checkout. They pin the real package
+  `ms` at 2.1.2 and the plan bumps it to 2.1.3; `selftest-pnpm` has its own
+  `pnpm-workspace.yaml` so pnpm never walks up to the Hinomi workspace.

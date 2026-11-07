@@ -1,0 +1,69 @@
+name: Fix runner self test
+run-name: hinomi fix selftest
+
+# Runs the reusable fix workflow against fixture projects inside this repo (an npm and a pnpm
+# project under actions/fix-runner/fixtures, both bumping a real package), with a dry run
+# publish: the patch is verified, applied and committed, never pushed. Public repo, so free.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/fix.yml
+      - .github/workflows/fix-selftest.yml
+      - actions/fix-runner/**
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Read the self test plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.read.outputs.plan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: actions/fix-runner/fixtures
+
+      - name: Read the dispatch
+        id: read
+        run: |
+          plan=$(jq -c . actions/fix-runner/fixtures/selftest-dispatch.json)
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+  fix:
+    name: Fix
+    needs: plan
+    uses: $/.github/workflows/fix.yml
+    # The publish job asks for contents: write; with dry_run it never pushes.
+    permissions:
+      contents: write
+    with:
+      run_id: selftest
+      plan: ${{ needs.plan.outputs.plan }}
+      encoding: json
+      dry_run: true
+
+  verify:
+    name: Check the outcome
+    needs: fix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Expect a patch and an unpushed fix commit
+        env:
+          HAS_CHANGES: ${{ needs.fix.outputs.has_changes }}
+          PATCH_SHA256: ${{ needs.fix.outputs.patch_sha256 }}
+          BRANCH: ${{ needs.fix.outputs.branch }}
+          PUSHED: ${{ needs.fix.outputs.pushed }}
+        run: |
+          echo "has_changes=$HAS_CHANGES patch_sha256=$PATCH_SHA256 branch=$BRANCH pushed=$PUSHED"
+          test "$HAS_CHANGES" = true
+          [[ "$PATCH_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          test "$BRANCH" = hinomi/fix-plan
+          test "$PUSHED" = false
