@@ -2,6 +2,76 @@
 
 All notable changes to Hinomi. Versions follow [Semantic Versioning](https://semver.org/); release images are on `ghcr.io/shironex/hinomi`.
 
+## 0.2.0 (2026-11-07)
+
+Hinomi now fixes what it finds. Version 0.1.0 told me which vulnerable dependency mattered; this one opens the pull request that updates it, follows that pull request until the fix is deployed, and rescans to check the findings are really gone. It never merges anything: a person reads every pull request, and the fix runner stays off for each repo until I turn it on.
+
+### Highlights
+
+- **One fix plan and one pull request per repo.** After every scan Hinomi builds a plan of the safe bumps for each repo, shows it as the diff its pull request will make, and opens one PR for all of it.
+- **A GitHub Actions fix runner.** A reusable workflow, pinned by commit SHA, applies the plan inside the repo's own Actions with npm, pnpm, yarn, bun or Cargo. The job that runs install scripts and tests never holds a write token.
+- **Fix runs tracked to the end.** From dispatch to the pull request, its checks, the merge, the deploy and a scoped rescan that says verified or not cleared.
+- **Other places to run a fix.** An optional GitHub webhook for faster tracking, a webhook runner for your own CI, and an opt in local runner for a Hinomi host.
+- **A majors agent, experimental.** Off by default and clearly marked: major upgrades can go to a coding agent on a separate draft PR.
+- **Several GitHub sources.** One Hinomi can read an account and an organization side by side, with Add source in Settings.
+
+### What's New
+
+#### Fix plans
+- A plan per repo at the end of each scan: the safe steps, the findings each step clears and what was skipped and why. Major upgrades are never mixed into it.
+- The plan shows as the diff of its pull request in the UI and the API, and is linked from findings and the By fix view.
+- The fix target is checked: a version that a known advisory still affects is never picked, and the plan records what the check found.
+
+#### The GitHub Actions fix runner
+- A small caller workflow in each repo calls the reusable workflow `Shironex/hinomi/.github/workflows/fix.yml`, pinned by commit SHA. The runner status suggests the SHA of the latest release.
+- Two jobs split by trust: apply (read only token, no secrets) edits the dependency files and builds the patch; publish (contents: write only) checks the patch against the allowed dependency files and pushes the branch `hinomi/fix-plan`. Hinomi opens or updates the pull request itself.
+- All five package managers: npm, pnpm, yarn, bun and Cargo, with the release age gate and mixed ecosystems in one plan.
+- Checks run on public repos; on private repos only the install runs, and the PR's own CI does the rest. When the checks fail, the PR is a draft that says why.
+- A setup PR adds the caller workflow, and flags and re-pins an outdated pin. It needs Workflows write, so it is off unless the credential has it.
+- Off for every repo until turned on, with a per credential permission check on the runner status. Hinomi never merges.
+
+#### Fix runs and notifications
+- Each run is followed through queued, running, branch pushed, PR open, checks, merged and deployed, by polling GitHub; a run that goes quiet is marked lost.
+- After the merge Hinomi links the Coolify deploys that shipped it and warns when none is seen or when the app's watch paths would skip the deploy.
+- A scoped rescan of that one repo then ends the run as verified or not cleared, with the counts.
+- Discord, webhook and email channels announce fix run events (PR opened, checks failing, verified, not cleared, failed, warnings), each switchable in Settings.
+- A fix runs page and run detail, and a "Fix with Hinomi" action on findings and in the By fix view, always after a diff preview.
+
+#### The optional GitHub webhook
+- GitHub can tell Hinomi that a workflow run, pull request or check changed, so tracking does not wait for the next poll. Polling stays the source of truth, so a lost or forged delivery cannot move a run.
+- The webhook path is the only thing meant to be exposed. `HINOMI_WEBHOOK_PORT` serves it on a second port and nothing else, with recipes for Cloudflare Tunnel, Tailscale Funnel, Caddy and nginx.
+
+#### Webhook and local runners
+- The webhook runner posts the signed plan to your own CI or build box and takes its report on a signed callback. Each repo picks its runner kind.
+- The local runner applies plans on the Hinomi host with the same action. It is the riskiest option, so it is opt in twice (`HINOMI_LOCAL_RUNNER=1`, then the repo) and the docs list the residual risks. Run it only in a dedicated container.
+
+#### The majors agent (experimental)
+- Off by default and per repo. It hands major upgrades to Claude Code, run headless in the repo's Actions, and its changes go to `hinomi/majors` and a separate pull request that is always a draft and says an agent wrote it.
+- It needs your own Anthropic API key as an Actions secret, with a spend limit. A run stops at 80 turns or about 10 USD of usage, and after 40 minutes.
+- Experimental: CI tests it with a stub agent, and the real Claude Code preset has not yet been run outside CI. Expect rough edges and review the draft like an outside contribution.
+
+#### Sources and tokens
+- Several GitHub sources, a token or a GitHub App each, with Add source and remove in Settings after setup. Each repo is read and fixed through one source, chosen by a stable rule or by hand in the repo's runner panel.
+- Prefilled fine grained token links in setup and the runner panel, with the permissions the runner needs already ticked.
+
+### Fixes
+- A fix target no known advisory affects is chosen; a version that is itself vulnerable is no longer offered.
+- A fix run does not wait for a deploy when no app deploys the repo.
+- Server messages end with one full stop.
+
+### Under the Hood
+- Migrations 0004 to 0010 run on boot: fix plans, fix runs, runner settings, verification, the majors agent, the runner kind and repo sources.
+- esbuild and minimatch are overridden to patched versions.
+- Every GitHub Action in CI is pinned by commit SHA, and the workflows are linted with actionlint and zizmor, with the tools checked by SHA-256.
+- The fix runner action is bundled and committed under `actions/fix-runner/dist`, and CI fails when the bundle is out of date. The image ships it for the local runner.
+- A self test runs the reusable workflow on pull requests, with a dry run publish.
+
+### Upgrade notes
+- Migrations run on boot; take a copy of `/data` first if you want a way back.
+- This is the first release that callers can pin: `fix.yml` of v0.1.0 does not exist. Repos that add the caller workflow pin the commit of v0.2.0 or later.
+- If you run v0.1.0, update the image tag (`HINOMI_VERSION=0.2.0` for compose, or `ghcr.io/shironex/hinomi:0.2.0`).
+- Nothing changes until you turn on a runner for a repo.
+
 ## 0.1.0 (2026-11-07)
 
 The first release. Hinomi joins what is deployed on Coolify with the advisories GitHub and OSV.dev know about, and answers one question: is anything that is actually deployed and reachable right now exposed to a serious vulnerability? I run it on my own servers, behind Tailscale, and this is the version that does that job end to end.
