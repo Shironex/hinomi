@@ -23,7 +23,7 @@ type GuardSubject = { deploymentId: number } | { repoId: number }
 
 Register it by adding it to `GUARDS` in `scan/guards/registry.ts`. That is all: the scan runs it, the API lists it, the deployment panel shows it.
 
-`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read), the endoflife.date lookups (`support`, null until a copy exists; a support check then returns nothing so its rows stay as they are) with the warning window (`supportWindowDays`), `repoFiles` and `now`. `repoFiles.read(repo, path, ref)` reads one file of a repo through the repo's own GitHub source (the one the scan used, else `repos.source_id`); a read at a full commit sha is kept in the `http_cache` table under `repo-file:{owner}/{name}@{sha}:{path}` (a missing file too), so an unchanged deploy costs no GitHub call, and a branch is read once per scan. It answers `ok`, `missing`, `no_source` (say `unknown`) or `error` (return `null`). A check that needs more (runtime pins) adds a field to `GuardContext` and fills it where `runScan` builds the context.
+`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read and the runtime pins in `pins`), the endoflife.date lookups (`support`, null until a copy exists; a support check then returns nothing so its rows stay as they are) with the warning window (`supportWindowDays`) and the Rust and Bun "behind latest" thresholds (`behindReleases`), `repoFiles` and `now`. `repoFiles.read(repo, path, ref)` reads one file of a repo through the repo's own GitHub source (the one the scan used, else `repos.source_id`); a read at a full commit sha is kept in the `http_cache` table under `repo-file:{owner}/{name}@{sha}:{path}` (a missing file too), so an unchanged deploy costs no GitHub call, and a branch is read once per scan. It answers `ok`, `missing`, `no_source` (say `unknown`) or `error` (return `null`). A check that needs more adds a field to `GuardContext` and fills it where `runScan` builds the context.
 
 Rules for `run`:
 
@@ -42,6 +42,7 @@ Tests: one test file per check, a pure function of fictional rows. `scan/guards/
 
 ## Registered checks
 
+- `runtime_support` and `runtime_pins_disagree`: see [Runtime support](#runtime-support) and [Runtime pins disagree](#runtime-pins-disagree) below.
 - `root_user` (`scan/guards/root-user.ts`): the first answer wins: run options `--user`, compose `user:` per service (a service without it falls to its image: a `nonroot` tag passes, any other tag warns, a build is unknown), the inline Dockerfile, then the Dockerfile fetched from the repo at the deployed commit sha (else the branch). A final stage with no `USER` warns "probably root" unless the base image tag ends in `nonroot`. A build pack that gives no signal, an image only deployment, a missing file or an unresolved variable is `unknown` with the reason; a failed fetch leaves the row alone. Managed databases are skipped.
 - `docker_socket` (`scan/guards/docker-socket.ts`): `fail` when a bind mount (run options, compose, file or persistent storage) is the Docker socket or a folder holding it, read only too. `pass` records which sources were read and any gap (Coolify does not document the persistent storage `host_path`); `unknown` when no source was read.
 
@@ -106,3 +107,32 @@ One finding per repo, with every match in `evidence.frameworks`; the level is th
 | version matches no line | `unknown` | not in the support data yet |
 
 Products whose end dates come from the release cycle (their end label is not a security support label, or they publish no such date) can warn but never fail, and the evidence `reason` says so. A repo whose lockfiles were not read, or a scan with no support data yet, leaves the finding as it is.
+
+## Runtime support
+
+`runtime_support` (`scan/guards/runtime-support.ts`) reads the runtime pins the scan stores per repo (`apps/server/src/pins/`). The scan reads them in the lockfile phase, at the same branch as the lockfiles (the deployed branch, else the default one), and treats the Dockerfiles the repo's deployments build (`facts.dockerfile`: base directory plus location) as production. A GitHub error keeps the pins stored for that branch and says so in `evidence.reason`; a repo whose pins were never read is left alone.
+
+Per runtime, the pin that says what runs in production decides (precedence: the final stage of a deployed Dockerfile, then the version files, then the `engines` floor). CI pins, Dockerfile build stages and Cargo `rust-version` (a minimum, never the running toolchain) never decide it. One finding per repo; the level is the worst entry in `evidence.runtimes`.
+
+| Runtime | Rule (`rule`) | `fail` | `warn` | `pass` |
+|---|---|---|---|---|
+| Node | `support_window`: end of security support from endoflife.date | the line ended | it ends within `supportWindowDays` (default 90) | supported, or only active support is over |
+| Rust | `behind_latest` | never | the pin is more than `rustBehindReleases` (default 4) stable releases behind the latest | within that, or a channel (`stable`, `beta`, `nightly`, `rust:1`) |
+| Bun | `behind_latest` | never | the pin is more than `bunBehindReleases` (default 4) minor releases behind the latest | within that, `latest`, or a major only pin (`bun@1`) |
+
+A floating Node pin (`lts/*`, `node:lts`, `current`) passes and `resolvedTo` says which line it follows today. A pin Hinomi cannot read (`node:${NODE_VERSION}`, a digest) or a line the support data does not have yet is `unknown`. Rust and Bun use the "behind latest" rule because endoflife.date marks every Rust line but the newest as ended and publishes no end dates for Bun (Q12a); `releasesBehind` and `maxBehind` show the count.
+
+While the entry is not passing, `fixHints` lists every file that pins the runtime to an older line, with the edit: `{ path, line, from, to }`, for example `apps/api/Dockerfile:1 node:18-alpine -> node:26-alpine`. CI steps and build stages are listed too; floating pins and minimums are not. The target is the newest Node LTS line that is not ending soon, or the latest Rust or Bun release, written with as many parts as the pin has.
+
+No support data yet (a fresh install without network): the check returns nothing and its findings stay as they are.
+
+## Runtime pins disagree
+
+`runtime_pins_disagree` (`scan/guards/runtime-pins-disagree.ts`, warn only) fires when the pins of one runtime in a repo name more than one line. Node compares majors, Rust `major.minor`, Bun the `major.minor` of the version. Floating pins, unreadable pins and minimums never count. It needs no support data.
+
+- Version files and Dockerfiles (deployed or not) must name the production line, or the line most of them name when nothing says what production runs.
+- A Dockerfile build stage may differ when it is a pure build stage. A stage the final image is built on, or copies `node_modules` from (`COPY --from=deps /app/node_modules ...`), must match: native modules built on one line can break on another. A copy of a whole folder is not followed.
+- CI may test several lines (a matrix, several jobs): it disagrees only when no CI pin uses the production line. A matrix `[22, 24]` with nothing else is fine.
+- An `engines` range disagrees only when a pinned line does not fit it (`>=20 <23` with `.nvmrc` 24).
+
+`evidence.runtimes[]` has the production line, every pin, the disagreeing ones, a one line `reason` ("Node pins disagree: production runs 26, CI tests on 22 only.") and `fixHints` that move each disagreeing pin to the production line.
