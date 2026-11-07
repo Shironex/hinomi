@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LOCAL_RUNNER_WARNING } from '@hinomi/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runnerFor } from '@/fixtures/fix-runs'
+import { planFor, runnerFor } from '@/fixtures/fix-runs'
 import { fixtureRoute, type FixtureScenario } from '@/fixtures/routes'
 import { closeFix } from '@/lib/fix-request'
 import { Reply, reply } from '@/test/mock-api'
@@ -176,6 +176,27 @@ describe('runner panel per kind', () => {
     expect(screen.queryByRole('switch', { name: 'Majors agent' })).not.toBeInTheDocument()
     expect(screen.getByText('No majors agent on this runner')).toBeVisible()
     expect(screen.getByText(/does not run on the local runner/)).toBeVisible()
+  })
+
+  it('lists the majors of a local repo as risky steps and promises no second draft PR', async () => {
+    fixtureApi()
+    await setup('/fix-runs?sel=plan-23')
+    await screen.findByRole('switch', { name: 'Run fixes for this repo on this Hinomi host' })
+    expect(screen.queryByText(/The majors agent takes/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Majors agent, draft PR')).not.toBeInTheDocument()
+    expect(screen.getByText('Risky, listed only')).toBeVisible()
+  })
+
+  it('still sends the majors of a webhook repo to the agent when it is on', async () => {
+    fixtureApi({
+      'GET /repos/20/runner': {
+        ...runnerFor(20),
+        settings: { ...runnerFor(20)!.settings, majorsAgent: 'claude-code' },
+      },
+      'GET /repos/20/plan': { ...planFor(23)!, repo: planFor(20)!.repo },
+    })
+    await setup('/fix-runs?sel=plan-20')
+    expect(await screen.findByText('Majors agent, draft PR')).toBeVisible()
   })
 
   it('turns a repo on a runner the host stopped offering into a not ready one', async () => {
