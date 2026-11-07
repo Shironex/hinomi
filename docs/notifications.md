@@ -9,6 +9,7 @@ Hinomi can post to a Discord channel, to any HTTP endpoint (a generic webhook) o
 - a new or reopened `critical` or `high` advisory finding on a repo that is deployed
 - a new or reopened blind spot on something that is deployed
 - a guard finding that opens or reopens at `fail` on a running deployment, and a guard escalation to `fail` (event `escalated`, sent once)
+- a new or reopened `critical` advisory in the runtime dependencies of a released desktop app (the latest release of a repo nothing deploys, see [api.md](api.md#desktop-release-tier)); every other desktop release finding goes to the daily digest only
 
 Items go out most urgent first (highest exposure rank: criticals on public apps lead).
 
