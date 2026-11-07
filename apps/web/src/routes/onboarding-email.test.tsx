@@ -27,6 +27,7 @@ describe('onboarding alerts step', () => {
         includeAccountRepos: false,
         updateCheckEnabled: true,
         supportWindowDays: 90,
+        imageScan: 'off',
       },
       'POST /notifications/channels': () =>
         reply(201, { id: '7c1a2f4e-5b0d-4c6e-9a3b-2d8e1f0a4b5c' }),

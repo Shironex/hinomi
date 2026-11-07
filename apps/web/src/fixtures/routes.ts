@@ -264,6 +264,7 @@ export function fixtureRoute(
         includeAccountRepos: false,
         updateCheckEnabled: true,
         supportWindowDays: 180,
+        imageScan: 'off',
       })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))

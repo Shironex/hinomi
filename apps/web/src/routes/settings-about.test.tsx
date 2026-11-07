@@ -16,6 +16,7 @@ const settings = (updateCheckEnabled: boolean) => ({
   includeAccountRepos: false,
   updateCheckEnabled,
   supportWindowDays: 90,
+  imageScan: 'off',
 })
 
 async function aboutRegion() {

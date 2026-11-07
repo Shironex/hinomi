@@ -19,7 +19,7 @@ const NO_SOURCES: ScanSources = {
   github: [],
   osv: null,
   fetchLockfiles: () => Promise.resolve([]),
-  settings: { osvEnabled: false, includeAccountRepos: false },
+  settings: { osvEnabled: false, includeAccountRepos: false, imageScan: 'off' },
 }
 
 let handle: DatabaseHandle

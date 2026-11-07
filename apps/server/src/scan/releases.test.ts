@@ -194,7 +194,7 @@ function sources(osvOn = true): ScanSources {
     coolify: [],
     github: [github()],
     osv: osvOn ? { sourceId: null, client: osvClient() } : null,
-    settings: { osvEnabled: osvOn, includeAccountRepos: true },
+    settings: { osvEnabled: osvOn, includeAccountRepos: true, imageScan: 'off' },
     fetchLockfiles: (_owner, name, ref): Promise<FetchedLockfile[]> => {
       world.lockfileReads.push(`${name}@${ref}`)
       const version = world.lockfiles[`${name}@${ref}`]
