@@ -47,9 +47,10 @@ export const fixRunStateSchema = z.enum(FIX_RUN_STATES)
 export type FixRunState = z.infer<typeof fixRunStateSchema>
 
 /**
- * States where a run has ended. Two can come back: a closed PR that is reopened
- * (`closed_unmerged` to `pr_open`) and a failed workflow run that is re-run on GitHub (`failed`
- * to `queued` or `running`, same run id, a new attempt). The others never change again.
+ * States where a run has ended. Three can come back: a closed PR that is reopened
+ * (`closed_unmerged` to `pr_open`) and a failed or cancelled workflow run that is re-run on
+ * GitHub (`failed` or `cancelled` to `queued` or `running`, same run id, a new attempt). The
+ * others never change again.
  */
 export const FIX_RUN_TERMINAL_STATES = [
   'verified',
@@ -61,7 +62,7 @@ export const FIX_RUN_TERMINAL_STATES = [
   'lost',
 ] as const satisfies readonly FixRunState[]
 
-/** True when the run has ended (see FIX_RUN_TERMINAL_STATES for the two that can come back). */
+/** True when the run has ended (see FIX_RUN_TERMINAL_STATES for the three that can come back). */
 export function isFixRunTerminal(state: FixRunState): boolean {
   return (FIX_RUN_TERMINAL_STATES as readonly FixRunState[]).includes(state)
 }
