@@ -1,7 +1,7 @@
 import { testTokenRequestSchema, type SourceDto, type SourceTestResult } from '@hinomi/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queries'
-import { settingsKeys } from '@/lib/settings-api'
+import { settingsKeys, sourcesQuery } from '@/lib/settings-api'
 
 /** Pieces shared by the token and the GitHub App connect forms. */
 
@@ -18,6 +18,8 @@ export interface ConnectFormProps {
   kind: ConnectableKind
   /** A saved source to give new credentials. Omit to create one. */
   source?: SourceDto
+  /** The name of a new source. Empty or omitted: the form picks one from what it connects to. */
+  name?: string
   onConnected: (result: ConnectResult) => void
   onCancel?: () => void
 }
@@ -39,6 +41,28 @@ export const urlSchema = testTokenRequestSchema.shape.baseUrl.unwrap().unwrap()
 /** A sentence for a field error: the testers answer without a closing period. */
 export function sentence(message: string): string {
   return message.endsWith('.') ? message : `${message}.`
+}
+
+/**
+ * The name a new source is saved under: the one typed, else `fallback`, numbered when a source
+ * of the same kind already has it (names are unique per kind).
+ */
+export function newSourceName(
+  queryClient: QueryClient,
+  kind: ConnectableKind,
+  typed: string | undefined,
+  fallback: string,
+): string {
+  const wanted = typed?.trim()
+  if (wanted) return wanted
+  const taken = new Set(
+    (queryClient.getQueryData(sourcesQuery.queryKey)?.sources ?? [])
+      .filter((s) => s.kind === kind)
+      .map((s) => s.name),
+  )
+  let candidate = fallback
+  for (let n = 2; taken.has(candidate); n++) candidate = `${fallback} ${n}`
+  return candidate
 }
 
 /** After a save: the source list and the scan state (a first source starts a scan). */

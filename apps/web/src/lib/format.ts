@@ -28,3 +28,10 @@ export function formatClock(iso: string): string {
   const then = Date.parse(iso)
   return Number.isNaN(then) ? iso : clock.format(then)
 }
+
+const count = new Intl.NumberFormat('en-US')
+
+/** "1 repo", "1,204 repos". */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${count.format(n)} ${n === 1 ? one : many}`
+}

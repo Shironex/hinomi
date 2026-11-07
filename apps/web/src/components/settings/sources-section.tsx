@@ -9,21 +9,27 @@ import {
   IconBrandGithub,
   IconLoader2,
   IconPlugConnected,
+  IconPlus,
   IconServer2,
   IconTrash,
   type Icon,
 } from '@tabler/icons-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Field } from '@/components/form/field'
+import { SegmentedChoice, type SegmentedOption } from '@/components/form/segmented-choice'
+import { GithubTokenHelp } from '@/components/onboarding/github-token-help'
 import { SecretKeyCallout } from '@/components/sources/secret-key-callout'
 import { SourceConnectForm, type ConnectableKind } from '@/components/sources/source-connect-form'
 import { ErrorState } from '@/components/states/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useOsvSetting } from '@/hooks/use-osv-setting'
 import { describeError } from '@/lib/errors'
-import { formatRelative } from '@/lib/format'
+import { fixKeys } from '@/lib/fix-api'
+import { formatRelative, plural } from '@/lib/format'
 import { queryKeys } from '@/lib/queries'
 import {
   removeSource,
@@ -33,7 +39,7 @@ import {
   updateSource,
 } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
-import { SaveStatus, SetBox, SetRow } from './settings-section'
+import { Panel, SaveStatus, SetBox, SetRow } from './settings-section'
 
 const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: string }> = {
   coolify: {
@@ -48,9 +54,16 @@ const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: str
   },
 }
 
+const KIND_OPTIONS: readonly SegmentedOption<ConnectableKind>[] = [
+  { value: 'github', label: KIND_META.github.label, icon: KIND_META.github.icon },
+  { value: 'coolify', label: KIND_META.coolify.label, icon: KIND_META.coolify.icon },
+]
+
 export function SourcesSection() {
   const queryClient = useQueryClient()
   const sources = useQuery(sourcesQuery)
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState<string | null>(null)
 
   if (sources.isPending) return <SourcesSkeleton />
   if (sources.isError) {
@@ -89,7 +102,84 @@ export function SourcesSection() {
         })}
         <OsvRow />
       </SetBox>
+      {adding ? (
+        <AddSource
+          onCancel={() => setAdding(false)}
+          onAdded={(message) => {
+            setAdding(false)
+            setAdded(message)
+          }}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setAdded(null)
+              setAdding(true)
+            }}
+            disabled={!canStoreTokens}
+          >
+            <IconPlus aria-hidden="true" />
+            Add source
+          </Button>
+          <span aria-live="polite" className="text-sm text-success">
+            {added}
+          </span>
+        </div>
+      )}
     </>
+  )
+}
+
+/**
+ * Another GitHub source (a token or a GitHub App, say one per organization) or another Coolify
+ * instance, with the same forms as onboarding. Names are unique per kind, so a name can be typed.
+ */
+function AddSource({
+  onCancel,
+  onAdded,
+}: {
+  onCancel: () => void
+  onAdded: (message: string) => void
+}) {
+  const [kind, setKind] = useState<ConnectableKind>('github')
+  const [name, setName] = useState('')
+  return (
+    <Panel role="group" aria-labelledby="add-source-title">
+      <h3 id="add-source-title" className="text-md">
+        Add a source
+      </h3>
+      <SegmentedChoice legend="Source" options={KIND_OPTIONS} value={kind} onChange={setKind} />
+      <Field
+        label="Name"
+        help={
+          kind === 'github'
+            ? 'Optional. Tells GitHub sources apart, for example by the organization it reads. Defaults to the account or GitHub.'
+            : 'Optional. Defaults to the host of the instance URL.'
+        }
+        className="max-w-[360px]"
+      >
+        {(control) => (
+          <Input
+            {...control}
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={100}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
+      </Field>
+      <SourceConnectForm
+        key={kind}
+        kind={kind}
+        name={name}
+        guide={<GithubTokenHelp />}
+        onCancel={onCancel}
+        onConnected={({ source, test }) => onAdded(`${source.name} added. ${test.message}.`)}
+      />
+    </Panel>
   )
 }
 
@@ -142,10 +232,13 @@ function SourceRow({
   const [confirming, setConfirming] = useState(false)
   const [replacedMessage, setReplacedMessage] = useState<string | null>(null)
 
+  // Switching a GitHub source off or removing it moves its repos to another source.
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: settingsKeys.sources }),
       queryClient.invalidateQueries({ queryKey: queryKeys.scanStatus }),
+      queryClient.invalidateQueries({ queryKey: settingsKeys.repos }),
+      queryClient.invalidateQueries({ queryKey: fixKeys.runners }),
     ])
 
   const test = useMutation({ mutationFn: () => testSavedSource(source.id) })
@@ -199,6 +292,11 @@ function SourceRow({
             </span>
           </Fact>
         ) : null}
+        <Fact term={kind === 'coolify' ? 'Reports' : 'Reads'}>
+          {kind === 'coolify'
+            ? plural(source.deploymentCount, 'deployment')
+            : plural(source.repoCount, 'repo')}
+        </Fact>
         <Fact term={isApp ? 'Private key' : 'Token'}>
           {source.hasToken ? (
             <Badge variant="outline">
@@ -293,12 +391,24 @@ function SourceRow({
         pending={remove.isPending}
         error={remove.error ? describeError(remove.error) : null}
       >
-        {kind === 'coolify'
-          ? 'Hinomi forgets its token and every deployment it reported. Findings lose their deployment context until you connect it again.'
-          : 'Hinomi forgets its token and stops reading repos and Dependabot alerts from it.'}
+        {removeNote(source, kind)}
       </ConfirmDialog>
     </SetRow>
   )
+}
+
+/** What removing a source does to what it brought in. */
+function removeNote(source: SourceDto, kind: ConnectableKind): string {
+  const secret = source.auth === 'github_app' ? 'its private key' : 'its token'
+  if (kind === 'coolify') {
+    return source.deploymentCount > 0
+      ? `Hinomi forgets ${secret} and its ${plural(source.deploymentCount, 'deployment')} ${source.deploymentCount === 1 ? 'is' : 'are'} removed. Findings lose their deployment context until you connect it again.`
+      : `Hinomi forgets ${secret}. It reports no deployments right now.`
+  }
+  const n = source.repoCount
+  return n > 0
+    ? `Hinomi forgets ${secret}. Its ${plural(n, 'repo')} ${n === 1 ? 'moves' : 'move'} to another GitHub source that sees ${n === 1 ? 'it' : 'them'}, or ${n === 1 ? 'stops' : 'stop'} being read; ${n === 1 ? 'its' : 'their'} findings and fix runs stay.`
+    : `Hinomi forgets ${secret}. It reads no repos right now.`
 }
 
 /** One term and value of a source, inline so the row stays short. */
