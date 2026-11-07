@@ -5655,6 +5655,244 @@ const SCAN_RUN_STATUSES = [
 ];
 const scanRunStatusSchema = _enum(SCAN_RUN_STATUSES);
 
+// ../../packages/shared/src/guards.ts
+const GUARD_CHECKS = [
+	"root_user",
+	"shared_network",
+	"docker_socket",
+	"watch_paths_skip",
+	"framework_support",
+	"runtime_support",
+	"runtime_pins_disagree",
+	"action_runtime"
+];
+const guardCheckSchema = _enum(GUARD_CHECKS);
+const GUARD_LEVELS = [
+	"warn",
+	"fail",
+	"unknown"
+];
+const guardLevelSchema = _enum(GUARD_LEVELS);
+const GUARD_RESULTS = ["pass", ...GUARD_LEVELS];
+const guardResultSchema = _enum(GUARD_RESULTS);
+const OVERRIDABLE_CHECKS = [...GUARD_CHECKS, ...BLIND_SPOT_TYPES];
+const overridableCheckSchema = _enum(OVERRIDABLE_CHECKS);
+const GUARD_CAPABILITIES = [
+	"full",
+	"partial",
+	"unknown"
+];
+const guardCapabilitySchema = _enum(GUARD_CAPABILITIES);
+const RUNTIMES = [
+	"node",
+	"bun",
+	"rust"
+];
+const runtimeSchema = _enum(RUNTIMES);
+const RUNTIME_PIN_SOURCES = [
+	"nvmrc",
+	"node_version",
+	"bun_version",
+	"tool_versions",
+	"mise",
+	"volta",
+	"engines",
+	"dev_engines",
+	"package_manager",
+	"rust_toolchain",
+	"cargo_rust_version",
+	"dockerfile",
+	"setup_node",
+	"setup_bun",
+	"rust_toolchain_action",
+	"action_runs_using"
+];
+const runtimePinSourceSchema = _enum(RUNTIME_PIN_SOURCES);
+const SUPPORT_BASES = ["security", "release_cycle"];
+const supportBasisSchema = _enum(SUPPORT_BASES);
+
+// ../../packages/shared/src/guard-evidence.ts
+const line = number$1().int().positive().nullable();
+const reason$1 = string().max(500).nullable().default(null);
+const day = date();
+const CONTAINER_SIGNAL_SOURCES = [
+	"docker_inspect",
+	"run_options",
+	"compose",
+	"dockerfile",
+	"none"
+];
+const containerSignalSourceSchema = _enum(CONTAINER_SIGNAL_SOURCES);
+const rootUserServiceSchema = object({
+	name: string(),
+	user: string().nullable(),
+	image: string().nullable(),
+	result: guardResultSchema
+});
+const rootUserEvidenceSchema = object({
+	check: literal("root_user"),
+	source: containerSignalSourceSchema,
+	user: string().nullable(),
+	path: string().nullable(),
+	line,
+	from: string().nullable(),
+	stage: string().nullable(),
+	commit: string().nullable(),
+	services: array(rootUserServiceSchema),
+	reason: reason$1
+});
+const MOUNT_SOURCES = [
+	"docker_inspect",
+	"run_options",
+	"compose",
+	"file_storage",
+	"persistent_storage"
+];
+const mountSourceSchema = _enum(MOUNT_SOURCES);
+const socketMountSchema = object({
+	source: mountSourceSchema,
+	hostPath: string(),
+	containerPath: string().nullable(),
+	readOnly: boolean(),
+	service: string().nullable()
+});
+const dockerSocketEvidenceSchema = object({
+	check: literal("docker_socket"),
+	mounts: array(socketMountSchema),
+	checked: array(mountSourceSchema),
+	reason: reason$1
+});
+const NETWORK_BASES = [
+	"coolify_destination",
+	"external_network",
+	"docker_network",
+	"host_network"
+];
+const networkBasisSchema = _enum(NETWORK_BASES);
+const networkPeerSchema = object({
+	deploymentId: number$1().int().positive().nullable(),
+	name: string(),
+	project: string().nullable(),
+	database: boolean()
+});
+const sharedNetworkEvidenceSchema = object({
+	check: literal("shared_network"),
+	basis: networkBasisSchema.nullable(),
+	network: string().nullable(),
+	destination: object({
+		server: string().nullable(),
+		type: string().nullable(),
+		id: number$1().int()
+	}).nullable(),
+	project: string().nullable(),
+	peers: array(networkPeerSchema),
+	reason: reason$1
+});
+const watchPathsSkipEvidenceSchema = object({
+	check: literal("watch_paths_skip"),
+	patterns: array(string()),
+	autoDeploy: boolean().nullable(),
+	checked: array(string()),
+	skipped: array(string()),
+	reason: reason$1
+});
+const supportLineSchema = object({
+	product: string(),
+	line: string(),
+	eolFrom: day.nullable(),
+	isEol: boolean(),
+	isEoas: boolean().nullable(),
+	latest: string().nullable(),
+	basis: supportBasisSchema,
+	daysLeft: number$1().int().nullable()
+});
+const supportTargetSchema = object({
+	line: string(),
+	latest: string().nullable()
+});
+const runtimePinSchema = object({
+	runtime: runtimeSchema,
+	source: runtimePinSourceSchema,
+	path: string(),
+	line,
+	raw: string(),
+	lineName: string().nullable(),
+	floating: boolean()
+});
+const fixHintSchema = object({
+	path: string(),
+	line,
+	from: string(),
+	to: string()
+});
+const frameworkEntrySchema = object({
+	packageName: string(),
+	ecosystem: string(),
+	purl: string(),
+	installedVersion: string(),
+	manifestPath: string().nullable(),
+	result: guardResultSchema,
+	support: supportLineSchema.nullable(),
+	target: supportTargetSchema.nullable()
+});
+const frameworkSupportEvidenceSchema = object({
+	check: literal("framework_support"),
+	ref: string().nullable(),
+	frameworks: array(frameworkEntrySchema),
+	reason: reason$1
+});
+const runtimeSupportEntrySchema = object({
+	runtime: runtimeSchema,
+	result: guardResultSchema,
+	pin: runtimePinSchema.nullable(),
+	support: supportLineSchema.nullable(),
+	resolvedTo: string().nullable(),
+	target: supportTargetSchema.nullable(),
+	fixHints: array(fixHintSchema)
+});
+const runtimeSupportEvidenceSchema = object({
+	check: literal("runtime_support"),
+	ref: string().nullable(),
+	runtimes: array(runtimeSupportEntrySchema),
+	reason: reason$1
+});
+const runtimePinsEntrySchema = object({
+	runtime: runtimeSchema,
+	result: guardResultSchema,
+	productionLine: string().nullable(),
+	pins: array(runtimePinSchema),
+	fixHints: array(fixHintSchema)
+});
+const runtimePinsDisagreeEvidenceSchema = object({
+	check: literal("runtime_pins_disagree"),
+	ref: string().nullable(),
+	runtimes: array(runtimePinsEntrySchema),
+	reason: reason$1
+});
+const actionRuntimeEntrySchema = object({
+	action: string(),
+	using: string(),
+	result: guardResultSchema,
+	support: supportLineSchema.nullable(),
+	workflowPath: string().nullable(),
+	workflowLine: line
+});
+const actionRuntimeEvidenceSchema = object({
+	check: literal("action_runtime"),
+	actions: array(actionRuntimeEntrySchema),
+	reason: reason$1
+});
+const guardEvidenceSchema = discriminatedUnion("check", [
+	rootUserEvidenceSchema,
+	sharedNetworkEvidenceSchema,
+	dockerSocketEvidenceSchema,
+	watchPathsSkipEvidenceSchema,
+	frameworkSupportEvidenceSchema,
+	runtimeSupportEvidenceSchema,
+	runtimePinsDisagreeEvidenceSchema,
+	actionRuntimeEvidenceSchema
+]);
+
 // ../../packages/shared/src/sources/coolify.ts
 const deploymentKindSchema = _enum([
 	"application",
@@ -5981,6 +6219,21 @@ const advisorySummarySchema = object({
 	url: string().nullable(),
 	firstPatchedVersion: string().nullable()
 });
+const checkOverrideRefSchema = object({
+	id: id$3,
+	scope: _enum(["deployment", "repo"]),
+	reason: string(),
+	createdAt: isoDate$5
+});
+const findingGuardSchema = object({
+	check: guardCheckSchema,
+	level: guardLevelSchema,
+	evidence: guardEvidenceSchema,
+	title: string(),
+	explanation: string(),
+	fixText: string(),
+	override: checkOverrideRefSchema.nullable()
+});
 const findingListItemSchema = object({
 	id: id$3,
 	kind: findingKindSchema,
@@ -5998,6 +6251,8 @@ const findingListItemSchema = object({
 	sources: array(reporterSchema),
 	blindSpotType: blindSpotTypeSchema.nullable(),
 	coverageNote: coverageNoteTypeSchema.nullable(),
+	guard: findingGuardSchema.nullable(),
+	releaseTag: string().nullable(),
 	advisory: advisorySummarySchema.nullable(),
 	installedVersion: string().nullable(),
 	repo: repoRefSchema.nullable(),
@@ -6394,6 +6649,9 @@ const findingsQuerySchema = strictObject({
 	sourceMatch: _enum(["any", "all"]).default("any"),
 	scope: csvOf(findingScopeSchema).optional(),
 	kind: csvOf(findingKindSchema).optional(),
+	check: csvOf(guardCheckSchema).optional(),
+	level: csvOf(guardLevelSchema).optional(),
+	release: _enum(["true", "false"]).transform((value) => value === "true").optional(),
 	repo: csvIds.optional(),
 	deployment: csvIds.optional(),
 	q: string().trim().max(200).optional(),
@@ -6452,8 +6710,9 @@ const findingDetailSchema = findingListItemSchema.extend({
 	history: array(findingEventSchema),
 	notifications: array(findingNotificationSchema)
 });
+const reason = string().trim().min(1, "A reason is required").max(500);
 const deferFields = {
-	reason: string().trim().min(1, "A reason is required").max(500),
+	reason,
 	until: isoDate$5.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
 	untilNewAdvisory: literal(true).optional()
 };
@@ -6589,6 +6848,48 @@ const repoSourceViewSchema = object({
 });
 const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema });
 const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
+const checkOverrideSchema = object({
+	id: id$3,
+	check: overridableCheckSchema,
+	deployment: deploymentRefSchema.nullable(),
+	repo: repoRefSchema.nullable(),
+	reason: string(),
+	createdAt: isoDate$5,
+	updatedAt: isoDate$5
+});
+const checkOverridesQuerySchema = strictObject({
+	check: csvOf(overridableCheckSchema).optional(),
+	deployment: csvIds.optional(),
+	repo: csvIds.optional()
+});
+const checkOverridesResponseSchema = object({ items: array(checkOverrideSchema) });
+const createCheckOverrideRequestSchema = strictObject({
+	check: overridableCheckSchema,
+	deploymentId: id$3.optional(),
+	repoId: id$3.optional(),
+	reason
+}).refine((value) => value.deploymentId === void 0 !== (value.repoId === void 0), {
+	message: "Give either deploymentId or repoId",
+	path: ["deploymentId"]
+});
+const updateCheckOverrideRequestSchema = strictObject({ reason });
+const guardInfoSchema = object({
+	check: guardCheckSchema,
+	title: string(),
+	reads: string(),
+	levels: array(guardLevelSchema),
+	capabilities: partialRecord(sourceKindSchema, guardCapabilitySchema),
+	counts: record(guardLevelSchema, number$1().int()),
+	overrides: number$1().int()
+});
+const guardsResponseSchema = object({ items: array(guardInfoSchema) });
+const deploymentGuardSchema = object({
+	check: overridableCheckSchema,
+	result: guardResultSchema.nullable(),
+	evidence: guardEvidenceSchema.nullable(),
+	findingId: id$3.nullable(),
+	override: checkOverrideRefSchema.nullable()
+});
 const SCAN_INTERVAL_MIN_MINUTES = 15;
 const SCAN_INTERVAL_MAX_MINUTES = 10080;
 const settingsSchema = object({
@@ -13403,244 +13704,6 @@ const githubWebhookAckSchema = object({ status: _enum([
 	"ignored",
 	"duplicate"
 ]) });
-
-// ../../packages/shared/src/guards.ts
-const GUARD_CHECKS = [
-	"root_user",
-	"shared_network",
-	"docker_socket",
-	"watch_paths_skip",
-	"framework_support",
-	"runtime_support",
-	"runtime_pins_disagree",
-	"action_runtime"
-];
-const guardCheckSchema = _enum(GUARD_CHECKS);
-const GUARD_LEVELS = [
-	"warn",
-	"fail",
-	"unknown"
-];
-const guardLevelSchema = _enum(GUARD_LEVELS);
-const GUARD_RESULTS = ["pass", ...GUARD_LEVELS];
-const guardResultSchema = _enum(GUARD_RESULTS);
-const OVERRIDABLE_CHECKS = [...GUARD_CHECKS, ...BLIND_SPOT_TYPES];
-const overridableCheckSchema = _enum(OVERRIDABLE_CHECKS);
-const GUARD_CAPABILITIES = [
-	"full",
-	"partial",
-	"unknown"
-];
-const guardCapabilitySchema = _enum(GUARD_CAPABILITIES);
-const RUNTIMES = [
-	"node",
-	"bun",
-	"rust"
-];
-const runtimeSchema = _enum(RUNTIMES);
-const RUNTIME_PIN_SOURCES = [
-	"nvmrc",
-	"node_version",
-	"bun_version",
-	"tool_versions",
-	"mise",
-	"volta",
-	"engines",
-	"dev_engines",
-	"package_manager",
-	"rust_toolchain",
-	"cargo_rust_version",
-	"dockerfile",
-	"setup_node",
-	"setup_bun",
-	"rust_toolchain_action",
-	"action_runs_using"
-];
-const runtimePinSourceSchema = _enum(RUNTIME_PIN_SOURCES);
-const SUPPORT_BASES = ["security", "release_cycle"];
-const supportBasisSchema = _enum(SUPPORT_BASES);
-
-// ../../packages/shared/src/guard-evidence.ts
-const line = number$1().int().positive().nullable();
-const reason = string().max(500).nullable().default(null);
-const day = date();
-const CONTAINER_SIGNAL_SOURCES = [
-	"docker_inspect",
-	"run_options",
-	"compose",
-	"dockerfile",
-	"none"
-];
-const containerSignalSourceSchema = _enum(CONTAINER_SIGNAL_SOURCES);
-const rootUserServiceSchema = object({
-	name: string(),
-	user: string().nullable(),
-	image: string().nullable(),
-	result: guardResultSchema
-});
-const rootUserEvidenceSchema = object({
-	check: literal("root_user"),
-	source: containerSignalSourceSchema,
-	user: string().nullable(),
-	path: string().nullable(),
-	line,
-	from: string().nullable(),
-	stage: string().nullable(),
-	commit: string().nullable(),
-	services: array(rootUserServiceSchema),
-	reason
-});
-const MOUNT_SOURCES = [
-	"docker_inspect",
-	"run_options",
-	"compose",
-	"file_storage",
-	"persistent_storage"
-];
-const mountSourceSchema = _enum(MOUNT_SOURCES);
-const socketMountSchema = object({
-	source: mountSourceSchema,
-	hostPath: string(),
-	containerPath: string().nullable(),
-	readOnly: boolean(),
-	service: string().nullable()
-});
-const dockerSocketEvidenceSchema = object({
-	check: literal("docker_socket"),
-	mounts: array(socketMountSchema),
-	checked: array(mountSourceSchema),
-	reason
-});
-const NETWORK_BASES = [
-	"coolify_destination",
-	"external_network",
-	"docker_network",
-	"host_network"
-];
-const networkBasisSchema = _enum(NETWORK_BASES);
-const networkPeerSchema = object({
-	deploymentId: number$1().int().positive().nullable(),
-	name: string(),
-	project: string().nullable(),
-	database: boolean()
-});
-const sharedNetworkEvidenceSchema = object({
-	check: literal("shared_network"),
-	basis: networkBasisSchema.nullable(),
-	network: string().nullable(),
-	destination: object({
-		server: string().nullable(),
-		type: string().nullable(),
-		id: number$1().int()
-	}).nullable(),
-	project: string().nullable(),
-	peers: array(networkPeerSchema),
-	reason
-});
-const watchPathsSkipEvidenceSchema = object({
-	check: literal("watch_paths_skip"),
-	patterns: array(string()),
-	autoDeploy: boolean().nullable(),
-	checked: array(string()),
-	skipped: array(string()),
-	reason
-});
-const supportLineSchema = object({
-	product: string(),
-	line: string(),
-	eolFrom: day.nullable(),
-	isEol: boolean(),
-	isEoas: boolean().nullable(),
-	latest: string().nullable(),
-	basis: supportBasisSchema,
-	daysLeft: number$1().int().nullable()
-});
-const supportTargetSchema = object({
-	line: string(),
-	latest: string().nullable()
-});
-const runtimePinSchema = object({
-	runtime: runtimeSchema,
-	source: runtimePinSourceSchema,
-	path: string(),
-	line,
-	raw: string(),
-	lineName: string().nullable(),
-	floating: boolean()
-});
-const fixHintSchema = object({
-	path: string(),
-	line,
-	from: string(),
-	to: string()
-});
-const frameworkEntrySchema = object({
-	packageName: string(),
-	ecosystem: string(),
-	purl: string(),
-	installedVersion: string(),
-	manifestPath: string().nullable(),
-	result: guardResultSchema,
-	support: supportLineSchema.nullable(),
-	target: supportTargetSchema.nullable()
-});
-const frameworkSupportEvidenceSchema = object({
-	check: literal("framework_support"),
-	ref: string().nullable(),
-	frameworks: array(frameworkEntrySchema),
-	reason
-});
-const runtimeSupportEntrySchema = object({
-	runtime: runtimeSchema,
-	result: guardResultSchema,
-	pin: runtimePinSchema.nullable(),
-	support: supportLineSchema.nullable(),
-	resolvedTo: string().nullable(),
-	target: supportTargetSchema.nullable(),
-	fixHints: array(fixHintSchema)
-});
-const runtimeSupportEvidenceSchema = object({
-	check: literal("runtime_support"),
-	ref: string().nullable(),
-	runtimes: array(runtimeSupportEntrySchema),
-	reason
-});
-const runtimePinsEntrySchema = object({
-	runtime: runtimeSchema,
-	result: guardResultSchema,
-	productionLine: string().nullable(),
-	pins: array(runtimePinSchema),
-	fixHints: array(fixHintSchema)
-});
-const runtimePinsDisagreeEvidenceSchema = object({
-	check: literal("runtime_pins_disagree"),
-	ref: string().nullable(),
-	runtimes: array(runtimePinsEntrySchema),
-	reason
-});
-const actionRuntimeEntrySchema = object({
-	action: string(),
-	using: string(),
-	result: guardResultSchema,
-	support: supportLineSchema.nullable(),
-	workflowPath: string().nullable(),
-	workflowLine: line
-});
-const actionRuntimeEvidenceSchema = object({
-	check: literal("action_runtime"),
-	actions: array(actionRuntimeEntrySchema),
-	reason
-});
-const guardEvidenceSchema = discriminatedUnion("check", [
-	rootUserEvidenceSchema,
-	sharedNetworkEvidenceSchema,
-	dockerSocketEvidenceSchema,
-	watchPathsSkipEvidenceSchema,
-	frameworkSupportEvidenceSchema,
-	runtimeSupportEvidenceSchema,
-	runtimePinsDisagreeEvidenceSchema,
-	actionRuntimeEvidenceSchema
-]);
 
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({ status: literal("ok") });
