@@ -4599,7 +4599,7 @@ const initializer = (inst, issues) => {
 const ZodRealError = /*@__PURE__*/ $constructor("ZodError", initializer, void 0, { Parent: Error });
 
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/classic/parse.js
-const parse$1 = /* @__PURE__ */ _parse(ZodRealError);
+const parse$2 = /* @__PURE__ */ _parse(ZodRealError);
 const parseAsync = /* @__PURE__ */ _parseAsync(ZodRealError);
 const safeParse = /* @__PURE__ */ _safeParse(ZodRealError);
 const safeParseAsync = /* @__PURE__ */ _safeParseAsync(ZodRealError);
@@ -4731,7 +4731,7 @@ const ZodType = /*@__PURE__*/ $constructor("ZodType", (inst, def) => {
 		own(this, "~standard", value);
 	},
 	parse: function _parse(data, params) {
-		return parse$1(this, data, params, { callee: _parse });
+		return parse$2(this, data, params, { callee: _parse });
 	},
 	parseAsync: async function _parseAsync(data, params) {
 		return await parseAsync(this, data, params, { callee: _parseAsync });
@@ -7285,156 +7285,31 @@ function nodeExec(options) {
 	} };
 }
 
-// src/registry.ts
-const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
-const TIMEOUT_MS = 2e4;
-function usableRegistry(url) {
-	try {
-		const parsed = new URL(url);
-		if (parsed.protocol === "https:") return true;
-		return parsed.protocol === "http:" && [
-			"127.0.0.1",
-			"localhost",
-			"[::1]"
-		].includes(parsed.hostname);
-	} catch {
-		return false;
-	}
+// src/json-file.ts
+function isJsonObject(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function registryFor(packageName, npmrcs) {
-	const scope = packageName.startsWith("@") ? packageName.slice(0, packageName.indexOf("/")) : null;
-	for (const rc of npmrcs) {
-		const url = scope && rc.values.get(`${scope}:registry`) || rc.values.get("registry");
-		if (url && usableRegistry(url)) return url.endsWith("/") ? url : `${url}/`;
-	}
-	return DEFAULT_REGISTRY;
-}
-function npmPublishTimes(fetchImpl) {
-	const cache = /* @__PURE__ */ new Map();
-	const document = (packageName, registry) => {
-		const url = registry + packageName.replace("/", "%2f");
-		let pending = cache.get(url);
-		if (!pending) {
-			pending = (async () => {
-				try {
-					const response = await fetchImpl(url, {
-						headers: { accept: "application/json" },
-						signal: AbortSignal.timeout(TIMEOUT_MS)
-					});
-					if (!response.ok) return null;
-					const body = await response.json();
-					const time = typeof body === "object" && body !== null ? body.time : null;
-					return typeof time === "object" && time !== null ? time : null;
-				} catch {
-					return null;
-				}
-			})();
-			cache.set(url, pending);
-		}
-		return pending;
-	};
-	return { async publishedAt(packageName, version, registry) {
-		const value = (await document(packageName, registry))?.[version];
-		if (typeof value !== "string") return null;
-		const date = new Date(value);
-		return Number.isNaN(date.getTime()) ? null : date;
-	} };
-}
-const CRATES_IO_API = "https://crates.io/api/v1/crates/";
-const CRATES_IO_USER_AGENT = "hinomi-fix-runner (https://github.com/Shironex/hinomi)";
-function cratesPublishTimes(fetchImpl, options = {}) {
-	const intervalMs = options.intervalMs ?? 1e3;
-	const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
-	const now = options.now ?? nowMs;
-	const cache = /* @__PURE__ */ new Map();
-	let queue = Promise.resolve();
-	let last = Number.NEGATIVE_INFINITY;
-	const lookup = async (url) => {
-		const wait = last + intervalMs - now();
-		if (wait > 0) await sleep(wait);
-		last = now();
-		try {
-			const response = await fetchImpl(url, {
-				headers: {
-					accept: "application/json",
-					"user-agent": CRATES_IO_USER_AGENT
-				},
-				signal: AbortSignal.timeout(TIMEOUT_MS)
-			});
-			if (!response.ok) return null;
-			const value = (await response.json())?.version?.created_at;
-			if (typeof value !== "string") return null;
-			const date = new Date(value);
-			return Number.isNaN(date.getTime()) ? null : date;
-		} catch {
-			return null;
-		}
-	};
-	return { publishedAt(crateName, version) {
-		const url = `${CRATES_IO_API}${encodeURIComponent(crateName)}/${encodeURIComponent(version)}`;
-		let pending = cache.get(url);
-		if (!pending) {
-			pending = queue.then(() => lookup(url));
-			queue = pending;
-			cache.set(url, pending);
-		}
-		return pending;
-	} };
-}
-function registryPublishTimes(fetchImpl) {
-	const npm = npmPublishTimes(fetchImpl);
-	const crates = cratesPublishTimes(fetchImpl);
-	return { publishedAt(packageName, version, registry) {
-		return (registry === "https://crates.io/api/v1/crates/" ? crates : npm).publishedAt(packageName, version, registry);
-	} };
-}
-
-// src/release-age.ts
-const MINUTE = 6e4;
-const MINUTES_PER_DAY = 1440;
-function excluded(gate, packageName, version) {
-	return gate.exclude.some((entry) => {
-		const at = entry.lastIndexOf("@");
-		if (at > 0) return entry.slice(0, at) === packageName && entry.slice(at + 1) === version;
-		return new RegExp(`^${entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(packageName);
-	});
-}
-function effectiveGate(floorDays, repoGate, packageName, version) {
-	const floor = floorDays * MINUTES_PER_DAY;
-	const repo = repoGate && !excluded(repoGate, packageName, version) ? repoGate.minutes : 0;
-	const minutes = Math.max(floor, repo);
-	const source = repo > floor ? repoGate?.source ?? "repo" : "hinomi";
+function parseJsonFile(text) {
+	const data = JSON.parse(text.replace(/^\uFEFF/, ""));
+	if (!isJsonObject(data)) throw new Error("Expected a JSON object");
 	return {
-		minutes,
-		days: Math.ceil(minutes / MINUTES_PER_DAY),
-		source
+		data,
+		indent: /^[{[][\r\n]+([ \t]+)\S/.exec(text)?.[1] ?? "  ",
+		eol: text.includes("\r\n") ? "\r\n" : "\n",
+		finalNewline: /\n$/.test(text)
 	};
 }
-function checkReleaseAge(input) {
-	const { publishedAt, gate, now } = input;
-	const base = {
-		stepId: input.stepId,
-		packageName: input.packageName,
-		version: input.version,
-		gateDays: gate.days,
-		gateSource: gate.source
-	};
-	if (!publishedAt) return {
-		...base,
-		publishedAt: null,
-		status: "unknown",
-		eligibleAt: null
-	};
-	const eligible = new Date(publishedAt.getTime() + gate.minutes * MINUTE);
-	return {
-		...base,
-		publishedAt: publishedAt.toISOString(),
-		status: eligible.getTime() <= now.getTime() ? "clear" : "too_new",
-		eligibleAt: eligible.getTime() <= now.getTime() ? null : eligible.toISOString()
-	};
+function stringifyJsonFile(file) {
+	const body = JSON.stringify(file.data, null, file.indent);
+	const text = file.eol === "\n" ? body : body.replace(/\n/g, file.eol);
+	return file.finalNewline ? text + file.eol : text;
 }
-function minutesSince(date, now) {
-	return Math.max(0, Math.ceil((now.getTime() - date.getTime()) / MINUTE));
+function objectAt(parent, key) {
+	const current = parent[key];
+	if (isJsonObject(current)) return current;
+	const created = {};
+	parent[key] = created;
+	return created;
 }
 
 // src/repo-fs.ts
@@ -7543,6 +7418,506 @@ function compareVersions(a, b) {
 }
 function atLeast(version, minimum) {
 	return compareVersions(version, minimum) >= 0;
+}
+
+// src/registry.ts
+const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
+const TIMEOUT_MS = 2e4;
+function usableRegistry(url) {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol === "https:") return true;
+		return parsed.protocol === "http:" && [
+			"127.0.0.1",
+			"localhost",
+			"[::1]"
+		].includes(parsed.hostname);
+	} catch {
+		return false;
+	}
+}
+function registryFor(packageName, npmrcs) {
+	const scope = packageName.startsWith("@") ? packageName.slice(0, packageName.indexOf("/")) : null;
+	for (const rc of npmrcs) {
+		const url = scope && rc.values.get(`${scope}:registry`) || rc.values.get("registry");
+		if (url && usableRegistry(url)) return url.endsWith("/") ? url : `${url}/`;
+	}
+	return DEFAULT_REGISTRY;
+}
+function npmPublishTimes(fetchImpl) {
+	const cache = /* @__PURE__ */ new Map();
+	const document = (packageName, registry) => {
+		const url = registry + packageName.replace("/", "%2f");
+		let pending = cache.get(url);
+		if (!pending) {
+			pending = (async () => {
+				try {
+					const response = await fetchImpl(url, {
+						headers: { accept: "application/json" },
+						signal: AbortSignal.timeout(TIMEOUT_MS)
+					});
+					if (!response.ok) return null;
+					const body = await response.json();
+					const time = typeof body === "object" && body !== null ? body.time : null;
+					return typeof time === "object" && time !== null ? time : null;
+				} catch {
+					return null;
+				}
+			})();
+			cache.set(url, pending);
+		}
+		return pending;
+	};
+	return { async publishedAt(packageName, version, registry) {
+		const value = (await document(packageName, registry))?.[version];
+		if (typeof value !== "string") return null;
+		const date = new Date(value);
+		return Number.isNaN(date.getTime()) ? null : date;
+	} };
+}
+const CRATES_IO_API = "https://crates.io/api/v1/crates/";
+const CRATES_IO_USER_AGENT = "hinomi-fix-runner (https://github.com/Shironex/hinomi)";
+function cratesPublishTimes(fetchImpl, options = {}) {
+	const intervalMs = options.intervalMs ?? 1e3;
+	const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
+	const now = options.now ?? nowMs;
+	const cache = /* @__PURE__ */ new Map();
+	let queue = Promise.resolve();
+	let last = Number.NEGATIVE_INFINITY;
+	const lookup = async (url) => {
+		const wait = last + intervalMs - now();
+		if (wait > 0) await sleep(wait);
+		last = now();
+		try {
+			const response = await fetchImpl(url, {
+				headers: {
+					accept: "application/json",
+					"user-agent": CRATES_IO_USER_AGENT
+				},
+				signal: AbortSignal.timeout(TIMEOUT_MS)
+			});
+			if (!response.ok) return null;
+			const value = (await response.json())?.version?.created_at;
+			if (typeof value !== "string") return null;
+			const date = new Date(value);
+			return Number.isNaN(date.getTime()) ? null : date;
+		} catch {
+			return null;
+		}
+	};
+	return { publishedAt(crateName, version) {
+		const url = `${CRATES_IO_API}${encodeURIComponent(crateName)}/${encodeURIComponent(version)}`;
+		let pending = cache.get(url);
+		if (!pending) {
+			pending = queue.then(() => lookup(url));
+			queue = pending;
+			cache.set(url, pending);
+		}
+		return pending;
+	} };
+}
+function registryPublishTimes(fetchImpl) {
+	const npm = npmPublishTimes(fetchImpl);
+	const crates = cratesPublishTimes(fetchImpl);
+	return { publishedAt(packageName, version, registry) {
+		return (registry === "https://crates.io/api/v1/crates/" ? crates : npm).publishedAt(packageName, version, registry);
+	} };
+}
+
+// src/npmrc.ts
+function parseNpmrc(text) {
+	const values = /* @__PURE__ */ new Map();
+	const lists = /* @__PURE__ */ new Map();
+	for (const raw of (text ?? "").split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "" || line.startsWith(";") || line.startsWith("#")) continue;
+		const eq = line.indexOf("=");
+		if (eq === -1) continue;
+		const key = line.slice(0, eq).trim();
+		const value = line.slice(eq + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
+		if (key.endsWith("[]")) {
+			const name = key.slice(0, -2);
+			lists.set(name, [...lists.get(name) ?? [], value]);
+		} else values.set(key, value);
+	}
+	return {
+		values,
+		lists
+	};
+}
+
+// src/appliers/npm-family.ts
+const DEPENDENCY_FIELDS = [
+	"dependencies",
+	"devDependencies",
+	"optionalDependencies"
+];
+const PLAIN_SPECIFIER = /^(\^|~|=)?v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+function bumpSpecifier(specifier, version) {
+	const match = PLAIN_SPECIFIER.exec(specifier.trim());
+	if (!match) return null;
+	return `${match[1] ?? ""}${version}`;
+}
+async function bumpManifests$1(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "manifest_bump") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a manifest bump`
+	};
+	const edits = [];
+	for (const path of apply.manifests) {
+		const text = await ctx.fs.read(path);
+		if (text === null) return {
+			status: "failed",
+			reason: "edit_failed",
+			detail: `${path} does not exist`
+		};
+		let file;
+		try {
+			file = parseJsonFile(text);
+		} catch {
+			return {
+				status: "failed",
+				reason: "edit_failed",
+				detail: `${path} is not valid JSON`
+			};
+		}
+		let found = false;
+		for (const field of DEPENDENCY_FIELDS) {
+			const deps = file.data[field];
+			if (!isJsonObject(deps)) continue;
+			const current = deps[apply.packageName];
+			if (current === void 0) continue;
+			found = true;
+			const next = typeof current === "string" ? bumpSpecifier(current, apply.version) : null;
+			if (next === null) return {
+				status: "skipped",
+				reason: "manual_specifier",
+				detail: `${path} ${field} has ${JSON.stringify(current)}`
+			};
+			deps[apply.packageName] = next;
+		}
+		if (!found) return {
+			status: "failed",
+			reason: "edit_failed",
+			detail: `${path} does not list ${apply.packageName}`
+		};
+		edits.push({
+			path,
+			text: stringifyJsonFile(file)
+		});
+	}
+	for (const edit of edits) await ctx.fs.write(edit.path, edit.text);
+	return {
+		status: "edited",
+		files: edits.map((edit) => edit.path)
+	};
+}
+function overrideKeyTargets(key, packageName) {
+	const last = key.slice(key.lastIndexOf(">") + 1);
+	return last === packageName || last.startsWith(`${packageName}@`);
+}
+function updateExistingOverrides(overrides, packageName, value) {
+	let changed = 0;
+	for (const [key, current] of Object.entries(overrides)) if (overrideKeyTargets(key, packageName)) {
+		if (typeof current === "string") {
+			overrides[key] = value;
+			changed++;
+		} else if (isJsonObject(current) && typeof current["."] === "string") {
+			current["."] = value;
+			changed++;
+		}
+	} else if (isJsonObject(current)) changed += updateExistingOverrides(current, packageName, value);
+	return changed;
+}
+async function readManifest(ctx, path) {
+	const text = await ctx.fs.read(path);
+	if (text === null) return null;
+	try {
+		return parseJsonFile(text);
+	} catch {
+		return null;
+	}
+}
+async function readNpmrcs(ctx) {
+	const paths = [.../* @__PURE__ */ new Set([repoJoin(ctx.root, ".npmrc"), ".npmrc"])];
+	return Promise.all(paths.map(async (path) => parseNpmrc(await ctx.fs.read(path))));
+}
+async function npmRegistryPublishedAt(ctx, packageName, version) {
+	const registry = registryFor(packageName, await readNpmrcs(ctx));
+	return ctx.publishTimes.publishedAt(packageName, version, registry);
+}
+const CHECK_SCRIPTS = [
+	["lint", ["lint"]],
+	["typecheck", [
+		"typecheck",
+		"type-check",
+		"check-types"
+	]],
+	["test", ["test"]],
+	["build", ["build"]]
+];
+async function scriptChecks(ctx, tool) {
+	const manifest = await readManifest(ctx, repoJoin(ctx.root, "package.json"));
+	const scripts = manifest && isJsonObject(manifest.data.scripts) ? manifest.data.scripts : {};
+	const checks = [];
+	for (const [name, candidates] of CHECK_SCRIPTS) {
+		const script = candidates.find((candidate) => typeof scripts[candidate] === "string");
+		if (script) checks.push({
+			name,
+			command: {
+				file: tool,
+				args: ["run", script],
+				env: { CI: "true" }
+			}
+		});
+	}
+	return checks;
+}
+
+// src/appliers/bun.ts
+const VERSION_TIMEOUT_MS$1 = 6e4;
+function stripJsonc(text) {
+	let out = "";
+	let i = 0;
+	while (i < text.length) {
+		const ch = text.charAt(i);
+		if (ch === "\"") {
+			let j = i + 1;
+			while (j < text.length && text.charAt(j) !== "\"") j += text.charAt(j) === "\\" ? 2 : 1;
+			out += text.slice(i, j + 1);
+			i = j + 1;
+		} else if (ch === "/" && text.charAt(i + 1) === "/") while (i < text.length && text.charAt(i) !== "\n") i++;
+		else if (ch === "/" && text.charAt(i + 1) === "*") {
+			const end = text.indexOf("*/", i + 2);
+			i = end === -1 ? text.length : end + 2;
+		} else if (ch === "," && /^\s*[}\]]/.test(text.slice(i + 1))) i++;
+		else {
+			out += ch;
+			i++;
+		}
+	}
+	return out;
+}
+function splitAtVersion(text) {
+	const at = text.lastIndexOf("@");
+	if (at <= 0) return null;
+	return {
+		name: text.slice(0, at),
+		version: text.slice(at + 1)
+	};
+}
+function bunLockVersions(text, packageName) {
+	const doc = JSON.parse(stripJsonc(text));
+	if (!isJsonObject(doc) || !isJsonObject(doc.packages)) return [];
+	const versions = /* @__PURE__ */ new Set();
+	for (const entry of Object.values(doc.packages)) {
+		if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
+		const split = splitAtVersion(entry[0]);
+		if (split?.name === packageName && parseVersion(split.version)) versions.add(split.version);
+	}
+	return [...versions];
+}
+function bunListVersions(output, packageName) {
+	const versions = /* @__PURE__ */ new Set();
+	for (const line of output.split(/\r?\n/)) {
+		const split = splitAtVersion(line.replace(/^[\s│├└─]+/, "").trim());
+		if (split?.name === packageName && parseVersion(split.version)) versions.add(split.version);
+	}
+	return [...versions];
+}
+async function applyOverride$2(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "override" || apply.field !== "overrides") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: "bun takes overrides only"
+	};
+	const manifest = await readManifest(ctx, apply.manifest);
+	if (!manifest) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.manifest} is not readable`
+	};
+	let updated = 0;
+	for (const field of ["overrides", "resolutions"]) {
+		const existing = manifest.data[field];
+		if (isJsonObject(existing)) updated += updateExistingOverrides(existing, step.packageName, apply.value);
+	}
+	if (updated === 0) objectAt(manifest.data, "overrides")[apply.key] = apply.value;
+	await ctx.fs.write(apply.manifest, stringifyJsonFile(manifest));
+	return {
+		status: "edited",
+		files: [apply.manifest]
+	};
+}
+function stripTomlComment(line) {
+	let quote = null;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line.charAt(i);
+		if (quote) {
+			if (ch === "\\" && quote === "\"") i++;
+			else if (ch === quote) quote = null;
+		} else if (ch === "\"" || ch === "'") quote = ch;
+		else if (ch === "#") return line.slice(0, i);
+	}
+	return line;
+}
+function readBunfigInstall(text) {
+	const settings = {
+		minimumReleaseAge: null,
+		minimumReleaseAgeExcludes: []
+	};
+	let table = "";
+	let pending = null;
+	const assign = (key, value) => {
+		if (key === "install.minimumReleaseAge") {
+			const number = Number(value.replace(/_/g, ""));
+			if (value !== "" && Number.isFinite(number) && number >= 0) settings.minimumReleaseAge = number;
+		} else if (key === "install.minimumReleaseAgeExcludes") settings.minimumReleaseAgeExcludes = [...value.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((match) => match[1] ?? match[2] ?? "").filter((entry) => entry !== "");
+	};
+	for (const raw of text.split(/\r?\n/)) {
+		const line = stripTomlComment(raw).trim();
+		if (pending) {
+			pending.value += ` ${line}`;
+			if (line.includes("]")) {
+				assign(pending.key, pending.value);
+				pending = null;
+			}
+			continue;
+		}
+		if (line === "") continue;
+		const header = /^\[([^[\]]+)\]$/.exec(line);
+		if (header?.[1]) {
+			table = header[1].trim();
+			continue;
+		}
+		const eq = line.indexOf("=");
+		if (eq === -1) continue;
+		const name = line.slice(0, eq).trim().replace(/^"(.*)"$/, "$1");
+		const key = table === "" ? name : `${table}.${name}`;
+		const value = line.slice(eq + 1).trim();
+		if (value.startsWith("[") && !value.includes("]")) pending = {
+			key,
+			value
+		};
+		else assign(key, value);
+	}
+	return settings;
+}
+const bunApplier = {
+	packageManager: "bun",
+	lockfiles: ["bun.lock", "bun.lockb"],
+	versionCommand: {
+		file: "bun",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, packageName) {
+		if (ctx.lockfile.endsWith(".lockb")) {
+			const result = await ctx.exec.run({
+				file: "bun",
+				args: [
+					"pm",
+					"ls",
+					"--all"
+				]
+			}, {
+				cwd: ctx.fs.absolute(ctx.root),
+				timeoutMs: VERSION_TIMEOUT_MS$1
+			});
+			return result.code === 0 ? bunListVersions(result.output, packageName) : [];
+		}
+		const text = await ctx.fs.read(ctx.lockfile);
+		if (text === null) return [];
+		try {
+			return bunLockVersions(text, packageName);
+		} catch {
+			return [];
+		}
+	},
+	async releaseAgeGate(ctx) {
+		const text = await ctx.fs.read(repoJoin(ctx.root, "bunfig.toml"));
+		if (text === null) return null;
+		const settings = readBunfigInstall(text);
+		if (settings.minimumReleaseAge === null) return null;
+		return {
+			minutes: Math.ceil(settings.minimumReleaseAge / 60),
+			source: "bunfig.toml minimumReleaseAge",
+			exclude: settings.minimumReleaseAgeExcludes
+		};
+	},
+	publishedAt: npmRegistryPublishedAt,
+	applyStep(ctx, step) {
+		return step.apply.type === "override" ? applyOverride$2(ctx, step) : bumpManifests$1(ctx, step);
+	},
+	lockfileInstall() {
+		return {
+			file: "bun",
+			args: [
+				"install",
+				"--lockfile-only",
+				"--ignore-scripts"
+			]
+		};
+	},
+	fullInstall() {
+		return {
+			file: "bun",
+			args: ["install", "--frozen-lockfile"]
+		};
+	},
+	checks(ctx) {
+		return scriptChecks(ctx, "bun");
+	}
+};
+
+// src/release-age.ts
+const MINUTE = 6e4;
+const MINUTES_PER_DAY = 1440;
+function excluded(gate, packageName, version) {
+	return gate.exclude.some((entry) => {
+		const at = entry.lastIndexOf("@");
+		if (at > 0) return entry.slice(0, at) === packageName && entry.slice(at + 1) === version;
+		return new RegExp(`^${entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(packageName);
+	});
+}
+function effectiveGate(floorDays, repoGate, packageName, version) {
+	const floor = floorDays * MINUTES_PER_DAY;
+	const repo = repoGate && !excluded(repoGate, packageName, version) ? repoGate.minutes : 0;
+	const minutes = Math.max(floor, repo);
+	const source = repo > floor ? repoGate?.source ?? "repo" : "hinomi";
+	return {
+		minutes,
+		days: Math.ceil(minutes / MINUTES_PER_DAY),
+		source
+	};
+}
+function checkReleaseAge(input) {
+	const { publishedAt, gate, now } = input;
+	const base = {
+		stepId: input.stepId,
+		packageName: input.packageName,
+		version: input.version,
+		gateDays: gate.days,
+		gateSource: gate.source
+	};
+	if (!publishedAt) return {
+		...base,
+		publishedAt: null,
+		status: "unknown",
+		eligibleAt: null
+	};
+	const eligible = new Date(publishedAt.getTime() + gate.minutes * MINUTE);
+	return {
+		...base,
+		publishedAt: publishedAt.toISOString(),
+		status: eligible.getTime() <= now.getTime() ? "clear" : "too_new",
+		eligibleAt: eligible.getTime() <= now.getTime() ? null : eligible.toISOString()
+	};
+}
+function minutesSince(date, now) {
+	return Math.max(0, Math.ceil((now.getTime() - date.getTime()) / MINUTE));
 }
 
 // src/toml.ts
@@ -7982,7 +8357,7 @@ async function checkPrecise(ctx, step) {
 		files: []
 	};
 }
-async function bumpManifests$1(ctx, step) {
+async function bumpManifests(ctx, step) {
 	const { apply } = step;
 	if (apply.type !== "manifest_bump") return failed(`${apply.type} is not a manifest bump`);
 	const workspace = await cargoWorkspace(ctx);
@@ -8077,7 +8452,7 @@ async function cargoUpdateCommands(ctx, steps) {
 	return commands;
 }
 const DURATION = /^\s*(\d+)\s*(second|minute|hour|day|week|month)s?\s*$/;
-const DURATION_MINUTES = {
+const DURATION_MINUTES$1 = {
 	second: 1 / 60,
 	minute: 1,
 	hour: 60,
@@ -8088,7 +8463,7 @@ const DURATION_MINUTES = {
 function parseCargoDuration(value) {
 	if (value.trim() === "0") return 0;
 	const match = DURATION.exec(value);
-	const unit = match?.[2] ? DURATION_MINUTES[match[2]] : void 0;
+	const unit = match?.[2] ? DURATION_MINUTES$1[match[2]] : void 0;
 	return match && unit !== void 0 ? Math.ceil(Number(match[1]) * unit) : null;
 }
 async function cargoConfigGate(ctx) {
@@ -8137,7 +8512,7 @@ const cargoApplier = {
 		return ctx.publishTimes.publishedAt(crateName, version, CRATES_IO_API);
 	},
 	applyStep(ctx, step) {
-		return step.apply.type === "lockfile_update" ? checkPrecise(ctx, step) : bumpManifests$1(ctx, step);
+		return step.apply.type === "lockfile_update" ? checkPrecise(ctx, step) : bumpManifests(ctx, step);
 	},
 	lockfileInstall(ctx, { steps }) {
 		return cargoUpdateCommands(ctx, steps);
@@ -8171,185 +8546,6 @@ const cargoApplier = {
 		}]);
 	}
 };
-
-// src/json-file.ts
-function isJsonObject(value) {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function parseJsonFile(text) {
-	const data = JSON.parse(text.replace(/^\uFEFF/, ""));
-	if (!isJsonObject(data)) throw new Error("Expected a JSON object");
-	return {
-		data,
-		indent: /^[{[][\r\n]+([ \t]+)\S/.exec(text)?.[1] ?? "  ",
-		eol: text.includes("\r\n") ? "\r\n" : "\n",
-		finalNewline: /\n$/.test(text)
-	};
-}
-function stringifyJsonFile(file) {
-	const body = JSON.stringify(file.data, null, file.indent);
-	const text = file.eol === "\n" ? body : body.replace(/\n/g, file.eol);
-	return file.finalNewline ? text + file.eol : text;
-}
-function objectAt(parent, key) {
-	const current = parent[key];
-	if (isJsonObject(current)) return current;
-	const created = {};
-	parent[key] = created;
-	return created;
-}
-
-// src/npmrc.ts
-function parseNpmrc(text) {
-	const values = /* @__PURE__ */ new Map();
-	const lists = /* @__PURE__ */ new Map();
-	for (const raw of (text ?? "").split(/\r?\n/)) {
-		const line = raw.trim();
-		if (line === "" || line.startsWith(";") || line.startsWith("#")) continue;
-		const eq = line.indexOf("=");
-		if (eq === -1) continue;
-		const key = line.slice(0, eq).trim();
-		const value = line.slice(eq + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
-		if (key.endsWith("[]")) {
-			const name = key.slice(0, -2);
-			lists.set(name, [...lists.get(name) ?? [], value]);
-		} else values.set(key, value);
-	}
-	return {
-		values,
-		lists
-	};
-}
-
-// src/appliers/npm-family.ts
-const DEPENDENCY_FIELDS = [
-	"dependencies",
-	"devDependencies",
-	"optionalDependencies"
-];
-const PLAIN_SPECIFIER = /^(\^|~|=)?v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-function bumpSpecifier(specifier, version) {
-	const match = PLAIN_SPECIFIER.exec(specifier.trim());
-	if (!match) return null;
-	return `${match[1] ?? ""}${version}`;
-}
-async function bumpManifests(ctx, step) {
-	const { apply } = step;
-	if (apply.type !== "manifest_bump") return {
-		status: "failed",
-		reason: "edit_failed",
-		detail: `${apply.type} is not a manifest bump`
-	};
-	const edits = [];
-	for (const path of apply.manifests) {
-		const text = await ctx.fs.read(path);
-		if (text === null) return {
-			status: "failed",
-			reason: "edit_failed",
-			detail: `${path} does not exist`
-		};
-		let file;
-		try {
-			file = parseJsonFile(text);
-		} catch {
-			return {
-				status: "failed",
-				reason: "edit_failed",
-				detail: `${path} is not valid JSON`
-			};
-		}
-		let found = false;
-		for (const field of DEPENDENCY_FIELDS) {
-			const deps = file.data[field];
-			if (!isJsonObject(deps)) continue;
-			const current = deps[apply.packageName];
-			if (current === void 0) continue;
-			found = true;
-			const next = typeof current === "string" ? bumpSpecifier(current, apply.version) : null;
-			if (next === null) return {
-				status: "skipped",
-				reason: "manual_specifier",
-				detail: `${path} ${field} has ${JSON.stringify(current)}`
-			};
-			deps[apply.packageName] = next;
-		}
-		if (!found) return {
-			status: "failed",
-			reason: "edit_failed",
-			detail: `${path} does not list ${apply.packageName}`
-		};
-		edits.push({
-			path,
-			text: stringifyJsonFile(file)
-		});
-	}
-	for (const edit of edits) await ctx.fs.write(edit.path, edit.text);
-	return {
-		status: "edited",
-		files: edits.map((edit) => edit.path)
-	};
-}
-function overrideKeyTargets(key, packageName) {
-	const last = key.slice(key.lastIndexOf(">") + 1);
-	return last === packageName || last.startsWith(`${packageName}@`);
-}
-function updateExistingOverrides(overrides, packageName, value) {
-	let changed = 0;
-	for (const [key, current] of Object.entries(overrides)) if (overrideKeyTargets(key, packageName)) {
-		if (typeof current === "string") {
-			overrides[key] = value;
-			changed++;
-		} else if (isJsonObject(current) && typeof current["."] === "string") {
-			current["."] = value;
-			changed++;
-		}
-	} else if (isJsonObject(current)) changed += updateExistingOverrides(current, packageName, value);
-	return changed;
-}
-async function readManifest(ctx, path) {
-	const text = await ctx.fs.read(path);
-	if (text === null) return null;
-	try {
-		return parseJsonFile(text);
-	} catch {
-		return null;
-	}
-}
-async function readNpmrcs(ctx) {
-	const paths = [.../* @__PURE__ */ new Set([repoJoin(ctx.root, ".npmrc"), ".npmrc"])];
-	return Promise.all(paths.map(async (path) => parseNpmrc(await ctx.fs.read(path))));
-}
-async function npmRegistryPublishedAt(ctx, packageName, version) {
-	const registry = registryFor(packageName, await readNpmrcs(ctx));
-	return ctx.publishTimes.publishedAt(packageName, version, registry);
-}
-const CHECK_SCRIPTS = [
-	["lint", ["lint"]],
-	["typecheck", [
-		"typecheck",
-		"type-check",
-		"check-types"
-	]],
-	["test", ["test"]],
-	["build", ["build"]]
-];
-async function scriptChecks(ctx, tool) {
-	const manifest = await readManifest(ctx, repoJoin(ctx.root, "package.json"));
-	const scripts = manifest && isJsonObject(manifest.data.scripts) ? manifest.data.scripts : {};
-	const checks = [];
-	for (const [name, candidates] of CHECK_SCRIPTS) {
-		const script = candidates.find((candidate) => typeof scripts[candidate] === "string");
-		if (script) checks.push({
-			name,
-			command: {
-				file: tool,
-				args: ["run", script],
-				env: { CI: "true" }
-			}
-		});
-	}
-	return checks;
-}
 
 // src/appliers/npm.ts
 const NPM_MIN_RELEASE_AGE_SINCE = "11.10.0";
@@ -8436,7 +8632,7 @@ const npmApplier = {
 	},
 	publishedAt: npmRegistryPublishedAt,
 	applyStep(ctx, step) {
-		return step.apply.type === "override" ? applyOverride$1(ctx, step) : bumpManifests(ctx, step);
+		return step.apply.type === "override" ? applyOverride$1(ctx, step) : bumpManifests$1(ctx, step);
 	},
 	lockfileInstall(ctx, { repoGate }) {
 		const args = [
@@ -14729,7 +14925,7 @@ const pnpmApplier = {
 	},
 	publishedAt: npmRegistryPublishedAt,
 	applyStep(ctx, step) {
-		return step.apply.type === "override" ? applyOverride(ctx, step) : bumpManifests(ctx, step);
+		return step.apply.type === "override" ? applyOverride(ctx, step) : bumpManifests$1(ctx, step);
 	},
 	lockfileInstall() {
 		return {
@@ -14753,10 +14949,308 @@ const pnpmApplier = {
 	}
 };
 
+// src/detect.ts
+const KNOWN_LOCKFILES = [
+	["pnpm-lock.yaml", "pnpm"],
+	["package-lock.json", "npm"],
+	["npm-shrinkwrap.json", "npm"],
+	["yarn.lock", "yarn"],
+	["bun.lock", "bun"],
+	["bun.lockb", "bun"],
+	["Cargo.lock", "cargo"]
+];
+function parsePackageManagerField(value) {
+	if (typeof value !== "string") return null;
+	const match = /^(@?[a-z0-9._-]+)(?:@([^+\s]+))?/.exec(value.trim());
+	if (!match?.[1]) return null;
+	return {
+		name: match[1],
+		version: match[2] ?? null
+	};
+}
+async function declaredIn(fs, root) {
+	for (const folder of [.../* @__PURE__ */ new Set([root, "."])]) {
+		const text = await fs.read(repoJoin(folder, "package.json"));
+		if (text === null) continue;
+		try {
+			const { data } = parseJsonFile(text);
+			if (isJsonObject(data) && data.packageManager !== void 0) return parsePackageManagerField(data.packageManager);
+		} catch {
+			return null;
+		}
+	}
+	return null;
+}
+async function detectProject(fs, root) {
+	const found = [];
+	for (const [name, manager] of KNOWN_LOCKFILES) {
+		const lockfile = repoJoin(root, name);
+		if (await fs.exists(lockfile)) found.push({
+			lockfile,
+			manager
+		});
+	}
+	const declared = await declaredIn(fs, root);
+	const managers = [...new Set(found.map((entry) => entry.manager))];
+	if (managers.length === 0) return {
+		ok: false,
+		problem: `no lockfile in ${root}`
+	};
+	let manager;
+	if (managers.length === 1 && managers[0]) manager = managers[0];
+	else if (declared && managers.includes(declared.name)) manager = declared.name;
+	else return {
+		ok: false,
+		problem: `several lockfiles in ${root}: ${managers.join(", ")}`
+	};
+	if (declared && declared.name !== manager && manager !== "cargo") return {
+		ok: false,
+		problem: `packageManager says ${declared.name} but the lockfile is ${manager}'s`
+	};
+	const lockfile = found.find((entry) => entry.manager === manager)?.lockfile ?? "";
+	return {
+		ok: true,
+		project: {
+			packageManager: manager,
+			lockfile,
+			declaredVersion: declared?.name === manager ? declared.version : null
+		}
+	};
+}
+
+// src/appliers/yarn.ts
+const BERRY_DEFAULT_GATE_SINCE = "4.15.0";
+const BERRY_DEFAULT_GATE_MINUTES = 1440;
+function lineOfVersion(version) {
+	const major = version ? parseVersion(version)?.major : void 0;
+	if (major === void 0) return null;
+	return major >= 2 ? "berry" : "classic";
+}
+async function yarnLine(ctx) {
+	const fromTool = lineOfVersion(ctx.version);
+	if (fromTool) return fromTool;
+	for (const folder of [.../* @__PURE__ */ new Set([ctx.root, "."])]) {
+		const manifest = await readManifest(ctx, repoJoin(folder, "package.json"));
+		const declared = parsePackageManagerField(manifest?.data.packageManager);
+		const fromField = declared?.name === "yarn" ? lineOfVersion(declared.version) : null;
+		if (fromField) return fromField;
+	}
+	if (await ctx.fs.exists(repoJoin(ctx.root, ".yarnrc.yml"))) return "berry";
+	return isBerryLock(await ctx.fs.read(ctx.lockfile) ?? "") ? "berry" : "classic";
+}
+function isBerryLock(text) {
+	return /^__metadata:/m.test(text);
+}
+const unquote = (text) => text.trim().replace(/^"(.*)"$/, "$1");
+function splitDescriptor(descriptor) {
+	const at = descriptor.indexOf("@", 1);
+	if (at <= 0) return null;
+	return {
+		name: descriptor.slice(0, at),
+		rest: descriptor.slice(at + 1)
+	};
+}
+function classicName(descriptor) {
+	const split = splitDescriptor(descriptor);
+	if (!split) return null;
+	if (split.rest.startsWith("npm:")) return splitDescriptor(split.rest.slice(4))?.name ?? null;
+	return split.name;
+}
+function classicVersions(text, packageName) {
+	const versions = /* @__PURE__ */ new Set();
+	let matches = false;
+	for (const line of text.split(/\r?\n/)) {
+		if (line.trim() === "" || line.startsWith("#")) continue;
+		if (!/^\s/.test(line)) {
+			const first = line.replace(/:$/, "").split(",")[0] ?? "";
+			matches = classicName(unquote(first)) === packageName;
+			continue;
+		}
+		const version = matches ? /^ {2}version "?([^"\s]+)"?$/.exec(line)?.[1] : void 0;
+		if (version && parseVersion(version)) versions.add(version);
+	}
+	return [...versions];
+}
+function berryVersions(text, packageName) {
+	const doc = (0, import_dist.parse)(text, { maxAliasCount: -1 });
+	if (!isJsonObject(doc)) return [];
+	const versions = /* @__PURE__ */ new Set();
+	for (const [key, entry] of Object.entries(doc)) {
+		if (key === "__metadata" || !isJsonObject(entry)) continue;
+		const split = splitDescriptor(typeof entry.resolution === "string" ? entry.resolution : "");
+		if (!split || split.name !== packageName) continue;
+		if (!(split.rest.startsWith("npm:") || split.rest.startsWith("patch:"))) continue;
+		const version = typeof entry.version === "string" ? entry.version : "";
+		if (parseVersion(version)) versions.add(version);
+	}
+	return [...versions];
+}
+function yarnLockVersions(text, packageName) {
+	return isBerryLock(text) ? berryVersions(text, packageName) : classicVersions(text, packageName);
+}
+function resolutionKeyTargets(key, packageName) {
+	const parts = key.split("/");
+	let last = parts.at(-1) ?? "";
+	const beforeLast = parts.at(-2);
+	if (beforeLast?.startsWith("@")) last = `${beforeLast}/${last}`;
+	return last === packageName || last.startsWith(`${packageName}@`);
+}
+async function applyResolution(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "override" || apply.field !== "resolutions") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: "yarn takes resolutions only"
+	};
+	const manifest = await readManifest(ctx, apply.manifest);
+	if (!manifest) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.manifest} is not readable`
+	};
+	const existing = isJsonObject(manifest.data.resolutions) ? manifest.data.resolutions : null;
+	let updated = 0;
+	for (const key of Object.keys(existing ?? {})) if (existing && resolutionKeyTargets(key, step.packageName)) {
+		existing[key] = apply.value;
+		updated++;
+	}
+	if (updated === 0) objectAt(manifest.data, "resolutions")[apply.key] = apply.value;
+	await ctx.fs.write(apply.manifest, stringifyJsonFile(manifest));
+	return {
+		status: "edited",
+		files: [apply.manifest]
+	};
+}
+const DURATION_MINUTES = {
+	ms: 1 / 6e4,
+	s: 1 / 60,
+	m: 1,
+	h: 60,
+	d: 1440,
+	w: 10080
+};
+function parseYarnDuration(value) {
+	if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+	if (typeof value !== "string") return null;
+	const match = /^(\d*\.?\d+)(ms|s|m|h|d|w)?$/.exec(value.trim());
+	if (!match?.[1]) return null;
+	return Number(match[1]) * (match[2] ? DURATION_MINUTES[match[2]] ?? 1 : 1);
+}
+function normalizePreapproved(entry) {
+	return entry.replace(/(.)@npm:/, "$1@");
+}
+async function readYarnrc(ctx, path) {
+	try {
+		const doc = (0, import_dist.parse)(await ctx.fs.read(path) ?? "");
+		return isJsonObject(doc) ? doc : {};
+	} catch {
+		return {};
+	}
+}
+async function readYarnrcs(ctx) {
+	const paths = [.../* @__PURE__ */ new Set([repoJoin(ctx.root, ".yarnrc.yml"), ".yarnrc.yml"])];
+	return Promise.all(paths.map((path) => readYarnrc(ctx, path)));
+}
+function yarnrcRegistries(rc) {
+	const values = /* @__PURE__ */ new Map();
+	if (typeof rc.npmRegistryServer === "string") values.set("registry", rc.npmRegistryServer);
+	if (isJsonObject(rc.npmScopes)) {
+		for (const [scope, config] of Object.entries(rc.npmScopes)) if (isJsonObject(config) && typeof config.npmRegistryServer === "string") values.set(`@${scope}:registry`, config.npmRegistryServer);
+	}
+	return {
+		values,
+		lists: /* @__PURE__ */ new Map()
+	};
+}
+async function berryGate(ctx) {
+	const files = await readYarnrcs(ctx);
+	const preapproved = files.find((rc) => Array.isArray(rc.npmPreapprovedPackages));
+	const exclude = (Array.isArray(preapproved?.npmPreapprovedPackages) ? preapproved.npmPreapprovedPackages : []).filter((entry) => typeof entry === "string").map(normalizePreapproved);
+	for (const rc of files) {
+		const minutes = parseYarnDuration(rc.npmMinimalAgeGate);
+		if (minutes !== null) return {
+			minutes,
+			source: ".yarnrc.yml npmMinimalAgeGate",
+			exclude
+		};
+	}
+	if (ctx.version && atLeast(ctx.version, BERRY_DEFAULT_GATE_SINCE)) return {
+		minutes: BERRY_DEFAULT_GATE_MINUTES,
+		source: "yarn default",
+		exclude
+	};
+	return null;
+}
+const yarnApplier = {
+	packageManager: "yarn",
+	lockfiles: ["yarn.lock"],
+	versionCommand: {
+		file: "yarn",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, packageName) {
+		const text = await ctx.fs.read(ctx.lockfile);
+		if (text === null) return [];
+		try {
+			return yarnLockVersions(text, packageName);
+		} catch {
+			return [];
+		}
+	},
+	async releaseAgeGate(ctx) {
+		return await yarnLine(ctx) === "berry" ? berryGate(ctx) : null;
+	},
+	async publishedAt(ctx, packageName, version) {
+		if (await yarnLine(ctx) === "classic") return npmRegistryPublishedAt(ctx, packageName, version);
+		const registry = registryFor(packageName, (await readYarnrcs(ctx)).map(yarnrcRegistries));
+		return ctx.publishTimes.publishedAt(packageName, version, registry);
+	},
+	applyStep(ctx, step) {
+		return step.apply.type === "override" ? applyResolution(ctx, step) : bumpManifests$1(ctx, step);
+	},
+	async lockfileInstall(ctx) {
+		if (await yarnLine(ctx) === "classic") return {
+			file: "yarn",
+			args: [
+				"install",
+				"--ignore-scripts",
+				"--non-interactive",
+				"--no-progress"
+			]
+		};
+		return {
+			file: "yarn",
+			args: [
+				"install",
+				"--mode=update-lockfile",
+				"--no-immutable"
+			]
+		};
+	},
+	fullInstall(ctx) {
+		return lineOfVersion(ctx.version) === "classic" ? {
+			file: "yarn",
+			args: [
+				"install",
+				"--frozen-lockfile",
+				"--non-interactive"
+			]
+		} : {
+			file: "yarn",
+			args: ["install", "--immutable"]
+		};
+	},
+	checks(ctx) {
+		return scriptChecks(ctx, "yarn");
+	}
+};
+
 // src/appliers/registry.ts
 const APPLIERS = /* @__PURE__ */ new Map([
 	["pnpm", pnpmApplier],
 	["npm", npmApplier],
+	["yarn", yarnApplier],
+	["bun", bunApplier],
 	["cargo", cargoApplier]
 ]);
 
@@ -14857,75 +15351,6 @@ const nodeCompressor = {
 		return (await gunzipAsync(Buffer.from(compact, "base64"), { maxOutputLength: MAX_DECODED_BYTES })).toString("utf8");
 	}
 };
-
-// src/detect.ts
-const KNOWN_LOCKFILES = [
-	["pnpm-lock.yaml", "pnpm"],
-	["package-lock.json", "npm"],
-	["npm-shrinkwrap.json", "npm"],
-	["yarn.lock", "yarn"],
-	["bun.lock", "bun"],
-	["bun.lockb", "bun"],
-	["Cargo.lock", "cargo"]
-];
-function parsePackageManagerField(value) {
-	if (typeof value !== "string") return null;
-	const match = /^(@?[a-z0-9._-]+)(?:@([^+\s]+))?/.exec(value.trim());
-	if (!match?.[1]) return null;
-	return {
-		name: match[1],
-		version: match[2] ?? null
-	};
-}
-async function declaredIn(fs, root) {
-	for (const folder of [.../* @__PURE__ */ new Set([root, "."])]) {
-		const text = await fs.read(repoJoin(folder, "package.json"));
-		if (text === null) continue;
-		try {
-			const { data } = parseJsonFile(text);
-			if (isJsonObject(data) && data.packageManager !== void 0) return parsePackageManagerField(data.packageManager);
-		} catch {
-			return null;
-		}
-	}
-	return null;
-}
-async function detectProject(fs, root) {
-	const found = [];
-	for (const [name, manager] of KNOWN_LOCKFILES) {
-		const lockfile = repoJoin(root, name);
-		if (await fs.exists(lockfile)) found.push({
-			lockfile,
-			manager
-		});
-	}
-	const declared = await declaredIn(fs, root);
-	const managers = [...new Set(found.map((entry) => entry.manager))];
-	if (managers.length === 0) return {
-		ok: false,
-		problem: `no lockfile in ${root}`
-	};
-	let manager;
-	if (managers.length === 1 && managers[0]) manager = managers[0];
-	else if (declared && managers.includes(declared.name)) manager = declared.name;
-	else return {
-		ok: false,
-		problem: `several lockfiles in ${root}: ${managers.join(", ")}`
-	};
-	if (declared && declared.name !== manager && manager !== "cargo") return {
-		ok: false,
-		problem: `packageManager says ${declared.name} but the lockfile is ${manager}'s`
-	};
-	const lockfile = found.find((entry) => entry.manager === manager)?.lockfile ?? "";
-	return {
-		ok: true,
-		project: {
-			packageManager: manager,
-			lockfile,
-			declaredVersion: declared?.name === manager ? declared.version : null
-		}
-	};
-}
 
 // src/git.ts
 const GIT_TIMEOUT_MS = 12e4;
