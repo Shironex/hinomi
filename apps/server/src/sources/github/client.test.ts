@@ -48,6 +48,42 @@ describe('github client', () => {
     })
   })
 
+  it('sends If-None-Match and hands back a 304 without data when accepted', async () => {
+    const { client: c, requests } = client([
+      { status: 304, headers: { etag: 'W/"run-1"', 'x-ratelimit-remaining': '4999' } },
+    ])
+    const result = await c.rest('/repos/kestrel-co/harbor/actions/runs/7', {
+      ifNoneMatch: 'W/"run-1"',
+      acceptStatus: [304],
+    })
+    expect(result).toMatchObject({ status: 304, data: null })
+    expect(result.headers.get('etag')).toBe('W/"run-1"')
+    expect(requests[0]).toMatchObject({
+      ifNoneMatch: 'W/"run-1"',
+      authorization: 'Bearer test-token',
+    })
+  })
+
+  it('treats a 304 that was not asked for as an error', async () => {
+    await expect(client([{ status: 304 }]).client.rest('/x')).rejects.toMatchObject({
+      kind: 'http',
+      status: 304,
+    })
+  })
+
+  it('hands back a redirect with its location when asked not to follow it', async () => {
+    const { client: c, requests } = client([
+      { status: 302, headers: { location: 'https://blob.example.dev/artifact.zip?sig=1' } },
+    ])
+    const result = await c.rest('/repos/kestrel-co/harbor/actions/artifacts/5/zip', {
+      redirect: 'manual',
+      acceptStatus: [302],
+    })
+    expect(result.status).toBe(302)
+    expect(result.headers.get('location')).toBe('https://blob.example.dev/artifact.zip?sig=1')
+    expect(requests[0]).toMatchObject({ redirect: 'manual', ifNoneMatch: null })
+  })
+
   it('returns accepted statuses instead of throwing', async () => {
     const { client: c } = client([{ status: 404 }])
     const result = await c.rest('/x', { acceptStatus: [404] })

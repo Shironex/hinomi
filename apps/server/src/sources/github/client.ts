@@ -45,6 +45,16 @@ export interface RestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   /** Sent as JSON. */
   body?: unknown
+  /**
+   * Sent as If-None-Match, for conditional reads. Put 304 in `acceptStatus` to get the
+   * not-modified answer back (it carries no data); GitHub does not count it against the limit.
+   */
+  ifNoneMatch?: string
+  /**
+   * `manual` hands back a redirect (put its status in `acceptStatus`) with its Location header
+   * instead of following it, for downloads that redirect to blob storage.
+   */
+  redirect?: 'manual'
 }
 
 export interface GithubClient {
@@ -132,6 +142,7 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
           'x-github-api-version': API_VERSION,
           'user-agent': USER_AGENT,
           ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(init.headers as Record<string, string> | undefined),
         },
         signal: controller.signal,
       })
@@ -255,9 +266,11 @@ export function createGithubClient(options: GithubClientOptions): GithubClient {
 
   return {
     baseUrl,
-    rest(path, { acceptStatus = [], method = 'GET', body } = {}) {
+    rest(path, { acceptStatus = [], method = 'GET', body, ifNoneMatch, redirect } = {}) {
       const init: RequestInit = { method }
       if (body !== undefined) init.body = JSON.stringify(body)
+      if (ifNoneMatch !== undefined) init.headers = { 'if-none-match': ifNoneMatch }
+      if (redirect !== undefined) init.redirect = redirect
       return execute(path, init, acceptStatus)
     },
 
