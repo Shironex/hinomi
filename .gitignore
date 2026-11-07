@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# The fix runner action runs from the repo, so its bundle is committed.
+!actions/fix-runner/dist/
 .env
 .env.*
 !.env.example

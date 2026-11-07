@@ -1,0 +1,2 @@
+# Bundled action output: LF everywhere so the dist check matches on every OS.
+actions/fix-runner/dist/** linguist-generated=true eol=lf
