@@ -16,7 +16,7 @@ import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { toFixRun, toFixRunTracking, toFixRunVerify } from '../serialize.js'
 
-// The GitHub Actions fix runner per repo (settings, status) and its fix runs (dispatch, list,
+// The fix runner per repo (settings, kind, status) and its fix runs (dispatch, list,
 // detail). See docs/api.md "Fix runner and fix runs".
 
 async function statusResponse(c: Context, deps: ApiDeps, repo: RepoRow) {
@@ -44,13 +44,15 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
   app.patch('/:id/runner', async (c) => {
     const repo = repoOf(c)
     const patch = await readJson(c, updateRunnerSettingsRequestSchema)
-    const updated = deps.fixRuns.updateSettings(repo.id, patch)
-    if (!updated) throw notFound('Repo')
+    const update = deps.fixRuns.updateSettings(repo.id, patch)
+    if (!update.ok) throw new HttpError(update.status, update.code, update.message)
+    const updated = update.repo
     deps.log.info('runner: settings changed', {
       repoId: repo.id,
       enabled: updated.runnerEnabled,
       workflow: updated.runnerWorkflow,
       majorsAgent: updated.runnerMajorsAgent,
+      kind: updated.runnerKind,
     })
     return statusResponse(c, deps, updated)
   })

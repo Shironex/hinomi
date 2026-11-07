@@ -1,6 +1,6 @@
-// Fix runners: hand a repo's fix plan to whatever applies it (GitHub Actions now) and check that
-// a repo is set up for it (permissions, caller workflow pin), then open or update the fix PR
-// from the pushed branch.
+// Fix runners: hand a repo's fix plan to whatever applies it (GitHub Actions, a webhook runner,
+// the local runner), check that a repo is set up for it (permissions, caller workflow pin), take
+// the results of runners that report back, then open or update the fix PR from the pushed branch.
 export { inspectCallerWorkflow, readCaller, unknownCaller } from './caller.js'
 export type { CallerInspection, LatestFixWorkflow, ReadCallerOptions } from './caller.js'
 export {
@@ -77,6 +77,30 @@ export {
   type PublishFixPrOutcome,
   type PublishedPr,
 } from './publisher.js'
+export {
+  applyRunReport,
+  cleanReason,
+  type RunReport,
+  type RunReportContext,
+  type RunReportOutcome,
+} from './report.js'
+export {
+  createRunnerCallbackHandler,
+  handleRunnerCallback,
+  type RunnerCallbackAnswer,
+  type RunnerCallbackContext,
+  type RunnerCallbackOutcome,
+} from './webhook-callback.js'
+export { WebhookRunner, type WebhookDelivery, type WebhookRunnerOptions } from './webhook-runner.js'
+export {
+  MAX_REASON,
+  clipReason,
+  finishDispatch,
+  isRefusal,
+  prepareDispatch,
+  type PrepareDispatchOptions,
+  type PreparedDispatch,
+} from './dispatch.js'
 export type {
   FixRunDispatchCreated,
   FixRunDispatchOutcome,
@@ -91,5 +115,6 @@ export {
   type DispatchRefused,
   type FixRunService,
   type FixRunServiceOptions,
+  type RunnerSettingsUpdate,
   type RunnerStatusView,
 } from './service.js'

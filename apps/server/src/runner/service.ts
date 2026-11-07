@@ -6,6 +6,8 @@ import {
   type FixDispatchEncoding,
   type FixResultV1,
   type FixRunPreviousPr,
+  type FixRunnerKind,
+  type RunnerKindsStatus,
   type RunnerCaller,
   type RunnerPermissions,
   type RunnerStatus,
@@ -22,6 +24,7 @@ import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import { openSetupPr, setupPrCapability, type SetupPrResult } from './setup-pr.js'
 import type { FixRunDispatchOutcome, FixRunner } from './runner.js'
+import { WebhookRunner, type WebhookDelivery } from './webhook-runner.js'
 
 // What the API calls: runner settings and status per repo, and dispatching the latest plan.
 // The checks shared by every runner (on, a plan, decision 10) live here; the runner itself only
@@ -73,6 +76,13 @@ export interface FixRunServiceOptions {
   /** Replaces the GitHub Actions runner in tests. */
   runner?: FixRunner
   /**
+   * Posts plans for repos of the webhook kind (signing and the address guard live in the
+   * webhook folder). Without it those repos cannot dispatch.
+   */
+  webhookDelivery?: WebhookDelivery
+  /** Replaces the runners of the other kinds in tests. */
+  runners?: Partial<Record<Exclude<FixRunnerKind, 'github_actions'>, FixRunner>>
+  /**
    * Public address of this Hinomi (the notification setting), read per publish. Fix PRs of
    * private repos link back to it; without it they carry no link.
    */
@@ -88,6 +98,13 @@ function refused(
 ): DispatchRefused {
   return { kind: 'refused', status, code, message }
 }
+
+/** The answer to a settings change the server refused. */
+export type RunnerSettingsUpdate =
+  | { ok: true; repo: RepoRow }
+  | { ok: false; status: 404 | 409; code: 'not_found' | 'conflict'; message: string }
+
+const LOCAL_UNAVAILABLE = 'The local runner is not available on this Hinomi.'
 
 function refusedDispatch(outcome: Exclude<FixRunDispatchOutcome, { created: true }>) {
   if (outcome.code === 'unavailable') return refused(503, 'unavailable', outcome.message)
@@ -110,6 +127,31 @@ const NO_PERMISSIONS = (message: string): RunnerPermissions => ({
 function callerUsable(caller: RunnerCaller): boolean {
   const calls = ['unpinned', 'pinned', 'current', 'outdated'].includes(caller.state)
   return calls && caller.missingInputs.length === 0
+}
+
+/** Whether the repo can dispatch with its runner kind, and the line that says what is next. */
+function readiness(
+  repo: RepoRow,
+  meta: RunnerRepoMeta | null,
+  permissions: RunnerPermissions,
+  caller: RunnerCaller,
+  kinds: RunnerKindsStatus,
+): { ready: boolean; message: string } {
+  if (repo.runnerKind === 'github_actions') {
+    const ready = repo.runnerEnabled && meta !== null && permissions.ok && callerUsable(caller)
+    return { ready, message: statusMessage(repo, meta, permissions, caller) }
+  }
+  // Without the repo the permissions carry the reason it could not be read.
+  if (!meta) return { ready: false, message: permissions.message }
+  if (repo.runnerKind === 'local') return { ready: false, message: LOCAL_UNAVAILABLE }
+  if (!kinds.webhook.configured) return { ready: false, message: kinds.webhook.message }
+  if (!repo.runnerEnabled) {
+    return {
+      ready: false,
+      message: 'The webhook runner is set up. Turn the runner on to dispatch fix plans.',
+    }
+  }
+  return { ready: true, message: 'Ready to dispatch to the webhook runner.' }
 }
 
 function statusMessage(
@@ -141,7 +183,28 @@ export function createFixRunService(options: FixRunServiceOptions) {
     source ? source.get() : Promise.resolve(fixed ?? null)
   const github = (): RunnerGithub =>
     openRunnerGithub(repositories, { ...(options.fetch && { fetch: options.fetch }) })
-  const runner: FixRunner = options.runner ?? new GithubActionsRunner({ repositories, github, now })
+  const webhookDelivery = options.webhookDelivery
+  const runners: Record<FixRunnerKind, FixRunner | null> = {
+    github_actions: options.runner ?? new GithubActionsRunner({ repositories, github, now }),
+    webhook:
+      options.runners?.webhook ??
+      (webhookDelivery
+        ? new WebhookRunner({ repositories, github, now, delivery: webhookDelivery })
+        : null),
+    local: options.runners?.local ?? null,
+  }
+
+  function kindsStatus(): RunnerKindsStatus {
+    const problem = webhookDelivery
+      ? webhookDelivery.problem()
+      : 'The webhook runner is not wired into this server.'
+    return {
+      webhook: {
+        configured: runners.webhook !== null && problem === null,
+        message: problem ?? 'The webhook runner is set up.',
+      },
+    }
+  }
 
   async function inspect(
     repo: RepoRow,
@@ -193,15 +256,18 @@ export function createFixRunService(options: FixRunServiceOptions) {
     const latestRun = repositories.fixRuns.latest(repo.id, 'fix')
     const closed = repositories.fixRuns.closedUnmergedPrevious(repo.id, 'fix')
     const { meta, permissions, caller } = await inspect(repo, workflow)
+    const kinds = kindsStatus()
+    const { ready, message } = readiness(repo, meta, permissions, caller, kinds)
     return {
       repoId: repo.id,
       settings: {
         enabled: repo.runnerEnabled,
         workflow,
         majorsAgent: repo.runnerMajorsAgent,
+        kind: repo.runnerKind,
       },
       defaultWorkflow: DEFAULT_CALLER_WORKFLOW,
-      ready: repo.runnerEnabled && meta !== null && permissions.ok && callerUsable(caller),
+      ready,
       github: meta && {
         fullName: meta.fullName,
         defaultBranch: meta.defaultBranch,
@@ -214,7 +280,8 @@ export function createFixRunService(options: FixRunServiceOptions) {
       latestRun: latestRun ?? null,
       closedUnmerged: closed ? previousPrOf(closed) : null,
       checkedAt: now().toISOString(),
-      message: statusMessage(repo, meta, permissions, caller),
+      message,
+      runners: kinds,
     }
   }
 
@@ -233,9 +300,20 @@ export function createFixRunService(options: FixRunServiceOptions) {
       return openSetupPr({ repo, github: github(), latest: await resolveLatest() })
     },
 
-    /** Saves the settings. Undefined when the repo does not exist. */
-    updateSettings(repoId: number, patch: UpdateRunnerSettingsRequest): RepoRow | undefined {
-      return repositories.repos.setRunner(repoId, patch)
+    /**
+     * Saves the settings. The local kind is refused unless this host allows it; the webhook
+     * kind may be chosen before the webhook runner is set up (the status says what is missing).
+     */
+    updateSettings(repoId: number, patch: UpdateRunnerSettingsRequest): RunnerSettingsUpdate {
+      if (!repositories.repos.get(repoId)) {
+        return { ok: false, status: 404, code: 'not_found', message: 'Repo not found' }
+      }
+      if (patch.kind === 'local' && runners.local === null) {
+        return { ok: false, status: 409, code: 'conflict', message: LOCAL_UNAVAILABLE }
+      }
+      const repo = repositories.repos.setRunner(repoId, patch)
+      if (!repo) return { ok: false, status: 404, code: 'not_found', message: 'Repo not found' }
+      return { ok: true, repo }
     },
 
     /**
@@ -269,6 +347,12 @@ export function createFixRunService(options: FixRunServiceOptions) {
         if (previous && request.confirmReopen !== true) {
           return { kind: 'reopen_required', previous }
         }
+      }
+      const runner = runners[repo.runnerKind]
+      if (!runner) {
+        const message =
+          repo.runnerKind === 'webhook' ? kindsStatus().webhook.message : LOCAL_UNAVAILABLE
+        return refused(409, 'conflict', message)
       }
       const outcome = await runner.dispatch({ repo, plan, kind: 'fix' })
       const majorsOnly = majors && !outcome.created && outcome.code === 'nothing_to_send'

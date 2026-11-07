@@ -556,6 +556,9 @@ export async function pollFixRun(
       return linkRun(context, run, repo)
     case 'run':
       return pollWorkflowRun(context, run, repo, false)
+    case 'wait':
+      checkLost(context, run)
+      return
     case 'ended_run':
       return pollWorkflowRun(context, run, repo, true)
     case 'publish':
