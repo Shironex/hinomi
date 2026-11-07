@@ -5764,7 +5764,14 @@ const githubConnectionSchema = object({
 });
 
 // ../../packages/shared/src/sources/osv.ts
-const osvEcosystemSchema = _enum(["npm", "crates.io"]);
+const osvEcosystemSchema = _enum([
+	"npm",
+	"crates.io",
+	"Go",
+	"PyPI",
+	"Packagist",
+	"RubyGems"
+]);
 const lockfileScopeSchema = _enum([
 	"runtime",
 	"dev",
