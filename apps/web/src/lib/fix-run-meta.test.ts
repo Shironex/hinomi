@@ -183,6 +183,31 @@ describe('majors runs', () => {
     expect(runNext({ kind: 'majors', state: 'merged' })).toMatch(/deploy of the merge commit/)
   })
 
+  it('words a merged run by what the server expects after the merge', () => {
+    const merged = { kind: 'fix', state: 'merged' } as const
+    expect(runNext({ ...merged, afterMerge: { expects: 'rescan_after_merge' } })).toBe(
+      'No app deploys the fix, so Hinomi rescans the repo right after the merge.',
+    )
+    expect(runNext({ ...merged, afterMerge: { expects: 'deploy', apps: 1 } })).toBe(
+      'Waiting for a deploy of the merge commit by the app, then a rescan of the repo.',
+    )
+    expect(runNext({ ...merged, afterMerge: { expects: 'deploy', apps: 3 } })).toBe(
+      'Waiting for a deploy of the merge commit by 3 apps, then a rescan of the repo.',
+    )
+  })
+
+  it('skips the deployed stage of a merged run before verification when no app deploys', () => {
+    const merged = runFor(66)!
+    expect(statuses(66)).toEqual(['done', 'done', 'done', 'done', 'done', 'skip', 'now'])
+    expect(runTimeline(merged)[5]!.detail).toBe(
+      'No app deploys the fix, so the rescan reads the default branch',
+    )
+    // With an app to wait for, the deployed stage is the one waiting.
+    const waiting = runTimeline({ ...merged, afterMerge: { expects: 'deploy', apps: 1 } })
+    expect(waiting[5]!.status).toBe('now')
+    expect(waiting[5]!.detail).toBe('Waiting for a deploy of the merge commit')
+  })
+
   it('describes the workflow run stage by the agent, not the safe steps', () => {
     expect(runTimeline(runFor(50)!)[1]!.detail).toBe(
       'The agent is editing the code for the major upgrades',

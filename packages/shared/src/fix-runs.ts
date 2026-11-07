@@ -271,12 +271,24 @@ export const fixRunVerificationSchema = z.object({
 })
 export type FixRunVerification = z.infer<typeof fixRunVerificationSchema>
 
+/**
+ * What the tracker expects after the merge: a deploy of the merge commit by `apps` Coolify
+ * applications, or (no app deploys the repo's default branch) a rescan right after the merge.
+ */
+export const fixRunAfterMergeSchema = z.discriminatedUnion('expects', [
+  z.object({ expects: z.literal('deploy'), apps: z.number().int().positive() }),
+  z.object({ expects: z.literal('rescan_after_merge') }),
+])
+export type FixRunAfterMerge = z.infer<typeof fixRunAfterMergeSchema>
+
 /** GET /api/fix-runs/:id: the run, its tracking state, deployments and verification. */
 export const fixRunDetailSchema = fixRunSchema.extend({
   tracking: fixRunTrackingSchema.nullable(),
   /** The Coolify applications of the repo, once the run merged. Empty before. */
   deployments: z.array(fixRunDeploymentSchema),
   warnings: z.array(fixRunWarningSchema),
+  /** What follows the merge, computed from the repo's deployment mappings. */
+  afterMerge: fixRunAfterMergeSchema,
   /** Null until the run waits for a rescan. */
   verification: fixRunVerificationSchema.nullable(),
 })

@@ -40,6 +40,7 @@ export {
   type FixRunTrackerOptions,
   type FixRunTrackingView,
 } from './tracker.js'
+export { fixRunAfterMerge } from './tracker-verify.js'
 export type {
   FullScanReport,
   RepoRescanOutcome,

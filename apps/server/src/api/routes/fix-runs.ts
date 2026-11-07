@@ -14,6 +14,7 @@ import { Hono, type Context } from 'hono'
 import type { RepoRow } from '../../db/schema.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { fixRunAfterMerge } from '../../runner/index.js'
 import { toFixRun, toFixRunTracking, toFixRunVerify } from '../serialize.js'
 
 // The fix runner per repo (settings, kind, status) and its fix runs (dispatch, list,
@@ -133,10 +134,13 @@ export function fixRunsRoutes(deps: ApiDeps) {
     const run = deps.repositories.fixRuns.get(id)
     if (!run) throw notFound('Fix run')
     const tracking = deps.fixRunTracking?.status(run) ?? null
+    const repo = deps.repositories.repos.get(run.repoId)
+    const afterMerge = fixRunAfterMerge(deps.repositories, run, repo)
     return send(c, fixRunDetailSchema, {
       ...toFixRun(run),
       tracking: tracking && toFixRunTracking(tracking),
       ...toFixRunVerify(run),
+      afterMerge,
     })
   })
   return app

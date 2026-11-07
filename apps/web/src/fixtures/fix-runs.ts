@@ -698,14 +698,19 @@ const polled = (lastMinutes: number, nextMinutes: number, lastError: string | nu
 
 type DetailExtra = Partial<Omit<FixRunDetail, keyof FixRun>>
 
-const detail = (r: FixRun, extra: DetailExtra = {}): FixRunDetail => ({
-  ...r,
-  tracking: null,
-  deployments: [],
-  warnings: [],
-  verification: null,
-  ...extra,
-})
+const detail = (r: FixRun, extra: DetailExtra = {}): FixRunDetail => {
+  const apps = (extra.deployments ?? []).filter((d) => d.status !== 'other_branch').length
+  return {
+    ...r,
+    tracking: null,
+    deployments: [],
+    warnings: [],
+    // The server computes this from the repo's deployment mappings.
+    afterMerge: apps > 0 ? { expects: 'deploy', apps } : { expects: 'rescan_after_merge' },
+    verification: null,
+    ...extra,
+  }
+}
 
 /** The run's link to the fixture app that deploys its repo. */
 function appLink(
@@ -868,6 +873,8 @@ export const RUNS: FixRunDetail[] = [
       nextAttemptAt: ago(-0.2),
     }),
   }),
+  // Merged a moment ago in a repo no app deploys: the rescan follows at once.
+  detail(run({ id: 66, repo: R.ledger, state: 'merged', hours: 0.1 })),
   detail(run({ id: 39, repo: R.status, state: 'merged', hours: 80 }), {
     deployments: [appLink(R.status, { status: 'waiting', checkedAt: ago(8) })],
     warnings: [

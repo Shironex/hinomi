@@ -183,7 +183,7 @@ The fix runner applies a repo's latest plan. Where it runs is the repo's runner 
 | `POST /api/repos/:id/runner/setup-pr` | Opens the PR that adds the caller workflow, or moves its pin to the latest release (see below). No body |
 | `POST /api/repos/:id/fix-runs` | Dispatches the repo's latest plan. Body `{ confirmReopen? }`. 201 `{ run, encoding, omittedStepIds, majorsRun }`; `majorsRun` is the majors run dispatched beside `run`, else null (see below) |
 | `GET /api/repos/:id/fix-runs` | `{ items }`, newest first. `?kind=fix\|majors`, `?limit=` 1 to 100 (default 50) |
-| `GET /api/fix-runs/:id` | One run, plus `tracking`: `{ lastPolledAt, nextPollAt, lastError, pausedUntil }` from the tracker, null when it has not looked at the run since the server started or no longer follows it; `deployments`, `warnings` and `verification` (see below) |
+| `GET /api/fix-runs/:id` | One run, plus `tracking`: `{ lastPolledAt, nextPollAt, lastError, pausedUntil }` from the tracker, null when it has not looked at the run since the server started or no longer follows it; `deployments`, `warnings`, `afterMerge` and `verification` (see below) |
 
 The runner status:
 
@@ -249,6 +249,7 @@ The run detail adds:
 | Field | Meaning |
 |---|---|
 | `deployments` | One entry per app after the merge: `{ deploymentId, name, branch, status, deploy, checkedAt, error }`. `status` is `waiting`, `deployed` or `other_branch`; `deploy` is `{ id, commit, relation, finishedAt }` with `relation` `identical` or `ahead`. Empty before the merge or when no app deploys the repo |
+| `afterMerge` | What follows the merge, from the repo's deployment mappings with the tracker's own rule (git apps on the default branch, or the links once recorded): `{ expects: "deploy", apps }` or `{ expects: "rescan_after_merge" }` when no app deploys the default branch. Present on every run |
 | `warnings` | `{ code, deploymentId, message, at }` with `code` `watch_paths_skip` or `deploy_not_seen` |
 | `verification` | Null until the run waits for a rescan, then `{ after, status, scan, targeted, cleared, stillOpen, new, attempts, lastError, nextAttemptAt }`. `after` is `deploy`, `merge` (no app deploys the repo) or `empty_diff`; `status` is `pending`, `retrying`, `scheduled_scan` or `done`; `scan` is `{ kind: "repo" \| "full", scanRunId, at }`; the id lists are finding ids |
 

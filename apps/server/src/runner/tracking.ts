@@ -1,4 +1,4 @@
-import type { FixRunDeployment, FixRunState } from '@hinomi/shared'
+import type { FixRunAfterMerge, FixRunDeployment, FixRunState } from '@hinomi/shared'
 import type { FixRunRow } from '../db/schema.js'
 
 // How often the tracker looks at a fix run, as pure functions of the run and the time
@@ -98,6 +98,31 @@ export function dispatchTime(run: FixRunRow): Date {
 /** Apps that ship the fix: every linked app except those deploying another branch. */
 export function expectedApps(links: readonly FixRunDeployment[]): FixRunDeployment[] {
   return links.filter((link) => link.status !== 'other_branch')
+}
+
+/** True when an app builds another branch than the repo's default one, so it never ships a merge. */
+export function deploysOtherBranch(
+  app: { gitBranch: string | null },
+  defaultBranch: string | null,
+) {
+  return Boolean(app.gitBranch && defaultBranch && app.gitBranch !== defaultBranch)
+}
+
+/**
+ * What the tracker expects after the merge, from the same facts `afterMergePhase` uses: the
+ * links it recorded once it looked, before that the git apps of the repo (`apps`) that build
+ * the default branch. No app to wait for means the rescan runs right after the merge.
+ */
+export function afterMergeExpectation(
+  run: Pick<FixRunRow, 'deployLinks'>,
+  apps: readonly { gitBranch: string | null }[],
+  defaultBranch: string | null,
+): FixRunAfterMerge {
+  const count =
+    run.deployLinks !== null
+      ? expectedApps(run.deployLinks).length
+      : apps.filter((app) => !deploysOtherBranch(app, defaultBranch)).length
+  return count === 0 ? { expects: 'rescan_after_merge' } : { expects: 'deploy', apps: count }
 }
 
 /** True when the run's verification waits for the next scheduled scan, not for a rescan. */
