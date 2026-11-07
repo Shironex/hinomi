@@ -4,6 +4,7 @@ import {
   isMajorStep,
   MAJORS_BRANCH,
   isFixRunTerminal,
+  LOCAL_RUNNER_WARNING,
   renderCallerWorkflow,
   type FindingTier,
   type FixAgentReport,
@@ -14,6 +15,7 @@ import {
   type FixPlanUnfixed,
   type FixResultV1,
   type FixRun,
+  type FixRunnerKind,
   type FixRunDeployment,
   type FixRunDetail,
   type FixRunState,
@@ -42,6 +44,11 @@ const R = {
   scheduler: extra(17, 'scheduler'),
   gateway: extra(18, 'gateway'),
   ledger: extra(19, 'ledger'),
+  // The repos of the runner kinds: two on the webhook runner, two on the local runner.
+  courier: extra(20, 'courier'),
+  beacon: extra(21, 'beacon'),
+  forge: extra(22, 'forge'),
+  vault: extra(23, 'vault'),
 }
 
 /** The release commit callers pin in fixture mode, and an older one an outdated caller pins. */
@@ -358,6 +365,21 @@ export const PLANS: FixPlan[] = [
     }),
     major('quillparse', '1.9.2', '2.0.7', 2, [138], 'GHSA-q9r4-v2xm-6hcw'),
   ]),
+  // Repos on the webhook and local runners. Few findings, so they sort last in the list.
+  simple(R.courier, 'tarstream', '1.4.2', '1.4.6', [140]),
+  simple(R.beacon, 'proxyline', '3.0.4', '3.0.6', [141]),
+  simple(R.forge, 'yamlette', '2.0.4', '2.0.9', [142]),
+  plan(R.vault, SCAN, [
+    step({
+      pkg: 'streamtap',
+      from: '0.9.1',
+      to: '0.9.4',
+      order: 1,
+      findings: [143],
+      advisories: ['GHSA-x5pv-2hcq-7m3w'],
+    }),
+    major('marked-lite', '4.2.0', '5.0.1', 2, [144], 'GHSA-m4wq-7v2c-k9px'),
+  ]),
 ]
 
 export const PLAN_REFS: (FixPlanRef & { repo: RepoRef })[] = [...PLANS]
@@ -431,6 +453,8 @@ interface RunInput {
   kind?: 'fix' | 'majors'
   /** What the agent reported, for a majors run that got as far as a result. */
   agent?: FixAgentReport
+  /** Where the run went (default GitHub Actions). Other runners have no workflow run. */
+  runner?: FixRunnerKind
 }
 
 const AGENT_SUMMARY =
@@ -609,6 +633,7 @@ function result(input: RunInput, at: (i: number) => string): FixResultV1 | null 
 
 function run(input: RunInput): FixRun {
   const state = input.state
+  const runner = input.runner ?? 'github_actions'
   const reached = input.reached ?? REACHED[state]
   const created = ago(input.hours)
   const at = (i: number) =>
@@ -624,7 +649,7 @@ function run(input: RunInput): FixRun {
     id: input.id,
     repoId: input.repo.id,
     plan: { fixPlanId: input.id + 400, scanRunId: SCAN - Math.floor(input.hours / 24), version: 1 },
-    runner: 'github_actions',
+    runner,
     kind: input.kind ?? 'fix',
     correlationId: `fr-${input.id}`,
     branch: input.kind === 'majors' ? MAJORS_BRANCH : FIX_BRANCH,
@@ -632,7 +657,10 @@ function run(input: RunInput): FixRun {
     state,
     stateReason: input.reason ?? null,
     terminal,
-    github: reached >= 1 ? { runId: 18_204_000 + input.id, runAttempt: 1 } : null,
+    github:
+      runner === 'github_actions' && reached >= 1
+        ? { runId: 18_204_000 + input.id, runAttempt: 1 }
+        : null,
     headSha: reached >= 4 && state !== 'nothing_to_do' ? hex(input.id + 1, 40) : null,
     pr: hasPr
       ? {
@@ -722,6 +750,36 @@ function verification(
 /** Every fix run, newest first. Run ids grow with time. */
 export const RUNS: FixRunDetail[] = [
   detail(run({ id: 49, repo: R.notifier, state: 'pending', hours: 0.01 })),
+  // Runs on the webhook and local runners: no workflow run, and no polling before the push.
+  detail(run({ id: 60, repo: R.courier, runner: 'webhook', state: 'running', hours: 0.2 })),
+  detail(run({ id: 61, repo: R.forge, runner: 'local', state: 'running', hours: 0.1 })),
+  detail(
+    run({
+      id: 62,
+      repo: R.courier,
+      runner: 'webhook',
+      state: 'failed',
+      hours: 3,
+      reason: 'The webhook runner answered 502, so the plan was not accepted',
+    }),
+  ),
+  detail(run({ id: 63, repo: R.courier, runner: 'webhook', state: 'checks_passing', hours: 26 }), {
+    tracking: polled(4, 6),
+  }),
+  detail(run({ id: 64, repo: R.forge, runner: 'local', state: 'checks_passing', hours: 22 }), {
+    tracking: polled(4, 6),
+  }),
+  detail(
+    run({
+      id: 65,
+      repo: R.forge,
+      runner: 'local',
+      state: 'failed',
+      hours: 40,
+      reached: 2,
+      reason: 'Hinomi restarted while the local run was in progress',
+    }),
+  ),
   // The majors agent: only majors in the plan, running; a majors draft PR beside a fix that
   // was verified; an agent that timed out, then a fix run of the same plan that was verified.
   detail(run({ id: 50, repo: R.exporter, kind: 'majors', state: 'running', hours: 0.15 }), {
@@ -976,12 +1034,49 @@ const CALLER_MESSAGE: Record<RunnerStatus['caller']['state'], string> = {
   unknown: 'Could not read the caller workflow.',
 }
 
-function runner(repo: RepoRef, over: Partial<RunnerStatus> = {}): RunnerStatus {
+/** What the host offers beyond GitHub Actions, the same for every repo. */
+export interface RunnerHost {
+  /** The webhook runner has a URL and a secret. */
+  webhook: boolean
+  /** HINOMI_LOCAL_RUNNER=1 is set and the host can run it. */
+  local: boolean
+}
+
+export const DEFAULT_RUNNER_HOST: RunnerHost = { webhook: true, local: true }
+
+function kindsOf(host: RunnerHost): NonNullable<RunnerStatus['runners']> {
+  return {
+    webhook: {
+      configured: host.webhook,
+      message: host.webhook
+        ? 'Ready to dispatch to the webhook runner.'
+        : 'Set the webhook runner URL and generate its secret first.',
+    },
+    local: {
+      available: host.local,
+      message: host.local
+        ? 'Plans run on this host with the bundled fix runner action.'
+        : 'The local runner is off. Set HINOMI_LOCAL_RUNNER=1 and restart Hinomi.',
+      warning: LOCAL_RUNNER_WARNING,
+    },
+  }
+}
+
+function runner(
+  repo: RepoRef,
+  over: Partial<RunnerStatus> = {},
+  host: RunnerHost = DEFAULT_RUNNER_HOST,
+): RunnerStatus {
   const visibility = repo.id === R.storefront.id || repo.id === R.cli.id ? 'public' : 'private'
   const runs = runsFor(repo.id)
   return {
     repoId: repo.id,
-    settings: { enabled: true, workflow: 'hinomi-fix.yml', majorsAgent: 'off' },
+    settings: {
+      enabled: true,
+      workflow: 'hinomi-fix.yml',
+      majorsAgent: 'off',
+      kind: 'github_actions',
+    },
     defaultWorkflow: 'hinomi-fix.yml',
     ready: true,
     github: {
@@ -1018,6 +1113,7 @@ function runner(repo: RepoRef, over: Partial<RunnerStatus> = {}): RunnerStatus {
     closedUnmerged: null,
     checkedAt: ago(0.1),
     message: 'Ready to dispatch.',
+    runners: kindsOf(host),
     ...over,
   }
 }
@@ -1061,7 +1157,13 @@ function callerOf(
   }
 }
 
-export function runnerFor(repoId: number): RunnerStatus | null {
+/** The status of a repo on the webhook or local runner: ready only when the host offers it. */
+function onKind(repo: RepoRef, kind: 'webhook' | 'local', over: Partial<RunnerStatus['settings']>) {
+  const base = runner(repo)
+  return runner(repo, { settings: { ...base.settings, kind, ...over } })
+}
+
+function runnerBase(repoId: number): RunnerStatus | null {
   const p = planFor(repoId)
   if (!p) return null
   const repo = p.repo
@@ -1111,6 +1213,14 @@ export function runnerFor(repoId: number): RunnerStatus | null {
         },
       })
     }
+    case R.courier.id:
+      return onKind(repo, 'webhook', {})
+    case R.beacon.id:
+      return onKind(repo, 'webhook', { enabled: false })
+    case R.forge.id:
+      return onKind(repo, 'local', {})
+    case R.vault.id:
+      return onKind(repo, 'local', { majorsAgent: 'claude-code' })
     case R.scheduler.id:
       return withAgent(repo, false)
     case R.exporter.id:
@@ -1119,5 +1229,36 @@ export function runnerFor(repoId: number): RunnerStatus | null {
       return withAgent(repo, true)
     default:
       return runner(repo)
+  }
+}
+
+/**
+ * The runner status of a repo as the host shapes it: the runners the host offers, and for a repo
+ * on the webhook or local kind whether it can dispatch right now.
+ */
+export function runnerFor(
+  repoId: number,
+  host: RunnerHost = DEFAULT_RUNNER_HOST,
+): RunnerStatus | null {
+  const status = runnerBase(repoId)
+  if (!status) return null
+  const runners = kindsOf(host)
+  const kind = status.settings.kind
+  if ((kind !== 'webhook' && kind !== 'local') || !status.settings.enabled) {
+    const off = kind === 'webhook' || kind === 'local'
+    return {
+      ...status,
+      runners,
+      ...(off && { ready: false, message: 'Turn the runner on to dispatch.' }),
+    }
+  }
+  const offered = kind === 'webhook' ? host.webhook : host.local
+  return {
+    ...status,
+    runners,
+    ready: offered,
+    message: offered
+      ? `Ready to dispatch to the ${kind === 'webhook' ? 'webhook' : 'local'} runner.`
+      : runners[kind]!.message,
   }
 }
