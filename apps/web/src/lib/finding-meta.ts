@@ -405,6 +405,7 @@ const LOCKFILE_NAMES = [
   'yarn.lock',
   'bun.lock',
   'Cargo.lock',
+  'requirements.txt',
 ]
 const isLockfile = (path: string) => LOCKFILE_NAMES.includes(path.slice(path.lastIndexOf('/') + 1))
 
