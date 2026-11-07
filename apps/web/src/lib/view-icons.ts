@@ -12,6 +12,7 @@ import {
   type Icon,
 } from '@tabler/icons-react'
 import type { SeverityKey } from './finding-meta'
+import { cn } from './utils'
 
 /** Icons and color classes per severity and source, shared by badges, chips and bars. */
 
@@ -20,6 +21,16 @@ export const SEVERITY_ICON: Record<SeverityKey, Icon> = {
   high: IconAlertTriangle,
   moderate: IconAlertCircle,
   low: IconInfoCircle,
+}
+
+const TEXT_ONLY = 'border-transparent bg-transparent pl-0.5'
+
+/** Badge classes per severity: critical keeps the solid badge fill, the rest are ink on no fill. */
+export const SEVERITY_BADGE: Record<SeverityKey, string> = {
+  critical: '',
+  high: cn(TEXT_ONLY, 'text-sev-high'),
+  moderate: cn(TEXT_ONLY, 'text-sev-moderate'),
+  low: cn(TEXT_ONLY, 'text-sev-low'),
 }
 
 /** Fill and ink per severity, for counts: solid for critical, ink only for the rest. */

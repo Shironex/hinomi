@@ -264,7 +264,7 @@ export default defineConfig(
         },
       ],
       // apps/web/src/components holds building blocks (form, states, findings
-      // badges, dialogs) that every panel composes, next to the panels.
+      // and guard badges, dialogs) that every panel composes, next to the panels.
       'noctcore-architecture/no-cross-feature-imports': [
         'error',
         {
@@ -275,6 +275,7 @@ export default defineConfig(
             'form',
             'states',
             'findings',
+            'guards',
             'shell',
             'split',
             'views',

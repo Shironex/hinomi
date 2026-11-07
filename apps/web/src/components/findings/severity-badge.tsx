@@ -2,20 +2,12 @@ import { IconBox, IconEyeOff, IconShieldCheck } from '@tabler/icons-react'
 import { Badge } from '@/components/ui/badge'
 import { SEVERITY_LABEL, type SeverityKey } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
-import { SEVERITY_ICON, SEVERITY_TONE } from '@/lib/view-icons'
+import { SEVERITY_BADGE, SEVERITY_ICON, SEVERITY_TONE } from '@/lib/view-icons'
 
 /**
  * Severity is never color alone: each level has its own icon, word and fill weight. Critical is
  * the only solid (red) fill; high, moderate and low are icon and word on no fill.
  */
-const TEXT_ONLY = 'border-transparent bg-transparent pl-0.5'
-const SEVERITY_BADGE: Record<SeverityKey, string> = {
-  critical: '',
-  high: cn(TEXT_ONLY, 'text-sev-high'),
-  moderate: cn(TEXT_ONLY, 'text-sev-moderate'),
-  low: cn(TEXT_ONLY, 'text-sev-low'),
-}
-
 export function SeverityBadge({
   severity,
   className,
