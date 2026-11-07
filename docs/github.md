@@ -1,6 +1,6 @@
 # Connecting GitHub
 
-Hinomi reads Dependabot alerts, repo metadata and lockfiles from GitHub. It never writes anything. Connect it in onboarding or under Settings, Sources, with either a personal access token or a GitHub App.
+Hinomi reads Dependabot alerts, repo metadata and lockfiles from GitHub. Scans never write anything; only the optional [fix runner](#fix-runner), off until you turn it on per repo, dispatches workflows and opens fix pull requests. Connect it in onboarding or under Settings, Sources, with either a personal access token or a GitHub App.
 
 | | Personal access token | GitHub App |
 |---|---|---|
@@ -41,3 +41,71 @@ If you change the app's permissions later, GitHub asks the installation's owner 
 - Repos come from `GET /installation/repositories`; alerts and repo health use the same calls as a token.
 
 The private key is encrypted at rest with AES-256-GCM under `HINOMI_SECRET_KEY`, like tokens. It is never logged and never sent back: the API only says whether it is set. Rotate it by generating a new key on GitHub, replacing it in Hinomi, then deleting the old one on GitHub.
+
+## Fix runner
+
+The fix runner applies a repo's fix plan inside the repo's own GitHub Actions and opens one fix pull request. Hinomi never merges it. It is off for every repo until you turn it on, and scans keep working with a read only credential.
+
+How it works: Hinomi dispatches a small caller workflow in the repo (`.github/workflows/hinomi-fix.yml` by default) with three inputs: `run_id` (the fix run's id), `plan` (the plan as JSON, or gzip plus base64 when large) and `encoding`. The caller hands them to the reusable workflow `Shironex/hinomi/.github/workflows/fix.yml`, pinned by commit SHA. The workflow edits only dependency files, installs, runs the checks on public repos (install only on private ones, where the PR's own CI runs them) and pushes the branch `hinomi/fix-plan`; Hinomi then opens or updates the PR.
+
+### Permissions per connection type
+
+| Needed for | GitHub App | Fine grained token | Classic token |
+|---|---|---|---|
+| Dispatch the workflow and follow its runs | Actions: write | Actions: write | `repo` (`public_repo` is enough for public repos) |
+| Read the caller workflow and the fix branch | Contents: read (scans already need it) | Contents: read | `repo` |
+| Open and update the fix pull request | Pull requests: write | Pull requests: write | `repo` |
+| Follow checks on the fix PR (optional) | Checks: read, Commit statuses: read | Checks: read, Commit statuses: read | `repo` |
+| Setup PR that adds the caller workflow (optional) | Contents: write, Workflows: write | Contents: write, Workflows: write | `workflow` |
+
+Hinomi checks these on the runner status of each repo (Settings for the repo, or `GET /api/repos/:id/runner`):
+
+- **GitHub App:** the installation's granted permissions are read directly, so every row is granted or missing. After adding permissions to the app, the installation's owner must accept them on GitHub.
+- **Classic token:** the scopes come from the `X-OAuth-Scopes` header of `GET /user`.
+- **Fine grained token:** GitHub cannot be asked what such a token may do, so Hinomi makes harmless reads (the workflow's metadata, one pull request, one commit). A refused read shows the permission as missing; a read that works leaves the write level as unverified until the first dispatch, which fails with a clear reason if write is not granted.
+
+A GitHub App is the recommended credential for the runner: the PR author is the app's bot, so you can approve the fix PR yourself in repos with required reviews. A classic token cannot be narrowed (`repo` grants everything except workflow files).
+
+### Set up a repo
+
+1. Give the credential the permissions above for the repos you want fixed.
+2. Add the caller workflow on the repo's default branch: `workflow_dispatch` only runs workflows that exist there. The runner status shows the file to copy, pinned to the latest Hinomi release:
+
+   ```yaml
+   # .github/workflows/hinomi-fix.yml
+   name: Hinomi fix
+   run-name: hinomi fix ${{ inputs.run_id }}
+
+   on:
+     workflow_dispatch:
+       inputs:
+         run_id:
+           description: Hinomi run id
+           type: string
+           required: true
+         plan:
+           description: Fix plan from Hinomi (JSON, or gzip plus base64)
+           type: string
+           required: true
+         encoding:
+           type: choice
+           options: [json, gzip-base64]
+           default: json
+
+   permissions: {}
+
+   jobs:
+     fix:
+       uses: Shironex/hinomi/.github/workflows/fix.yml@<40 char sha>
+       permissions:
+         contents: write
+       with:
+         run_id: ${{ inputs.run_id }}
+         plan: ${{ inputs.plan }}
+         encoding: ${{ inputs.encoding }}
+   ```
+
+   Pin the reusable workflow by its full commit SHA, never a tag or branch. The status reports the caller as missing, not calling Hinomi, unpinned, pinned, current or outdated, and lists any of the three inputs the file does not declare. To use another file name, set it in the repo's runner settings.
+3. Turn the runner on for the repo. When the status says ready, dispatch the latest plan.
+
+If the repo's last fix PR was closed without merging, Hinomi asks before opening a fresh one. Nothing secret is stored in the target repo, and no repo setting needs to change.
