@@ -23,7 +23,7 @@ type GuardSubject = { deploymentId: number } | { repoId: number }
 
 Register it by adding it to `GUARDS` in `scan/guards/registry.ts`. That is all: the scan runs it, the API lists it, the deployment panel shows it.
 
-`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read) and `now`. A check that needs more (the support data index, runtime pins) adds a field to `GuardContext` and fills it where `runScan` builds the context.
+`GuardContext` holds what the scan already read: every deployment (`deployments`, with the facts its source reported), the repos scanned this run (`repos`), the deployment index (`index.byRepo`, manual mappings honoured), this scan's per repo results (`scans`, with the lockfiles OSV read), the endoflife.date lookups (`support`, null until a copy exists; a support check then returns nothing so its rows stay as they are) with the warning window (`supportWindowDays`), and `now`. A check that needs more (runtime pins) adds a field to `GuardContext` and fills it where `runScan` builds the context.
 
 Rules for `run`:
 
@@ -86,3 +86,18 @@ Guards sit in the reach tiers next to advisories: `exposed` (public, counts as h
 - `unknown`, a better level, the same level again, a turned off check: never sent.
 
 The item carries `kind: guard`, `guardCheck`, `guardLevel`, the check's title and its explanation for the level (see [notifications.md](notifications.md)).
+
+## Framework support
+
+`framework_support` (`scan/guards/framework-support.ts`) reads the lockfile dependencies the scan already stored and keeps the direct ones that ship with the app: dev dependencies and transitive packages are ignored (a scope the lockfile cannot tell, as in Cargo, still counts). Each package is turned into a purl (`pkg:npm/next`, `pkg:pypi/django`, `pkg:npm/@angular/core`) and joined to the endoflife.date products that publish it; there is no hand kept framework list. The release line is the longest line name that is a dotted prefix of the installed version (`6.1` for Django 6.1.3).
+
+One finding per repo, with every match in `evidence.frameworks`; the level is the worst entry:
+
+| Line state | Entry | Notes |
+|---|---|---|
+| end of support passed | `fail` | `warn` when the product has no security dates (see below) |
+| ends within `supportWindowDays` (default 90) | `warn` | |
+| supported, or only active support is over | `pass` | `isEoas` is shown, never raises a level |
+| version matches no line | `unknown` | not in the support data yet |
+
+Products whose end dates come from the release cycle (their end label is not a security support label, or they publish no such date) can warn but never fail, and the evidence `reason` says so. A repo whose lockfiles were not read, or a scan with no support data yet, leaves the finding as it is.
