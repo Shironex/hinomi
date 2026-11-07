@@ -80,6 +80,11 @@ export function repo(id: number, name: string): RepoRow {
     runnerKind: 'github_actions',
     sourceId: null,
     sourceOverrideId: null,
+    releaseTier: 'auto',
+    latestReleaseTag: null,
+    latestReleaseAt: null,
+    releaseInstallers: null,
+    releaseCheckedAt: null,
     createdAt: AT,
     updatedAt: AT,
   }
