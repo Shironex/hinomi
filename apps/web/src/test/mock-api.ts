@@ -153,12 +153,17 @@ export const deployment = (over: Record<string, unknown> = {}) => ({
 /** A configured instance: both sources, settings, no channels, one deployment. */
 export function configuredRoutes(): Record<string, unknown> {
   return {
-    'GET /health': { status: 'ok' },
+    'GET /health': { status: 'ok', version: '0.3.0' },
     'GET /shell/nav-counts': { needsAction: 0, deployments: 1, alerts: 0, activeFixRuns: null },
     'GET /shell/scan-status': { state: 'idle', lastScanAt: at, nextScanAt: null },
     'GET /onboarding': { finished: true, alertsSkipped: false },
     'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },
-    'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
+    'GET /settings': {
+      scanIntervalMinutes: 360,
+      osvEnabled: true,
+      includeAccountRepos: false,
+      updateCheckEnabled: true,
+    },
     'GET /notifications/channels': { items: [] },
     'GET /notifications/settings': { publicBaseUrl: null, digestHour: 8 },
     'GET /deployments': { items: [deployment()] },

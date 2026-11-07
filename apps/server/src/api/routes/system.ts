@@ -42,6 +42,7 @@ import {
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
+import { readUpdateCheckEnabled, UPDATE_CHECK_KEY } from '../../version/index.js'
 import { latestPlans, tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
 const RECENT_ACTIVITY = 20
@@ -50,6 +51,7 @@ function readSettings(repositories: Repositories): SettingsDto {
   return {
     scanIntervalMinutes: readScanIntervalMinutes(repositories.settings),
     ...readScanSettings(repositories.settings),
+    updateCheckEnabled: readUpdateCheckEnabled(repositories.settings),
   }
 }
 
@@ -254,8 +256,13 @@ export function settingsRoutes(deps: ApiDeps) {
       if (body.includeAccountRepos !== undefined) {
         repositories.settings.set(SCAN_SETTING_KEYS.includeAccountRepos, body.includeAccountRepos)
       }
+      if (body.updateCheckEnabled !== undefined) {
+        repositories.settings.set(UPDATE_CHECK_KEY, body.updateCheckEnabled)
+      }
     })
     if (body.scanIntervalMinutes !== undefined) scheduler.reschedule()
+    // Switching the check on looks right away instead of waiting for the next daily one.
+    if (body.updateCheckEnabled === true) void deps.updates?.check()
     return send(c, settingsSchema, readSettings(repositories))
   })
 

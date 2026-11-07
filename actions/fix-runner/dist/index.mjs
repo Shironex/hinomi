@@ -6563,9 +6563,25 @@ const SCAN_INTERVAL_MAX_MINUTES = 10080;
 const settingsSchema = object({
 	scanIntervalMinutes: number$1().int().min(15).max(SCAN_INTERVAL_MAX_MINUTES),
 	osvEnabled: boolean(),
-	includeAccountRepos: boolean()
+	includeAccountRepos: boolean(),
+	updateCheckEnabled: boolean()
 });
 const updateSettingsRequestSchema = strictObject(settingsSchema.partial().shape).refine((value) => Object.keys(value).length > 0, "Nothing to update");
+const availableUpdateSchema = object({
+	version: string(),
+	url: string(),
+	imageTag: string()
+});
+const versionResponseSchema = object({
+	version: string(),
+	commit: string().nullable(),
+	buildDate: string().nullable(),
+	isDev: boolean(),
+	prerelease: boolean(),
+	imageTag: string().nullable(),
+	releaseNotesUrl: string().nullable(),
+	update: availableUpdateSchema.nullable()
+});
 const scansQuerySchema = strictObject({ limit: number().int().min(1).max(200).default(50) });
 const scansResponseSchema = object({ items: array(scanRunSchema) });
 const startScanResponseSchema = object({
@@ -13374,7 +13390,10 @@ const githubWebhookAckSchema = object({ status: _enum([
 ]) });
 
 // ../../packages/shared/src/health.ts
-const healthResponseSchema = object({ status: literal("ok") });
+const healthResponseSchema = object({
+	status: literal("ok"),
+	version: string()
+});
 
 // ../../packages/shared/src/runner-payload.ts
 const WORKFLOW_DISPATCH_INPUT_LIMIT = 65535;

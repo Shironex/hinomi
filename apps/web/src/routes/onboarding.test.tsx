@@ -14,7 +14,7 @@ import { renderApp } from '@/test/render-app'
 import { currentTime } from '@hinomi/shared'
 
 const unconfigured = (over: Record<string, unknown> = {}) => ({
-  'GET /health': { status: 'ok' },
+  'GET /health': { status: 'ok', version: '0.3.0' },
   'GET /shell/nav-counts': {
     needsAction: null,
     deployments: null,
@@ -25,7 +25,12 @@ const unconfigured = (over: Record<string, unknown> = {}) => ({
   'GET /onboarding': { finished: false, alertsSkipped: false },
   'GET /sources': { sources: [], canStoreTokens: true },
   'GET /notifications/channels': { items: [] },
-  'GET /settings': { scanIntervalMinutes: 360, osvEnabled: true, includeAccountRepos: false },
+  'GET /settings': {
+    scanIntervalMinutes: 360,
+    osvEnabled: true,
+    includeAccountRepos: false,
+    updateCheckEnabled: true,
+  },
   ...over,
 })
 

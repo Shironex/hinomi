@@ -19,6 +19,7 @@ import {
   type FixRunTrackingTimer,
 } from './scheduler/index.js'
 import { openStorage } from './storage.js'
+import { createUpdateChecker } from './version/index.js'
 import {
   createGithubWebhookReceiver,
   createRunnerCallbackReceiver,
@@ -145,7 +146,14 @@ if (config.localRunner.enabled) {
   })
 }
 
+// The daily look at the latest GitHub release (Settings can switch it off). Dev builds skip it.
+const { build } = config
+const updates = createUpdateChecker({ settings: storage.repositories.settings, build, log })
+log.info('build', { version: build.version, commit: build.commit })
+
 const app = createApp({
+  build,
+  updates,
   webDistDir: config.webDistDir,
   api: {
     repositories: storage.repositories,
@@ -172,6 +180,7 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   digest = startDigestTimer({ notifier, settings: storage.repositories.settings, log })
   log.info('notify: daily digest planned', { at: digest.nextAt()?.toISOString() ?? null })
   tracking = startFixRunTracking({ ticker: tracker, log })
+  updates.start()
 })
 
 // HINOMI_WEBHOOK_PORT: a listener with the webhook path alone, the one port safe to expose.
@@ -206,6 +215,7 @@ async function shutdown(signal: NodeJS.Signals) {
   log.info('shutting down', { signal })
   digest?.stop()
   tracking?.stop()
+  updates.stop()
   const { drained } = await scheduler.shutdown()
   // A tick in flight is a handful of GitHub requests, each with its own timeout.
   await Promise.race([

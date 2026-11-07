@@ -1,13 +1,25 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { GITHUB_WEBHOOK_PATH, RUNNER_CALLBACK_PATH, type HealthResponse } from '@hinomi/shared'
+import {
+  GITHUB_WEBHOOK_PATH,
+  RUNNER_CALLBACK_PATH,
+  versionResponseSchema,
+  type HealthResponse,
+  type VersionResponse,
+} from '@hinomi/shared'
 import { Hono } from 'hono'
 import type { AccessOptions } from './access/index.js'
 import { errorBody, errorHandler } from './api/http.js'
 import { registerApiRoutes, type ApiOptions } from './api/index.js'
 import { accessRoutes } from './api/routes/access.js'
 import { silentLogger, type Logger } from './log.js'
+import {
+  describeBuild,
+  readBuildInfo,
+  type BuildInfo,
+  type UpdateChecker,
+} from './version/index.js'
 import type { GithubWebhookReceiver, RunnerCallbackReceiver } from './webhook/index.js'
 
 export interface AppOptions {
@@ -18,6 +30,10 @@ export interface AppOptions {
   log?: Logger
   /** Trusted proxies and the Cloudflare Access verifier for GET /api/access. */
   access?: AccessOptions
+  /** The running build, for /api/health and /api/version. Without it the build says `dev`. */
+  build?: BuildInfo
+  /** The daily update check behind /api/version. Without it no update is ever reported. */
+  updates?: Pick<UpdateChecker, 'available' | 'check'>
 }
 
 /** Files that must always be revalidated so a new build, and its service worker, is seen at once. */
@@ -39,6 +55,8 @@ export function createApp({
   api: apiOptions,
   log = silentLogger,
   access = {},
+  build = readBuildInfo({}),
+  updates,
 }: AppOptions = {}) {
   const app = new Hono()
   const onError = errorHandler(apiOptions?.log ?? log)
@@ -54,9 +72,16 @@ export function createApp({
 
   const api = new Hono()
   api.onError(onError)
-  api.get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
+  api.get('/health', (c) => c.json<HealthResponse>({ status: 'ok', version: build.version }))
+  api.get('/version', (c) => {
+    const body: VersionResponse = {
+      ...describeBuild(build),
+      update: updates?.available() ?? null,
+    }
+    return c.json(versionResponseSchema.parse(body))
+  })
   api.route('/access', accessRoutes(access))
-  if (apiOptions) registerApiRoutes(api, apiOptions)
+  if (apiOptions) registerApiRoutes(api, { ...(updates && { updates }), ...apiOptions })
   app.route('/api', api)
   // Unknown API routes answer with JSON instead of falling through to the SPA.
   app.all('/api/*', (c) => c.json(errorBody('not_found', 'No such API route'), 404))

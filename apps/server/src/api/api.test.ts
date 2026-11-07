@@ -369,6 +369,7 @@ describe('settings', () => {
       scanIntervalMinutes: 360,
       osvEnabled: true,
       includeAccountRepos: false,
+      updateCheckEnabled: true,
     })
     expect((await call('PATCH', '/settings', { scanIntervalMinutes: 5 })).status).toBe(400)
     expect((await call('PATCH', '/settings', {})).status).toBe(400)
@@ -380,6 +381,7 @@ describe('settings', () => {
       scanIntervalMinutes: 30,
       osvEnabled: true,
       includeAccountRepos: true,
+      updateCheckEnabled: true,
     })
   })
 })
