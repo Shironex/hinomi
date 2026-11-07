@@ -7,6 +7,7 @@ import {
   fixRunsResponseSchema,
   isFixRunTerminal,
   runnerStatusSchema,
+  setupPrResponseSchema,
   type DispatchFixRunResponse,
   type FixRun,
   type FixRunPreviousPr,
@@ -111,6 +112,10 @@ export async function dispatchFixRun(
 export function updateRunner(repoId: number, body: UpdateRunnerSettingsRequest) {
   return request(`/repos/${repoId}/runner`, runnerStatusSchema, { method: 'PATCH', json: body })
 }
+
+/** Opens (or refreshes) the PR that adds or re-pins the caller workflow. 409 when it cannot. */
+export const openSetupPr = (repoId: number) =>
+  api.post(`/repos/${repoId}/runner/setup-pr`, setupPrResponseSchema)
 
 /** After a dispatch the repo's runs, its runner status and the run lists are stale. */
 export async function refreshAfterDispatch(queryClient: QueryClient, repoId: number) {

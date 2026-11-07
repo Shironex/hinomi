@@ -191,6 +191,42 @@ describe('fix runs page', () => {
     )
   })
 
+  it('opens the pin PR from the runner panel and links to it', async () => {
+    wideScreen()
+    const calls = fixtureApi({
+      'POST /repos/1/runner/setup-pr': {
+        outcome: 'created',
+        pr: { number: 130, url: 'https://github.com/kestrel-co/storefront/pull/130' },
+        path: '.github/workflows/hinomi-fix.yml',
+        sha: '4f1c2a9e8b7d6c5a4f3e2d1c0b9a8f7e6d5c4b3a',
+        version: 'v0.2.0',
+      },
+    })
+    const { user } = await setup('/fix-runs?sel=plan-1')
+    await user.click(await screen.findByRole('button', { name: 'Update pin PR' }))
+    const link = await screen.findByRole('link', { name: /Opened setup PR #130/ })
+    expect(link).toHaveAttribute('href', 'https://github.com/kestrel-co/storefront/pull/130')
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1)
+  })
+
+  it('says why the setup PR is not offered, and shows a refusal', async () => {
+    wideScreen()
+    fixtureApi({
+      'POST /repos/10/runner/setup-pr': reply(409, {
+        error: { code: 'conflict', message: 'The token cannot write workflow files' },
+      }),
+    })
+    const { user } = await setup('/fix-runs?sel=plan-3')
+    expect(await screen.findByText(/cannot write workflow files\. Grant it/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /setup PR|pin PR/ })).toBeNull()
+    cleanup()
+    await renderApp('/fix-runs?sel=plan-10')
+    await user.click(await screen.findByRole('button', { name: 'Open setup PR' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The token cannot write workflow files',
+    )
+  })
+
   it('turns the runner off and saves the workflow file', async () => {
     wideScreen()
     const calls = fixtureApi({

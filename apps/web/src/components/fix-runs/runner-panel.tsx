@@ -30,6 +30,7 @@ import { describeError } from '@/lib/errors'
 import { fixKeys, runnerQuery, updateRunner } from '@/lib/fix-api'
 import { CALLER_STATE_INFO } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
+import { SetupPrButton } from './setup-pr-button'
 
 const AUTH_LABEL = {
   github_app: 'GitHub App',
@@ -145,8 +146,9 @@ function CallerPin({ status }: { status: RunnerStatus }) {
     return (
       <Callout icon={IconClockHour4} variant="warn" title="Outdated pin">
         {caller.path} pins <span className="font-mono">{short(caller.ref)}</span>; the latest Hinomi
-        release is <span className="font-mono">{short(caller.latestSha)}</span>. Paste the workflow
-        below to move to it. Old pins keep working until a release changes the inputs.
+        release is <span className="font-mono">{short(caller.latestSha)}</span>. Open the pin PR or
+        paste the workflow below to move to it. Old pins keep working until a release changes the
+        inputs.
       </Callout>
     )
   }
@@ -154,7 +156,7 @@ function CallerPin({ status }: { status: RunnerStatus }) {
     return (
       <Callout icon={IconAlertTriangle} variant="warn" title="Pin it by commit SHA">
         {caller.path} calls Hinomi by <span className="font-mono">{caller.ref}</span>, a tag or
-        branch that can move. Paste the workflow below, which pins a full commit SHA.
+        branch that can move. The setup PR or the workflow below pins a full commit SHA.
       </Callout>
     )
   }
@@ -230,10 +232,11 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
             </p>
           ) : null}
           <CallerPin status={status} />
+          <SetupPrButton status={status} repoId={repoId} />
           <div className="flex flex-wrap items-center gap-2">
             <CopyTemplate text={status.caller.template} />
             <span className="text-xs text-muted-foreground">
-              Paste it as <span className="font-mono">{status.caller.path}</span> on{' '}
+              Or paste it as <span className="font-mono">{status.caller.path}</span> on{' '}
               {github?.defaultBranch ?? 'the default branch'} and commit.
             </span>
           </div>
@@ -244,11 +247,6 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
           >
             {status.caller.template}
           </pre>
-          <p className="text-xs text-muted-foreground">
-            {status.permissions.canOpenSetupPr
-              ? 'Your credential can write workflow files. A button that opens this as a setup pull request comes in a later release; until then paste it by hand.'
-              : 'Hinomi does not need the Workflows permission: paste the file by hand once per repo.'}
-          </p>
         </section>
 
         <section aria-labelledby={`perms-${repoId}`} className="flex flex-col gap-2.5">
