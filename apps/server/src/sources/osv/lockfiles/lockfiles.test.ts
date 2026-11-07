@@ -572,3 +572,47 @@ describe('dependency paths', () => {
     expect(parseLockfile(v1, 'package-lock.json')[0]?.path).toBeUndefined()
   })
 })
+
+describe('workspaces', () => {
+  /** `name@version` -> the workspaces that list it, direct packages only. */
+  const declared = (deps: LockfileDependency[]) =>
+    Object.fromEntries(
+      deps.filter((d) => d.workspaces).map((d) => [`${d.name}@${d.version}`, d.workspaces]),
+    )
+
+  it('names the pnpm importers that list each direct dependency', () => {
+    expect(declared(parseLockfile(PNPM_V9, 'pnpm-lock.yaml'))).toEqual({
+      '@kestrel/ui@0.3.0': ['apps/web'],
+      'kestrel-http@2.1.0': ['.'],
+      'tern-lint@3.0.0': ['apps/web'],
+      'tern-test@1.4.0': ['.'],
+    })
+  })
+
+  it('names the root and workspace manifests of package-lock.json', () => {
+    expect(declared(parseLockfile(PACKAGE_LOCK_V3, 'package-lock.json'))).toEqual({
+      'kestrel-http@2.1.0': ['.'],
+      'tern-test@1.4.0': ['.'],
+      'wren-dom@1.0.0': ['apps/web'],
+    })
+  })
+
+  it('names the workspace entries of yarn berry and the bun workspaces', () => {
+    expect(declared(parseLockfile(YARN_BERRY, 'yarn.lock'))).toEqual({
+      'kestrel-http@2.1.0': ['.'],
+      'tern-test@1.4.0': ['.'],
+    })
+    expect(declared(parseLockfile(BUN_LOCK, 'bun.lock'))).toEqual({
+      '@kestrel/ui@0.3.0': ['apps/web'],
+      'kestrel-http@2.1.0': ['.'],
+      'tern-test@1.4.0': ['.'],
+    })
+  })
+
+  it('names the workspace crates of a Cargo.lock', () => {
+    expect(declared(parseLockfile(CARGO_LOCK, 'Cargo.lock'))).toEqual({
+      'kestrel-io@2.1.0': ['edge-agent'],
+      'plover@1.2.0': ['edge-agent'],
+    })
+  })
+})

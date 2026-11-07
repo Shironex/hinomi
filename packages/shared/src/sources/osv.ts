@@ -27,6 +27,12 @@ export const lockfileDependencySchema = z.object({
   path: z.array(z.string()).optional(),
   /** Repo relative path of the lockfile it was read from, when known. */
   lockfile: z.string().optional(),
+  /**
+   * Manifests that list it directly: workspace folders relative to the lockfile (`.` for the
+   * root project) for npm, pnpm, yarn and bun; workspace crate names for Cargo, whose lockfile
+   * does not record folders. Missing for transitive packages and when the lockfile cannot tell.
+   */
+  workspaces: z.array(z.string()).optional(),
 })
 export type LockfileDependency = z.infer<typeof lockfileDependencySchema>
 

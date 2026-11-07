@@ -1,5 +1,6 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import {
+  addWorkspace,
   asDict,
   dedupeDependencies,
   isRegistryVersion,
@@ -8,6 +9,7 @@ import {
   shortestPaths,
   type Dict,
   type GraphNode,
+  workspaceFolder,
 } from './graph.js'
 
 const MANIFEST_FIELDS = [
@@ -96,11 +98,16 @@ function packagePaths(packages: Dict): Map<string, string[]> {
 function parsePackagesMap(packages: Dict): LockfileDependency[] {
   // Root ("") and workspace folders (paths without node_modules) are manifests.
   const directNames = new Set<string>()
+  const declaredBy = new Map<string, Set<string>>()
   for (const [path, raw] of Object.entries(packages)) {
     if (path.includes('node_modules/')) continue
     const entry = asDict(raw)
     for (const field of MANIFEST_FIELDS) {
-      for (const name of Object.keys(asDict(entry[field]))) directNames.add(name)
+      for (const name of Object.keys(asDict(entry[field]))) {
+        directNames.add(name)
+        const key = resolveFrom(packages, path, name)
+        if (key) addWorkspace(declaredBy, key, workspaceFolder(path))
+      }
     }
   }
 
@@ -115,13 +122,16 @@ function parsePackagesMap(packages: Dict): LockfileDependency[] {
     // Aliased installs (`"foo": "npm:bar@1"`) record the real name in `name`.
     const name = typeof entry.name === 'string' ? entry.name : nameFromPath(path)
     const installedAs = nameFromPath(path)
+    const direct = nesting(path) === 1 && directNames.has(installedAs)
+    const workspaces = declaredBy.get(path)
     out.push({
       name,
       version,
       ecosystem: 'npm',
       scope: entry.dev === true || entry.devOptional === true ? 'dev' : 'runtime',
-      direct: nesting(path) === 1 && directNames.has(installedAs),
+      direct,
       ...(paths.has(path) && { path: paths.get(path) }),
+      ...(direct && workspaces && { workspaces: [...workspaces].sort() }),
     })
   }
   return dedupeDependencies(out)
