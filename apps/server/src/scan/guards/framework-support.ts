@@ -5,19 +5,11 @@ import {
   type GuardResult,
   type LockfileDependency,
   type OsvEcosystem,
-  type SupportLine,
   type SupportTarget,
 } from '@hinomi/shared'
-import {
-  daysUntilEol,
-  isPastEol,
-  supportBasisOf,
-  windowStateOf,
-  type SupportIndex,
-  type SupportProduct,
-  type SupportRelease,
-} from '../../support/index.js'
+import { windowStateOf, type SupportIndex, type SupportProduct } from '../../support/index.js'
 import { lockfileRef } from '../deployments.js'
+import { RESULT_ORDER, supportLineOf } from './runtime-lines.js'
 import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
 
 // framework_support (docs/design/phase-2.md section 4.5): a direct runtime dependency that
@@ -33,9 +25,6 @@ const PURL_TYPES: Record<OsvEcosystem, string> = {
   Packagist: 'composer',
   RubyGems: 'gem',
 }
-
-/** Worst last. */
-const RESULT_ORDER: Record<GuardResult, number> = { pass: 0, unknown: 1, warn: 2, fail: 3 }
 
 const RELEASE_CYCLE_NOTE =
   'Some of these products publish no security support dates, so their end dates come from the release cycle. Those lines warn at most and never fail.'
@@ -81,19 +70,6 @@ function targetOf(product: SupportProduct, now: Date, windowDays: number): Suppo
     }
   }
   return null
-}
-
-function supportLineOf(product: SupportProduct, release: SupportRelease, now: Date): SupportLine {
-  return {
-    product: product.name,
-    line: release.name,
-    eolFrom: release.eolFrom,
-    isEol: isPastEol(release, now),
-    isEoas: release.isEoas,
-    latest: release.latest?.name ?? null,
-    basis: supportBasisOf(product),
-    daysLeft: daysUntilEol(release, now),
-  }
 }
 
 function entryFor(
