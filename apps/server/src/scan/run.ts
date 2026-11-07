@@ -117,7 +117,11 @@ function startPhase(ctx: ScanContext, phase: ScanPhase, total: number): () => vo
 
 function recordError(ctx: ScanContext, error: ScanError): void {
   ctx.errors.push(error)
-  ctx.log.warn(`scan: ${error.source} failed for ${error.subject}`, { error: error.error })
+  ctx.log.warn('scan: a source failed', {
+    source: error.source,
+    subject: error.subject,
+    error: error.error,
+  })
 }
 
 async function syncCoolify(ctx: ScanContext, step: () => void): Promise<void> {
