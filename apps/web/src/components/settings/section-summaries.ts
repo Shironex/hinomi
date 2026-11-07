@@ -1,13 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { useScanStatus } from '@/hooks/use-shell-data'
 import { accessLabel, useAccessStatus } from '@/hooks/use-access'
-import { formatClock } from '@/lib/format'
-import { channelsQuery, deploymentsQuery, settingsQuery, sourcesQuery } from '@/lib/settings-api'
+import { formatClock, formatRelative } from '@/lib/format'
+import {
+  channelsQuery,
+  deploymentsQuery,
+  githubWebhookQuery,
+  settingsQuery,
+  sourcesQuery,
+} from '@/lib/settings-api'
 import { useTheme } from '@/lib/theme'
 import { THEME_LABEL } from '@/components/shell/theme-meta'
 
 export type SettingsSectionKey =
-  'sources' | 'notifications' | 'scans' | 'mapping' | 'access' | 'appearance'
+  'sources' | 'notifications' | 'scans' | 'mapping' | 'webhook' | 'access' | 'appearance'
 
 const KIND_WORD = { discord: 'Discord', webhook: 'webhook', email: 'email' } as const
 
@@ -36,6 +42,7 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const settings = useQuery(settingsQuery)
   const channels = useQuery(channelsQuery)
   const deployments = useQuery(deploymentsQuery)
+  const webhook = useQuery(githubWebhookQuery)
   const scan = useScanStatus()
   const access = useAccessStatus()
   const theme = useTheme()
@@ -78,6 +85,19 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
       apps.length === 0
         ? 'No deployments yet'
         : `${matched} of ${plural(apps.length, 'app')} matched`
+  }
+
+  if (webhook.data) {
+    const w = webhook.data
+    out.webhook = !w.canStoreSecret
+      ? 'secret key missing'
+      : w.enabled
+        ? w.lastDeliveryAt
+          ? `On, last delivery ${formatRelative(w.lastDeliveryAt)}`
+          : 'On, no delivery yet'
+        : w.secretSet
+          ? 'Secret set, off'
+          : 'Off'
   }
 
   if (access) out.access = accessLabel(access)

@@ -1,11 +1,13 @@
 import {
   deploymentsResponseSchema,
+  githubWebhookSettingsSchema,
   notifyChannelSchema,
   notifyChannelsResponseSchema,
   notifyChannelTestResultSchema,
   notifySettingsSchema,
   repoOverridesResponseSchema,
   reposResponseSchema,
+  rotateGithubWebhookSecretResponseSchema,
   scanRunSchema,
   scansResponseSchema,
   settingsSchema,
@@ -17,6 +19,7 @@ import {
   type CreateNotifyChannelRequest,
   type CreateSourceRequest,
   type TestSourceRequest,
+  type UpdateGithubWebhookRequest,
   type UpdateNotifyChannelRequest,
   type UpdateNotifySettingsRequest,
   type UpdateSettingsRequest,
@@ -43,6 +46,7 @@ export const settingsKeys = {
   notifySettings: ['notifications', 'settings'] as const,
   deployments: ['deployments'] as const,
   repos: ['repos'] as const,
+  githubWebhook: ['settings', 'github-webhook'] as const,
 }
 
 export const sourcesQuery = queryOptions({
@@ -91,6 +95,12 @@ export const deploymentsQuery = queryOptions({
 export const reposQuery = queryOptions({
   queryKey: settingsKeys.repos,
   queryFn: ({ signal }) => api.get('/repos', reposResponseSchema, { signal }),
+})
+
+export const githubWebhookQuery = queryOptions({
+  queryKey: settingsKeys.githubWebhook,
+  queryFn: ({ signal }) =>
+    api.get('/settings/github-webhook', githubWebhookSettingsSchema, { signal }),
 })
 
 // Sources ------------------------------------------------------------------
@@ -143,3 +153,12 @@ export const removeRepoOverride = (deploymentId: number, repoId: number) =>
   request(`/deployments/${deploymentId}/overrides/${repoId}`, repoOverridesResponseSchema, {
     method: 'DELETE',
   })
+
+// GitHub webhook -----------------------------------------------------------
+
+export const updateGithubWebhook = (body: UpdateGithubWebhookRequest) =>
+  request('/settings/github-webhook', githubWebhookSettingsSchema, { method: 'PATCH', json: body })
+
+/** Generates or replaces the secret. The answer holds it once, with the settings after. */
+export const rotateGithubWebhookSecret = () =>
+  api.post('/settings/github-webhook/secret', rotateGithubWebhookSecretResponseSchema)
