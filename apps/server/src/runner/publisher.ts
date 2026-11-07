@@ -25,7 +25,7 @@ import {
   type GithubPull,
   type RunnerRepoMeta,
 } from '../sources/github/index.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 
 // Mode A of the runner design (decision 1): once the workflow pushed `hinomi/fix-plan`, Hinomi
 // opens the fix PR with its own credential, or updates the open one, so the repo's CI runs
@@ -58,7 +58,7 @@ const PR_STATES: readonly FixRunState[] = [
 export interface FixPrPublisherOptions {
   repositories: Repositories
   /** The GitHub source to write through, opened per publish. */
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   /** Public address of this Hinomi without a trailing slash, or null when not configured. */
   publicBaseUrl?: () => string | null
   now?: () => Date
@@ -462,7 +462,7 @@ export async function publishFixPr(
   if (!BEFORE_PR.includes(run.state) && !PR_STATES.includes(run.state)) {
     return { kind: 'skipped', run, reason: `The run is ${run.state}, past its PR.` }
   }
-  const github = options.github()
+  const github = options.github(run.repoId)
   if (!github.ok) return { kind: 'retry', run, reason: github.message }
   const client = github.source.client
 

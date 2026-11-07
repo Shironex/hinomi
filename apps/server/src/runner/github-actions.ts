@@ -8,7 +8,7 @@ import type { RepoRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { GithubError, dispatchWorkflow } from '../sources/github/index.js'
 import { clipReason as clip, finishDispatch, isRefusal, prepareDispatch } from './dispatch.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import type { FixRunDispatchOutcome, FixRunDispatchRequest, FixRunner } from './runner.js'
 
 // The GitHub Actions runner: builds the dispatch from the plan (checks and links by the repo's
@@ -72,7 +72,7 @@ export function dispatchFailureReason(
 export interface GithubActionsRunnerOptions {
   repositories: Repositories
   /** The GitHub source to dispatch through, opened per dispatch. */
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   compressor?: FixPayloadCompressor
   now?: () => Date
   /** The correlation id sent as `run_id`. Random by default. */

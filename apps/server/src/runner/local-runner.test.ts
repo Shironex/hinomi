@@ -129,7 +129,7 @@ function setup(
   const warnings: Record<string, unknown>[] = []
   const runner = new LocalRunner({
     repositories: repos,
-    github: () => openRunnerGithub(repos, { fetch: github.fetch }),
+    github: (repoId) => openRunnerGithub(repos, repoId, { fetch: github.fetch }),
     enabled: true,
     checks: false,
     dataDir,

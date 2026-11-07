@@ -181,7 +181,8 @@ export function createTestApi({
     log: logger.log,
     handle: createRunnerCallbackHandler({
       repositories: repos,
-      github: () => openRunnerGithub(repos, sourceFetch ? { fetch: sourceFetch } : {}),
+      github: (repoId) =>
+        openRunnerGithub(repos, repoId, sourceFetch ? { fetch: sourceFetch } : {}),
       now: currentTime,
     }),
   })

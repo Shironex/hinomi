@@ -181,7 +181,7 @@ function publisher(
 ): FixPrPublisherOptions {
   return {
     repositories: repos,
-    github: () => openRunnerGithub(repos, { fetch: fake.fetch }),
+    github: (repoId) => openRunnerGithub(repos, repoId, { fetch: fake.fetch }),
     now: () => now,
     ...options,
   }

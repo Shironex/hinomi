@@ -1,4 +1,9 @@
-import type { Repositories } from '../repository/index.js'
+import {
+  isUsableGithubSource,
+  resolveRepoSource,
+  type Repositories,
+  type Source,
+} from '../repository/index.js'
 import {
   createGithubSourceFromConfig,
   type GithubClientOptions,
@@ -11,21 +16,36 @@ export interface RunnerGithubOptions {
   client?: Pick<GithubClientOptions, 'maxWaitMs' | 'maxRetries' | 'timeoutMs' | 'now'>
 }
 
-/** The GitHub source the runner talks through, or why there is none. */
+/** The GitHub source the runner talks through for one repo, or why there is none. */
 export type RunnerGithub = { ok: true; source: GithubSource } | { ok: false; message: string }
 
-/**
- * The connected GitHub source, the same one scans use (the first enabled source with a stored
- * token or private key), bound to its decrypted secret.
- */
-export function openRunnerGithub(
+/** The GitHub source of a repo, opened on demand: `(repoId) => RunnerGithub`. */
+export type RunnerGithubFor = (repoId: number) => RunnerGithub
+
+/** Why a repo has no GitHub source to use. */
+function noSource(repositories: Repositories, repoId: number): RunnerGithub {
+  const repo = repositories.repos.get(repoId)
+  if (!repo) return { ok: false, message: 'The repo was removed.' }
+  const usable = repositories.sources.listByKind('github').some(isUsableGithubSource)
+  if (!usable) return { ok: false, message: 'Connect a GitHub source first.' }
+  return {
+    ok: false,
+    message: `No connected GitHub source can read ${repo.owner}/${repo.name}. Rescan, or pick its source in the repo settings.`,
+  }
+}
+
+/** The repo's GitHub source row: the override, the scan's choice, or the only one there is. */
+function sourceRowOf(repositories: Repositories, repoId: number): Source | null {
+  const repo = repositories.repos.get(repoId)
+  return repo ? resolveRepoSource(repositories.sources, repo).source : null
+}
+
+/** Binds a source row to its decrypted secret. */
+export function openGithubSource(
   repositories: Repositories,
+  row: Source,
   options: RunnerGithubOptions = {},
 ): RunnerGithub {
-  const row = repositories.sources
-    .listByKind('github')
-    .find((source) => source.enabled && source.hasToken)
-  if (!row) return { ok: false, message: 'Connect a GitHub source first.' }
   let secret: string | null
   try {
     secret = repositories.sources.getToken(row.id)
@@ -46,23 +66,39 @@ export function openRunnerGithub(
 }
 
 /**
- * openRunnerGithub that keeps the source between calls while the stored source row stays the
- * same, so a GitHub App's installation token is reused instead of minted per poll. A changed,
- * disabled or removed source opens again.
+ * The GitHub source that reads the repo (see repository/repo-sources.ts), the same one scans
+ * use for it, bound to its decrypted secret. Everything the runner does for a repo (dispatch,
+ * setup PR, publisher, tracker, permissions) goes through it.
+ */
+export function openRunnerGithub(
+  repositories: Repositories,
+  repoId: number,
+  options: RunnerGithubOptions = {},
+): RunnerGithub {
+  const row = sourceRowOf(repositories, repoId)
+  if (!row) return noSource(repositories, repoId)
+  return openGithubSource(repositories, row, options)
+}
+
+/**
+ * openRunnerGithub that keeps one opened source per GitHub source row while that row stays the
+ * same, so a GitHub App's installation token is reused across repos and polls instead of minted
+ * per call. A changed, disabled or removed source opens again.
  */
 export function cachedRunnerGithub(
   repositories: Repositories,
   options: RunnerGithubOptions = {},
-): () => RunnerGithub {
-  let cached: { key: string; github: RunnerGithub } | null = null
-  return () => {
-    const row = repositories.sources
-      .listByKind('github')
-      .find((source) => source.enabled && source.hasToken)
-    const key = row ? `${row.id}:${row.updatedAt.getTime()}` : ''
+): RunnerGithubFor {
+  const cache = new Map<number, { key: string; github: RunnerGithub }>()
+  return (repoId) => {
+    const row = sourceRowOf(repositories, repoId)
+    if (!row) return noSource(repositories, repoId)
+    const key = `${row.updatedAt.getTime()}`
+    const cached = cache.get(row.id)
     if (cached && cached.key === key) return cached.github
-    const github = openRunnerGithub(repositories, options)
-    cached = github.ok ? { key, github } : null
+    const github = openGithubSource(repositories, row, options)
+    if (github.ok) cache.set(row.id, { key, github })
+    else cache.delete(row.id)
     return github
   }
 }

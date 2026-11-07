@@ -68,7 +68,7 @@ function context(
   const polled: number[] = []
   const ctx: RunnerCallbackContext = {
     repositories: repos,
-    github: () => openRunnerGithub(repos, { fetch: github.fetch }),
+    github: (repoId) => openRunnerGithub(repos, repoId, { fetch: github.fetch }),
     now: () => T0,
     pollNow: (id) => polled.push(id),
   }

@@ -23,7 +23,9 @@ export { readAppDeploys, type AppDeploysRead } from './coolify.js'
 export {
   cachedRunnerGithub,
   openRunnerGithub,
+  openGithubSource,
   type RunnerGithub,
+  type RunnerGithubFor,
   type RunnerGithubOptions,
 } from './github.js'
 export {
