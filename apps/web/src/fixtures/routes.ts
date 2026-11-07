@@ -276,6 +276,8 @@ export function fixtureRoute(
         updateCheckEnabled: true,
         supportWindowDays: 180,
         imageScan: 'off',
+        rustBehindReleases: 4,
+        bunBehindReleases: 4,
       })
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))

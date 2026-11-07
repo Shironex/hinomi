@@ -43,7 +43,12 @@ import {
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { readSupportWindowDays, SUPPORT_WINDOW_KEY } from '../../support/index.js'
+import {
+  BEHIND_RELEASES_KEYS,
+  readBehindReleases,
+  readSupportWindowDays,
+  SUPPORT_WINDOW_KEY,
+} from '../../support/index.js'
 import { readUpdateCheckEnabled, UPDATE_CHECK_KEY } from '../../version/index.js'
 import { latestPlans, tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
@@ -55,7 +60,13 @@ function readSettings(repositories: Repositories): SettingsDto {
     ...readScanSettings(repositories.settings),
     updateCheckEnabled: readUpdateCheckEnabled(repositories.settings),
     supportWindowDays: readSupportWindowDays(repositories.settings),
+    ...behindSettings(repositories),
   }
+}
+
+function behindSettings(repositories: Repositories) {
+  const behind = readBehindReleases(repositories.settings)
+  return { rustBehindReleases: behind.rust, bunBehindReleases: behind.bun }
 }
 
 function sourceHealth(source: Source): SourceHealth {
@@ -271,6 +282,12 @@ export function settingsRoutes(deps: ApiDeps) {
       }
       if (body.imageScan !== undefined) {
         repositories.settings.set(SCAN_SETTING_KEYS.imageScan, body.imageScan)
+      }
+      if (body.rustBehindReleases !== undefined) {
+        repositories.settings.set(BEHIND_RELEASES_KEYS.rust, body.rustBehindReleases)
+      }
+      if (body.bunBehindReleases !== undefined) {
+        repositories.settings.set(BEHIND_RELEASES_KEYS.bun, body.bunBehindReleases)
       }
     })
     if (body.scanIntervalMinutes !== undefined) scheduler.reschedule()

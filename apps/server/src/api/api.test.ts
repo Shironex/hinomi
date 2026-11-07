@@ -372,16 +372,22 @@ describe('settings', () => {
       updateCheckEnabled: true,
       supportWindowDays: 90,
       imageScan: 'off',
+      rustBehindReleases: 4,
+      bunBehindReleases: 4,
     })
     expect((await call('PATCH', '/settings', { scanIntervalMinutes: 5 })).status).toBe(400)
     expect((await call('PATCH', '/settings', { imageScan: 'sidecar' })).status).toBe(400)
     expect((await call('PATCH', '/settings', {})).status).toBe(400)
     expect((await call('PATCH', '/settings', { supportWindowDays: 0 })).status).toBe(400)
+    expect((await call('PATCH', '/settings', { rustBehindReleases: 0 })).status).toBe(400)
+    expect((await call('PATCH', '/settings', { bunBehindReleases: 51 })).status).toBe(400)
     const updated = await call('PATCH', '/settings', {
       scanIntervalMinutes: 30,
       includeAccountRepos: true,
       supportWindowDays: 30,
       imageScan: 'coolify',
+      rustBehindReleases: 6,
+      bunBehindReleases: 2,
     })
     expect(updated.json).toEqual({
       scanIntervalMinutes: 30,
@@ -390,6 +396,8 @@ describe('settings', () => {
       updateCheckEnabled: true,
       supportWindowDays: 30,
       imageScan: 'coolify',
+      rustBehindReleases: 6,
+      bunBehindReleases: 2,
     })
   })
 })

@@ -35,4 +35,9 @@ export {
   type SupportRelease,
 } from './products.js'
 export { normalizePurl, purlKey } from './purl.js'
-export { readSupportWindowDays, SUPPORT_WINDOW_KEY } from './settings.js'
+export {
+  BEHIND_RELEASES_KEYS,
+  readBehindReleases,
+  readSupportWindowDays,
+  SUPPORT_WINDOW_KEY,
+} from './settings.js'

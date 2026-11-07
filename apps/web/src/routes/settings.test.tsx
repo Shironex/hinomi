@@ -210,6 +210,8 @@ describe('settings', () => {
         updateCheckEnabled: true,
         supportWindowDays: 90,
         imageScan: 'off',
+        rustBehindReleases: 4,
+        bunBehindReleases: 4,
       },
     })
     const user = userEvent.setup()

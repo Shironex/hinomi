@@ -7097,13 +7097,16 @@ const guardInfoSchema = object({
 const guardsResponseSchema = object({ items: array(guardInfoSchema) });
 const SCAN_INTERVAL_MIN_MINUTES = 15;
 const SCAN_INTERVAL_MAX_MINUTES = 10080;
+const behindReleases = number$1().int().min(1).max(50);
 const settingsSchema = object({
 	scanIntervalMinutes: number$1().int().min(15).max(SCAN_INTERVAL_MAX_MINUTES),
 	osvEnabled: boolean(),
 	includeAccountRepos: boolean(),
 	updateCheckEnabled: boolean(),
 	supportWindowDays: number$1().int().min(1).max(365),
-	imageScan: imageScanModeSchema
+	imageScan: imageScanModeSchema,
+	rustBehindReleases: behindReleases,
+	bunBehindReleases: behindReleases
 });
 const updateSettingsRequestSchema = strictObject(settingsSchema.partial().shape).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 const availableUpdateSchema = object({
