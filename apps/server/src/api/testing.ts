@@ -8,7 +8,13 @@ import { createNotifier, SmtpError, type MailMessage, type ResolvedEmail } from 
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, RunScanOptions, ScanSources, ScanSummary } from '../scan/index.js'
 import { createScheduler } from '../scheduler/index.js'
-import { createGithubWebhookReceiver } from '../webhook/index.js'
+import { createRunnerCallbackHandler, openRunnerGithub } from '../runner/index.js'
+import {
+  createGithubWebhookReceiver,
+  createRunnerCallbackReceiver,
+  createWebhookRunnerTransport,
+  type RunnerPostRequest,
+} from '../webhook/index.js'
 import type { ApiOptions } from './index.js'
 import { currentTime } from '@hinomi/shared'
 
@@ -164,6 +170,29 @@ export function createTestApi({
     log: logger.log,
     pollNow: () => [],
   })
+  // The webhook runner posts to a recorder; the callback moves runs through the real handler.
+  const runnerPosts: RunnerPostRequest[] = []
+  const runnerAnswer = { status: 202 }
+  const runnerCallback = createRunnerCallbackReceiver({
+    repositories: repos,
+    secretBox: withSecret ? createSecretBox(TEST_SECRET) : null,
+    log: logger.log,
+    handle: createRunnerCallbackHandler({
+      repositories: repos,
+      github: () => openRunnerGithub(repos, sourceFetch ? { fetch: sourceFetch } : {}),
+      now: currentTime,
+    }),
+  })
+  const webhookRunner = {
+    receiver: runnerCallback,
+    transport: createWebhookRunnerTransport({
+      settings: runnerCallback.settings,
+      post: (request) => {
+        runnerPosts.push(request)
+        return Promise.resolve({ status: runnerAnswer.status, body: '', location: null })
+      },
+    }),
+  }
   const app = createApp({
     api: {
       repositories: repos,
@@ -174,6 +203,7 @@ export function createTestApi({
       ...(sourceFetch && { sourceFetch }),
       ...(fixRunTracking && { fixRunTracking }),
       githubWebhook,
+      webhookRunner,
     },
   })
 
@@ -208,6 +238,9 @@ export function createTestApi({
     deliveryStatus,
     onDigestHourChanged,
     githubWebhook,
+    runnerCallback,
+    runnerPosts,
+    runnerAnswer,
   }
 }
 

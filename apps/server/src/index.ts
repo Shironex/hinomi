@@ -4,7 +4,11 @@ import { createApp, createWebhookApp } from './app.js'
 import { loadConfig } from './config.js'
 import { createConsoleLogger } from './log.js'
 import { createNotifier, readNotifySettings } from './notify/index.js'
-import { createFixRunTracker } from './runner/index.js'
+import {
+  cachedRunnerGithub,
+  createFixRunTracker,
+  createRunnerCallbackHandler,
+} from './runner/index.js'
 import {
   connectNotifier,
   createScheduler,
@@ -14,7 +18,12 @@ import {
   type FixRunTrackingTimer,
 } from './scheduler/index.js'
 import { openStorage } from './storage.js'
-import { createGithubWebhookReceiver } from './webhook/index.js'
+import {
+  createGithubWebhookReceiver,
+  createRunnerCallbackReceiver,
+  createWebhookRunnerTransport,
+} from './webhook/index.js'
+import { currentTime } from '@hinomi/shared'
 
 const log = createConsoleLogger()
 const config = loadConfig()
@@ -88,6 +97,27 @@ const githubWebhook = createGithubWebhookReceiver({
   },
 })
 
+// The webhook runner: plans go out through the transport (signed, address guarded), results come
+// back on the callback path and move the run like a poll would.
+const runnerCallback = createRunnerCallbackReceiver({
+  repositories: storage.repositories,
+  secretBox: storage.secretBox,
+  log,
+  dedicatedPort: config.webhookPort,
+  handle: createRunnerCallbackHandler({
+    repositories: storage.repositories,
+    github: cachedRunnerGithub(storage.repositories),
+    now: currentTime,
+    pollNow: (runId) => {
+      if (tracker.pollNow((run) => run.id === runId).length > 0) tracking?.wake()
+    },
+  }),
+})
+const webhookRunner = {
+  receiver: runnerCallback,
+  transport: createWebhookRunnerTransport({ settings: runnerCallback.settings }),
+}
+
 const app = createApp({
   webDistDir: config.webDistDir,
   api: {
@@ -97,6 +127,7 @@ const app = createApp({
     notifications: { notifier, onDigestHourChanged: () => digest?.rearm() },
     fixRunTracking: tracker,
     githubWebhook,
+    webhookRunner,
   },
   access: {
     ...(config.trustedProxies.length > 0 && {
@@ -121,12 +152,12 @@ const webhookServer =
     ? null
     : serve(
         {
-          fetch: createWebhookApp(githubWebhook, log).fetch,
+          fetch: createWebhookApp(githubWebhook, log, runnerCallback).fetch,
           hostname: config.host,
           port: config.webhookPort,
         },
         (info) => {
-          log.info('github webhook listening (webhook path only)', {
+          log.info('webhooks listening (webhook paths only)', {
             url: `http://${info.address}:${info.port}`,
           })
         },

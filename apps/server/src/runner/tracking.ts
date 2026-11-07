@@ -21,6 +21,8 @@ export const FIX_RUN_TRACKING = {
   runLostAfterMs: 40 * MINUTE,
   /** Dispatched or queued for longer than this: no runner ever picked it up. */
   queueLostAfterMs: 6 * HOUR,
+  /** A webhook or local run without a result this long after the dispatch is lost. */
+  externalLostAfterMs: 2 * HOUR,
   /** A successful run without its result artifact yet is asked again for this long. */
   artifactWaitMs: 5 * MINUTE,
   /** PR open, checks pending: PR and checks every 2 minutes. */
@@ -68,12 +70,13 @@ export type FixRunTrackingConfig = { [K in keyof typeof FIX_RUN_TRACKING]: numbe
 
 /**
  * What polling does with a run: `link` finds its workflow run by run name, `run` follows the
- * workflow run, `publish` opens the fix PR, `pr` follows the PR and its checks, `ended_run` and
+ * workflow run, `wait` waits for the result of a webhook or local run (no request, only the
+ * lost timeout), `publish` opens the fix PR, `pr` follows the PR and its checks, `ended_run` and
  * `ended_pr` watch a recently ended run for a re-run or a reopened PR, `deploy` links a merged
  * run to the Coolify deploys that ship it, `verify` rescans the repo and compares the findings.
  */
 export type TrackingPhase =
-  'link' | 'run' | 'publish' | 'pr' | 'ended_run' | 'ended_pr' | 'deploy' | 'verify'
+  'link' | 'run' | 'wait' | 'publish' | 'pr' | 'ended_run' | 'ended_pr' | 'deploy' | 'verify'
 
 const BEFORE_PUSH: readonly FixRunState[] = ['pending', 'dispatched', 'queued', 'running']
 export const TRACKED_PR_STATES: readonly FixRunState[] = [
@@ -133,7 +136,11 @@ export function trackingPhase(
   now: Date,
   config: FixRunTrackingConfig = FIX_RUN_TRACKING,
 ): TrackingPhase | null {
-  if (BEFORE_PUSH.includes(run.state)) return run.githubRunId === null ? 'link' : 'run'
+  if (BEFORE_PUSH.includes(run.state)) {
+    // Webhook and local results arrive by callback or from the local process, not from GitHub.
+    if (run.runner !== 'github_actions') return 'wait'
+    return run.githubRunId === null ? 'link' : 'run'
+  }
   if (run.state === 'branch_pushed') return 'publish'
   if (TRACKED_PR_STATES.includes(run.state)) return run.prNumber === null ? null : 'pr'
   if (run.state === 'merged' || run.state === 'deployed') return afterMergePhase(run, now, config)
@@ -155,6 +162,8 @@ export function pollIntervalMs(
   config: FixRunTrackingConfig = FIX_RUN_TRACKING,
 ): number {
   switch (phase) {
+    case 'wait':
+      return config.runMs
     case 'link':
     case 'run': {
       const age = now.getTime() - dispatchTime(run).getTime()
@@ -209,6 +218,11 @@ export function lostReason(
   config: FixRunTrackingConfig = FIX_RUN_TRACKING,
 ): string | null {
   const minutes = (ms: number) => Math.round(ms / MINUTE)
+  if (run.runner !== 'github_actions') {
+    if (!BEFORE_PUSH.includes(run.state)) return null
+    if (now.getTime() - dispatchTime(run).getTime() <= config.externalLostAfterMs) return null
+    return `The ${run.runner} runner sent no result within ${minutes(config.externalLostAfterMs)} minutes of the dispatch, so Hinomi stopped waiting for it.`
+  }
   if (run.state === 'running' && run.startedAt) {
     if (now.getTime() - run.startedAt.getTime() > config.runLostAfterMs) {
       return `The workflow run did not finish within ${minutes(config.runLostAfterMs)} minutes of starting, so Hinomi stopped following it.`
