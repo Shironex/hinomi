@@ -11,6 +11,7 @@ import {
   IconUpload,
 } from '@tabler/icons-react'
 import { Field, FieldError } from '@/components/form/field'
+import { SegmentedChoice, type SegmentedOption } from '@/components/form/segmented-choice'
 import { Button } from '@/components/ui/button'
 import { Input, inputClass } from '@/components/ui/input'
 import { checkField, hostOf, isSecretKeyMissing, mutationMessage } from '@/lib/form'
@@ -25,12 +26,12 @@ import {
 } from './connect-shared'
 import { SecretKeyCallout } from './secret-key-callout'
 
-const AUTH_OPTIONS: { value: SourceAuth; label: string; icon: typeof IconKey }[] = [
+const AUTH_OPTIONS: readonly SegmentedOption<SourceAuth>[] = [
   { value: 'token', label: 'Personal access token', icon: IconKey },
   { value: 'github_app', label: 'GitHub App', icon: IconApps },
 ]
 
-/** Token or GitHub App, as a segmented radio group like the channel type picker. */
+/** Token or GitHub App. */
 export function GithubAuthChoice({
   value,
   onChange,
@@ -39,35 +40,12 @@ export function GithubAuthChoice({
   onChange: (next: SourceAuth) => void
 }) {
   return (
-    <fieldset className="flex flex-col gap-1.5">
-      <legend className="mb-1.5 text-sm font-medium">Connect with</legend>
-      <div className="inline-flex w-fit flex-wrap gap-0.5 rounded-md bg-muted p-0.5">
-        {AUTH_OPTIONS.map((option) => {
-          const OptionIcon = option.icon
-          return (
-            <label
-              key={option.value}
-              className={cn(
-                'inline-flex cursor-pointer items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs text-foreground-2 transition-colors has-focus-visible:outline-2 has-focus-visible:outline-ring hover:text-foreground',
-                value === option.value &&
-                  'bg-card text-foreground shadow-[0_1px_2px_oklch(0.2_0.02_265/0.12)]',
-              )}
-            >
-              <input
-                type="radio"
-                name="github-auth"
-                value={option.value}
-                checked={value === option.value}
-                onChange={() => onChange(option.value)}
-                className="sr-only"
-              />
-              <OptionIcon aria-hidden="true" className="size-3.5" stroke={1.75} />
-              {option.label}
-            </label>
-          )
-        })}
-      </div>
-    </fieldset>
+    <SegmentedChoice
+      legend="Connect with"
+      options={AUTH_OPTIONS}
+      value={value}
+      onChange={onChange}
+    />
   )
 }
 
