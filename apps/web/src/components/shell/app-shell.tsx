@@ -9,6 +9,7 @@ import { findSearchInput, focusSearchInput } from '@/lib/search'
 import { getActiveSplit } from '@/lib/split-nav'
 import { cycleTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
+import { OfflineBanner } from '@/components/states/offline-banner'
 import { PublicAccessBanner } from './access-status'
 import { IconRail } from './icon-rail'
 import { KeyHintBar } from './key-hints'
@@ -75,6 +76,7 @@ export function AppShell() {
       <ShellContext.Provider value={shell}>
         <div className="flex min-h-svh flex-col">
           <PublicAccessBanner />
+          <OfflineBanner />
           <main id="main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
             <Outlet />
           </main>
@@ -101,6 +103,7 @@ export function AppShell() {
         <div className={cn('flex min-w-0 flex-1 flex-col', splitWide && 'h-dvh')}>
           {splitWide ? null : <TopBar className={split ? undefined : 'sticky top-0 z-10'} />}
           <PublicAccessBanner />
+          <OfflineBanner />
           <main
             id="main"
             tabIndex={-1}

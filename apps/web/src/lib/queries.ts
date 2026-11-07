@@ -10,7 +10,11 @@ import { api, ApiError } from './api'
 export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
+      // Try the request even when the browser says it is offline, so a view fails with the offline
+      // message instead of waiting paused behind a skeleton. Queries refetch when it comes back.
+      mutations: { networkMode: 'always' },
       queries: {
+        networkMode: 'always',
         staleTime: 30_000,
         refetchOnWindowFocus: false,
         // Retrying a 4xx or a contract mismatch never helps; retry network blips twice.
