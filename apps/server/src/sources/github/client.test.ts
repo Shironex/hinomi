@@ -54,6 +54,29 @@ describe('github client', () => {
     expect(result.status).toBe(404)
   })
 
+  it('sends a write with its JSON body and never repeats it after a 5xx or a network error', async () => {
+    const { client: c, requests } = client([{ status: 204 }])
+    const ok = await c.rest('/repos/kestrel-co/harbor/dispatches', {
+      method: 'POST',
+      body: { ref: 'main' },
+    })
+    expect(ok.status).toBe(204)
+    expect(requests[0]).toMatchObject({ method: 'POST', body: { ref: 'main' } })
+
+    const failed = client([{ status: 502 }, { status: 204 }])
+    await expect(failed.client.rest('/x', { method: 'POST', body: {} })).rejects.toMatchObject({
+      kind: 'http',
+      status: 502,
+    })
+    expect(failed.requests).toHaveLength(1)
+
+    const offline = client([new TypeError('socket hang up'), { status: 204 }])
+    await expect(offline.client.rest('/x', { method: 'POST', body: {} })).rejects.toMatchObject({
+      kind: 'network',
+    })
+    expect(offline.requests).toHaveLength(1)
+  })
+
   it('waits for retry-after on a secondary rate limit and never retries earlier', async () => {
     const { client: c, requests } = client([
       { status: 403, headers: { 'retry-after': '30' }, body: { message: 'secondary rate limit' } },
