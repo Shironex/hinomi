@@ -30,6 +30,7 @@ import type { PublishTimes } from './registry.js'
 import { checkReleaseAge, effectiveGate, type RepoGate } from './release-age.js'
 import { repoDirname, type RepoFs } from './repo-fs.js'
 import { atLeast } from './semver.js'
+import { planToolchains, type ToolchainProject, type Toolchains } from './toolchain.js'
 
 // The apply job, start to end: decode and validate the dispatch, match it with the checkout,
 // then per project (one lockfile) reconcile each step with the live lockfile, check its
@@ -392,21 +393,49 @@ export interface DetectOutcome {
   lockfile: string
   /** Repo relative folder of the lockfile. */
   root: string
+  /** The first project's problem, empty when it matched. */
   problem: string
+  /** What to set up for every project that matched the checkout. */
+  toolchains: Toolchains
+  /** One line per project whose package manager could not be matched. */
+  problems: string[]
 }
 
 /**
- * The detect step, before the toolchain is set up: validates the dispatch and names the
- * package manager of the first project, so the workflow knows which tools to install.
+ * The detect step, before the toolchain is set up: validates the dispatch and detects the
+ * package manager of every project, so the workflow installs each tool the dispatch needs
+ * (mixed ecosystems get every manager). The single project outputs name the first project.
  */
 export async function runDetect(inputs: DispatchInputs, fs: RepoFs): Promise<DetectOutcome> {
   const dispatch = await readDispatch(inputs)
-  const first = groupProjects(dispatch.steps)[0]
-  const root = first?.root ?? '.'
+  const projects = groupProjects(dispatch.steps)
+  const matched: ToolchainProject[] = []
+  const entries: ProjectDetection[] = []
+  for (const project of projects) {
+    const entry = await detectOne(fs, project.root, project.packageManager)
+    if (entry.packageManager !== '') {
+      matched.push({ root: entry.root, packageManager: entry.packageManager })
+    }
+    entries.push(entry)
+  }
+  const first = entries[0] ?? (await detectOne(fs, '.', null))
+  const problems = entries
+    .filter((entry) => entry.problem !== '')
+    .map((entry) => `${entry.root}: ${entry.problem}`)
+  const toolchains = await planToolchains(fs, matched)
+  return { dispatch, ...first, toolchains, problems }
+}
+
+type ProjectDetection = Omit<DetectOutcome, 'dispatch' | 'toolchains' | 'problems'>
+
+async function detectOne(
+  fs: RepoFs,
+  root: string,
+  expected: StepPackageManager | null,
+): Promise<ProjectDetection> {
   const detected = await detectProject(fs, root)
   if (!detected.ok) {
     return {
-      dispatch,
       packageManager: '',
       packageManagerVersion: '',
       lockfile: '',
@@ -414,18 +443,16 @@ export async function runDetect(inputs: DispatchInputs, fs: RepoFs): Promise<Det
       problem: detected.problem,
     }
   }
-  const { project } = detected
-  const mismatch =
-    first && first.packageManager !== project.packageManager
-      ? `the dispatch says ${first.packageManager}, the checkout has ${project.packageManager}`
-      : ''
+  const found = detected.project
   return {
-    dispatch,
-    packageManager: project.packageManager,
-    packageManagerVersion: project.declaredVersion ?? '',
-    lockfile: project.lockfile,
+    packageManager: found.packageManager,
+    packageManagerVersion: found.declaredVersion ?? '',
+    lockfile: found.lockfile,
     root,
-    problem: mismatch,
+    problem:
+      expected !== null && expected !== found.packageManager
+        ? `the dispatch says ${expected}, the checkout has ${found.packageManager}`
+        : '',
   }
 }
 

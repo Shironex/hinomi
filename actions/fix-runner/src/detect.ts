@@ -24,6 +24,12 @@ export interface DeclaredPackageManager {
   version: string | null
 }
 
+/** A `packageManager` field and the package.json it was read from. */
+export interface DeclaredIn extends DeclaredPackageManager {
+  /** Repo relative path of that package.json. */
+  file: string
+}
+
 /** Parses a `packageManager` field such as `pnpm@10.34.9+sha512.abc`. */
 export function parsePackageManagerField(value: unknown): DeclaredPackageManager | null {
   if (typeof value !== 'string') return null
@@ -42,14 +48,17 @@ export interface DetectedProject {
 
 export type Detection = { ok: true; project: DetectedProject } | { ok: false; problem: string }
 
-async function declaredIn(fs: RepoFs, root: string): Promise<DeclaredPackageManager | null> {
+/** The `packageManager` field that applies to `root`: its own package.json, else the repo root's. */
+export async function declaredIn(fs: RepoFs, root: string): Promise<DeclaredIn | null> {
   for (const folder of [...new Set([root, '.'])]) {
-    const text = await fs.read(repoJoin(folder, 'package.json'))
+    const file = repoJoin(folder, 'package.json')
+    const text = await fs.read(file)
     if (text === null) continue
     try {
       const { data } = parseJsonFile(text)
       if (isJsonObject(data) && data.packageManager !== undefined) {
-        return parsePackageManagerField(data.packageManager)
+        const declared = parsePackageManagerField(data.packageManager)
+        return declared ? { ...declared, file } : null
       }
     } catch {
       return null

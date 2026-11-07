@@ -7,6 +7,7 @@ import { nodeExec } from './exec.js'
 import { runApply, runDetect, type DispatchInputs } from './pipeline.js'
 import { registryPublishTimes, type HttpFetch } from './registry.js'
 import { nodeRepoFs } from './repo-fs.js'
+import { toolchainOutputs } from './toolchain.js'
 
 // The action entry: reads the inputs, runs the `detect` or `apply` step and sets outputs.
 // The plan reaches this code only through INPUT_PLAN, never through a shell.
@@ -41,12 +42,14 @@ export async function main(io: MainIo): Promise<number> {
     }
     if (step === 'detect') {
       const detected = await runDetect(dispatchInputs, fs)
-      if (detected.problem !== '') log.warning('Detection failed', { problem: detected.problem })
+      for (const problem of detected.problems) log.warning('Detection failed', { problem })
       Object.assign(outputs, {
         package_manager: detected.packageManager,
         package_manager_version: detected.packageManagerVersion,
         lockfile: detected.lockfile,
         project_root: detected.root,
+        ...toolchainOutputs(detected.toolchains),
+        artifact_name: `hinomi-fix-${detected.dispatch.runId}`,
         agent_needed: String(detected.dispatch.options.agent && detected.dispatch.risky.length > 0),
       })
       flush()

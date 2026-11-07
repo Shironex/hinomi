@@ -38,6 +38,8 @@ describe('main', () => {
       lockfile: 'pnpm-lock.yaml',
       project_root: '.',
       agent_needed: 'false',
+      artifact_name: 'hinomi-fix-run-7',
+      package_managers: '',
     })
   })
 
