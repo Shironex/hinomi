@@ -15,6 +15,7 @@ import type { FixRunRow } from '../db/schema.js'
 import { silentLogger, type Logger } from '../log.js'
 import type { Repositories } from '../repository/index.js'
 import { readDelivery, type DeliveryTarget } from './events.js'
+import { DeliveryLog, readCapped } from './primitives.js'
 import { createWebhookSettings, type WebhookSettings } from './settings.js'
 import { verifyGithubSignature } from './signature.js'
 
@@ -77,48 +78,6 @@ function ack(status: GithubWebhookAck['status'], code = 202): Response {
 /** The same answer as any unknown API route, so a closed webhook gives nothing away. */
 function notFound(): Response {
   return failure(404, 'not_found', 'No such API route')
-}
-
-/** Reads at most `max` bytes of the body; null when it is longer. */
-async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
-  if (!request.body) return new Uint8Array(0)
-  const chunks: Uint8Array[] = []
-  let size = 0
-  // Leaving the loop early cancels the stream, so an oversized body is not read to its end.
-  for await (const chunk of request.body as ReadableStream<Uint8Array>) {
-    size += chunk.byteLength
-    if (size > max) return null
-    chunks.push(chunk)
-  }
-  return Buffer.concat(chunks)
-}
-
-/** Delivery ids seen in the replay window, oldest first. */
-class DeliveryLog {
-  readonly #seen = new Map<string, number>()
-  readonly #windowMs: number
-  readonly #max: number
-
-  constructor(windowMs: number, max: number) {
-    this.#windowMs = windowMs
-    this.#max = max
-  }
-
-  /** True when the id was seen inside the window; remembers it otherwise. */
-  replayed(id: string, at: number): boolean {
-    for (const [seenId, seenAt] of this.#seen) {
-      if (seenAt > at - this.#windowMs) break
-      this.#seen.delete(seenId)
-    }
-    if (this.#seen.has(id)) return true
-    this.#seen.set(id, at)
-    while (this.#seen.size > this.#max) {
-      const oldest = this.#seen.keys().next()
-      if (oldest.done) break
-      this.#seen.delete(oldest.value)
-    }
-    return false
-  }
 }
 
 function errorText(error: unknown): string {
