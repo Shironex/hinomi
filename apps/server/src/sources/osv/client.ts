@@ -3,6 +3,7 @@ import {
   osvVulnerabilitySchema,
   type OsvQuery,
   type OsvVulnerability,
+  nowMs,
 } from '@hinomi/shared'
 
 export const OSV_API_URL = 'https://api.osv.dev'
@@ -76,7 +77,7 @@ function retryAfterMs(res: Response): number {
   const seconds = Number(header)
   if (Number.isFinite(seconds)) return seconds * 1000
   const date = Date.parse(header)
-  return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now())
+  return Number.isNaN(date) ? 0 : Math.max(0, date - nowMs())
 }
 
 export function createOsvClient(options: OsvClientOptions = {}): OsvClient {

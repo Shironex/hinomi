@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm'
 import type { z } from 'zod'
 import type { Db } from '../db/client.js'
 import { settings } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 export type SettingsRepository = ReturnType<typeof createSettingsRepository>
 
@@ -27,7 +28,7 @@ export function createSettingsRepository(db: Db) {
     set(key: string, value: unknown): void {
       db.insert(settings)
         .values({ key, value })
-        .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } })
+        .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: currentTime() } })
         .run()
     },
 

@@ -4,6 +4,7 @@ import {
   type ScanRunStatus,
   type ScanTrigger,
   type SourceKind,
+  currentTime,
 } from '@hinomi/shared'
 import type { RepoRow, ScanSourceResult } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
@@ -349,7 +350,7 @@ export async function runScan(
   sources: ScanSources,
   options: RunScanOptions = {},
 ): Promise<ScanSummary> {
-  const now = options.now ?? (() => new Date())
+  const now = options.now ?? (() => currentTime())
   const ctx: ScanContext = {
     repositories: storage.repositories,
     sources,

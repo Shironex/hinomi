@@ -1,4 +1,4 @@
-import { accessStatusSchema, type AccessStatus } from '@hinomi/shared'
+import { accessStatusSchema, type AccessStatus, nowMs } from '@hinomi/shared'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   createCfAccessVerifier,
@@ -114,7 +114,7 @@ describe('GET /api/access', () => {
 
   describe('cloudflare_access', () => {
     it('reports a verified token with its email', async () => {
-      const token = await signer.sign(accessClaims(Date.now()))
+      const token = await signer.sign(accessClaims(nowMs()))
       expect(await access(BRIDGE, { 'Cf-Access-Jwt-Assertion': token }, verifierOptions())).toEqual(
         {
           state: 'cloudflare_access',
@@ -146,7 +146,7 @@ describe('GET /api/access', () => {
           fetch: certsFetch(() => 'down').fetch,
         }),
       }
-      const token = await signer.sign(accessClaims(Date.now()))
+      const token = await signer.sign(accessClaims(nowMs()))
       expect(await access(BRIDGE, { 'Cf-Access-Jwt-Assertion': token }, options)).toMatchObject({
         state: 'cloudflare_access',
         verified: false,
@@ -155,7 +155,7 @@ describe('GET /api/access', () => {
     })
 
     it('ignores a forged token when verification is on', async () => {
-      const forged = await forger.sign(accessClaims(Date.now()))
+      const forged = await forger.sign(accessClaims(nowMs()))
       expect(
         await access(PUBLIC, { 'Cf-Access-Jwt-Assertion': forged }, verifierOptions()),
       ).toEqual({ state: 'public', address: PUBLIC, forwarded: false })
@@ -165,7 +165,7 @@ describe('GET /api/access', () => {
     })
 
     it('ranks a verified token above a Tailscale address', async () => {
-      const token = await signer.sign(accessClaims(Date.now()))
+      const token = await signer.sign(accessClaims(nowMs()))
       expect(
         await access(TAILNET, { 'Cf-Access-Jwt-Assertion': token }, verifierOptions()),
       ).toMatchObject({ state: 'cloudflare_access', verified: true })

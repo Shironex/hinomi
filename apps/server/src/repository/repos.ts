@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { repos, type RepoRow } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 export interface UpsertRepoInput {
   owner: string
@@ -52,13 +53,13 @@ export function createReposRepository(db: Db) {
         .values({ ...key, ...fields })
         .onConflictDoUpdate({
           target: [repos.owner, repos.name],
-          set: { ...fields, updatedAt: new Date() },
+          set: { ...fields, updatedAt: currentTime() },
         })
         .returning()
         .get()
     },
 
-    markScanned(id: number, at: Date = new Date()): void {
+    markScanned(id: number, at: Date = currentTime()): void {
       db.update(repos).set({ lastScannedAt: at }).where(eq(repos.id, id)).run()
     },
 

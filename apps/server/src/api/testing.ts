@@ -8,6 +8,7 @@ import { createNotifier, SmtpError, type MailMessage, type ResolvedEmail } from 
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, RunScanOptions, ScanSources, ScanSummary } from '../scan/index.js'
 import { createScheduler } from '../scheduler/index.js'
+import { currentTime } from '@hinomi/shared'
 
 // Test helpers for the API and scheduler. Every name and domain is fictional.
 
@@ -35,7 +36,7 @@ export function controllableScan() {
       options: RunScanOptions,
     ): Promise<ScanSummary> => {
       calls.push(options)
-      const clock = options.now ?? (() => new Date())
+      const clock = options.now ?? (() => currentTime())
       const startedAt = clock()
       const run = storage.repositories.scanRuns.start(options.trigger ?? 'manual', startedAt)
       options.onProgress?.({ phase: 'alerts', done: 0, total: 2, skipped: ['lockfiles'] })
@@ -208,7 +209,7 @@ export function seedWorld(repos: Repositories) {
     alertsEnabled: true,
   })
   const other = repos.repos.upsert({ owner: 'kestrel-co', name: 'docs', alertsEnabled: false })
-  const now = new Date()
+  const now = currentTime()
   const web = repos.deployments.upsert(
     {
       sourceId: coolify.id,
@@ -303,7 +304,7 @@ export function seedWorld(repos: Repositories) {
  * accepted, dismissed upstream, fixed, patched in the lockfile, a blind spot and a coverage note.
  */
 export function seedFixWorld(repos: Repositories) {
-  const now = new Date()
+  const now = currentTime()
   const source = repos.sources.create({
     kind: 'coolify',
     name: 'main',

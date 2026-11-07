@@ -5,6 +5,8 @@ import {
   findingDetailSchema,
   findingsResponseSchema,
   overviewResponseSchema,
+  currentTime,
+  nowMs,
 } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import type { ScanSummary } from '../scan/index.js'
@@ -12,7 +14,7 @@ import { createTestApi, seedWorld } from './testing.js'
 
 // Endpoints and fields added for the views (#33). Every name and domain is fictional.
 
-const future = (days = 7) => new Date(Date.now() + days * 86_400_000).toISOString()
+const future = (days = 7) => new Date(nowMs() + days * 86_400_000).toISOString()
 const HOOK_URL = 'https://hooks.example.dev/hinomi/fictional-0001'
 
 function errorOf(json: unknown) {
@@ -159,7 +161,7 @@ describe('finding detail', () => {
         reportedBy: ['osv'],
         dependencyPath: ['kestrel-http', 'left-pad-ng'],
       },
-      new Date(),
+      currentTime(),
     )
     const detail = findingDetailSchema.parse(
       (await call('GET', `/findings/${world.critical.id}`)).json,

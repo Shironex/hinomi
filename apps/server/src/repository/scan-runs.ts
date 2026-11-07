@@ -2,6 +2,7 @@ import type { ScanRunStatus, ScanTrigger, SourceKind } from '@hinomi/shared'
 import { desc, eq } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { scanRuns, type ScanRunRow, type ScanSourceResult } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 export interface FinishScanRunInput {
   status: Exclude<ScanRunStatus, 'running'>
@@ -19,12 +20,16 @@ export function createScanRunsRepository(db: Db) {
       return db.select().from(scanRuns).where(eq(scanRuns.id, id)).get()
     },
 
-    start(trigger: ScanTrigger, at: Date = new Date()): ScanRunRow {
+    start(trigger: ScanTrigger, at: Date = currentTime()): ScanRunRow {
       return db.insert(scanRuns).values({ trigger, startedAt: at }).returning().get()
     },
 
     /** Closes a run with its outcome; durationMs is computed from startedAt. */
-    finish(id: number, input: FinishScanRunInput, at: Date = new Date()): ScanRunRow | undefined {
+    finish(
+      id: number,
+      input: FinishScanRunInput,
+      at: Date = currentTime(),
+    ): ScanRunRow | undefined {
       const run = db.select().from(scanRuns).where(eq(scanRuns.id, id)).get()
       if (!run) return undefined
       return db

@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm'
 import { SecretKeyMissingError, type SecretBox } from '../crypto/secret-box.js'
 import type { Db } from '../db/client.js'
 import { sources, type SourceRow } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 /**
  * A source as the rest of the app sees it. The secret is never part of it:
@@ -172,7 +173,7 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
     },
 
     /** Records a successful sync and clears the last error. */
-    markOk(id: number, at: Date = new Date()): void {
+    markOk(id: number, at: Date = currentTime()): void {
       db.update(sources)
         .set({ lastOkAt: at, lastError: null, lastErrorAt: null })
         .where(eq(sources.id, id))
@@ -180,7 +181,7 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
     },
 
     /** Records a failed sync. The message is shown in the UI: never include a token in it. */
-    markError(id: number, message: string, at: Date = new Date()): void {
+    markError(id: number, message: string, at: Date = currentTime()): void {
       db.update(sources)
         .set({ lastErrorAt: at, lastError: message })
         .where(eq(sources.id, id))

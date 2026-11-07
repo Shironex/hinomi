@@ -1,6 +1,7 @@
 import { eq, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { advisories, type AdvisoryRow, type NewAdvisoryRow } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 export type UpsertAdvisoryInput = Omit<NewAdvisoryRow, 'id' | 'createdAt' | 'updatedAt'>
 
@@ -20,7 +21,7 @@ export function createAdvisoriesRepository(db: Db) {
         .onConflictDoUpdate({
           target: [advisories.advisoryKey, advisories.ecosystem, advisories.packageName],
           // Key columns are in `input` too; setting them to the same value is a no-op.
-          set: { ...input, updatedAt: new Date() },
+          set: { ...input, updatedAt: currentTime() },
         })
         .returning()
         .get()

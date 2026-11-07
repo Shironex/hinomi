@@ -8,6 +8,7 @@ import {
   type DeploymentRow,
   type NewDeploymentRow,
 } from '../db/schema.js'
+import { currentTime } from '@hinomi/shared'
 
 /** What a deployment source reports for one deployment on each sync. */
 export type UpsertDeploymentInput = Omit<
@@ -78,13 +79,13 @@ export function createDeploymentsRepository(db: Db) {
      * Inserts or updates a deployment by (sourceId, externalId) and bumps
      * lastSeenAt. firstSeenAt is kept from the first sync.
      */
-    upsert(input: UpsertDeploymentInput, seenAt: Date = new Date()): DeploymentRow {
+    upsert(input: UpsertDeploymentInput, seenAt: Date = currentTime()): DeploymentRow {
       return db
         .insert(deployments)
         .values({ ...input, firstSeenAt: seenAt, lastSeenAt: seenAt })
         .onConflictDoUpdate({
           target: [deployments.sourceId, deployments.externalId],
-          set: { ...input, lastSeenAt: seenAt, updatedAt: new Date() },
+          set: { ...input, lastSeenAt: seenAt, updatedAt: currentTime() },
         })
         .returning()
         .get()

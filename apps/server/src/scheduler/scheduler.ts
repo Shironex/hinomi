@@ -3,6 +3,7 @@ import {
   SCAN_INTERVAL_MAX_MINUTES,
   SCAN_INTERVAL_MIN_MINUTES,
   type ScanTrigger,
+  currentTime,
 } from '@hinomi/shared'
 import { z } from 'zod'
 import { readOnboarding } from '../api/routes/onboarding.js'
@@ -152,7 +153,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   const { repositories } = options
   const log = options.log ?? silentLogger
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
-  const now = options.now ?? (() => new Date())
+  const now = options.now ?? (() => currentTime())
   const build = options.buildSources ?? ((repos: Repositories) => buildScanSources(repos))
   const scan = options.runScan ?? runScan
   const setTimer = options.setTimer ?? defaultSetTimer
