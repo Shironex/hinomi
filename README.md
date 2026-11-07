@@ -58,10 +58,18 @@ I built it for my own servers: a dozen apps on Coolify, one person looking after
   </tr>
   <tr>
     <td width="50%"><img src="assets/showcase/fixes.webp" alt="Hinomi: By fix" /></td>
-    <td width="50%"><img src="assets/showcase/deployments.webp" alt="Hinomi: Deployments" /></td>
+    <td width="50%"><img src="assets/showcase/fix-plan.webp" alt="Hinomi: Fix plan" /></td>
   </tr>
   <tr>
     <td align="center"><sub>By fix: the package bumps that clear the most findings, across repos and apps.</sub></td>
+    <td align="center"><sub>Fix plan: the safe steps of one repo as the diff its pull request makes, with the runner setup.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/showcase/fix-run.webp" alt="Hinomi: Fix run" /></td>
+    <td width="50%"><img src="assets/showcase/deployments.webp" alt="Hinomi: Deployments" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Fix run: where the run stands, its pull request and the failed checks first.</sub></td>
     <td align="center"><sub>Deployments: every app by server, shaded by exposure, with blind spots marked.</sub></td>
   </tr>
   <tr>
@@ -89,6 +97,10 @@ I built it for my own servers: a dozen apps on Coolify, one person looking after
   </tr>
   <tr>
     <td width="50%"><img src="assets/showcase/light/fixes.webp" alt="Hinomi: By fix, light theme" /></td>
+    <td width="50%"><img src="assets/showcase/light/fix-plan.webp" alt="Hinomi: Fix plan, light theme" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/showcase/light/fix-run.webp" alt="Hinomi: Fix run, light theme" /></td>
     <td width="50%"><img src="assets/showcase/light/deployments.webp" alt="Hinomi: Deployments, light theme" /></td>
   </tr>
   <tr>
