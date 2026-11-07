@@ -5,7 +5,19 @@ export default {
     'scope-enum': [
       2,
       'always',
-      ['repo', 'server', 'web', 'shared', 'sources', 'infra', 'ci', 'deps', 'docs', 'spec'],
+      [
+        'repo',
+        'server',
+        'web',
+        'shared',
+        'sources',
+        'runner',
+        'infra',
+        'ci',
+        'deps',
+        'docs',
+        'spec',
+      ],
     ],
   },
 }
