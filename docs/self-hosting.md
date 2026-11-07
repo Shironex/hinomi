@@ -23,7 +23,7 @@ A hand built image reports itself as `dev`. To record the commit, add `--build-a
 
 The rail footer shows the running version (hover for the build commit), and Settings, About lists the version, commit, build date, release notes link and image tag. The release workflow bakes these in through the `HINOMI_BUILD_VERSION`, `HINOMI_BUILD_COMMIT` and `HINOMI_BUILD_DATE` build args; `GET /api/version` serves them.
 
-Once a day (and shortly after boot) Hinomi reads the latest final release from the GitHub releases API: one unauthenticated GET with an ETag and nothing else, no version, no instance id. When a newer release exists, the rail and About say so and link its notes; upgrade with `HINOMI_VERSION=<version> docker compose up -d` or by pulling the image tag. Pre-releases are ignored unless the running build is itself a pre-release. A dev build never checks. It is the only outbound call Hinomi makes that is not to a source you connected, and Settings, About, "Check for new releases" turns it off. Offline or rate limited, it fails quietly.
+Once a day (and shortly after boot) Hinomi reads the latest final release from the GitHub releases API: one unauthenticated GET with an ETag and nothing else, no version, no instance id. When a newer release exists, the rail and About say so and link its notes; upgrade with `HINOMI_VERSION=<version> docker compose up -d` or by pulling the image tag. Pre-releases are ignored unless the running build is itself a pre-release. A dev build never checks. It is the only outbound call Hinomi makes that is not to a source you connected (apart from the registries your images name, when you turn the `sbom` [image scan](#image-scan) on), and Settings, About, "Check for new releases" turns it off. Offline or rate limited, it fails quietly.
 
 ## Configuration in short
 
@@ -230,7 +230,7 @@ Scans run every 6 hours by default and on demand. Change the interval (15 minute
 
 ### Image scan
 
-Deployments that run an image with no git source (a service from a template, an app deployed from a registry image) have no lockfile to read, so they carry an "image only" coverage note. The image scan covers them. It is off by default; turn it on with the `imageScan` setting (`PATCH /api/settings` with `{ "imageScan": "coolify" }`, see [api.md](api.md#settings-and-scans)).
+Deployments that run an image with no git source (a service from a template, an app deployed from a registry image) have no lockfile to read, so they carry an "image only" coverage note. The image scan covers them. It is off by default; turn it on with the `imageScan` setting (`PATCH /api/settings` with `{ "imageScan": "coolify" }` or `{ "imageScan": "sbom" }`, see [api.md](api.md#settings-and-scans)). `coolify` reads Coolify's own results; `sbom` does the same and, for the deployments Coolify does not cover, reads the SBOM the image carries in its registry.
 
 `coolify` reads the scan results Coolify already computed for the image that actually runs: Hinomi asks `GET /api/v1/vulnerabilities` once per instance and scan, then `GET /api/v1/{applications,services,databases}/{uuid}/vulnerabilities` for each image only deployment. Nothing is installed and no image is pulled. What you need:
 
@@ -246,7 +246,21 @@ How it behaves:
 - Advisories become findings reported by `image`, ranked like lockfile advisories on that deployment. A finding ignored in Coolify starts as accepted with the reason "ignored in Coolify". A capped result (Coolify truncated an image's list, or more than 2000 findings) gets a "partial image scan" note and never marks anything fixed.
 - Turning the setting off reopens the "image only" notes. Image findings already stored stay as they were until the setting is on again.
 
-Only image only deployments are scanned for now; apps built from a repo are covered by their lockfiles and alerts. Two other ways to scan images are planned or documented only: an SBOM attestation read from the registry and checked on OSV (a later version), and a scanner sidecar (Trivy or Grype as a second container that pulls and scans every image), which Hinomi does not ship: it needs a vulnerability database of hundreds of MB, registry credentials and image pulls, and on Coolify it would duplicate what Coolify already does.
+#### Registry SBOMs (`sbom`)
+
+With `sbom`, Coolify's results are read first, exactly as above, and win whenever they exist for a deployment. Every other image only deployment (an instance without the endpoint, scanning off for it, a token without access) is looked up in its registry: Hinomi reads the SBOM attestation published with the image and matches its packages on OSV. Nothing is installed and no image layer is pulled.
+
+- It works for images built with an SBOM attestation, the way BuildKit stores one: `docker buildx build --sbom=true`, or `sbom: true` in `docker/build-push-action`. Docker Official Images carry one. Most images do not (many publish provenance only), and each of those says why in a "No image SBOM" note.
+- Public images only, on Docker Hub, ghcr.io and other registries that hand out anonymous pull tokens. A private image is reported as `unauthorized`; Hinomi stores no registry credentials. For private images use Coolify's own results.
+- Matching needs OSV. With OSV switched off, every image says `osv_off` and no registry is asked.
+- Per image: one HEAD for the digest the tag points at (Docker Hub does not count HEAD requests against its pull limit). Only when that digest changed are the image index, the attestation manifest and the SBOM read again; what an SBOM said (or that there is none) is kept per image in the database. The packages are matched on OSV every scan, so new advisories show up without a new image.
+- The platform read is `linux/amd64`, else `linux/arm64`, else the first image in the index.
+- Requests go only to the registry host the image names. Its token service must be on that host or a sibling under its parent domain (Docker Hub: `registry-1.docker.io` and `auth.docker.io`), over https. Redirects (blob storage on a CDN) are followed by hand, at most three, https only, never with the token, and only to hosts that resolve to public addresses. Manifests are capped at 4 MiB and checked against their digest, the SBOM at 32 MiB, every request times out after 20 s. Registries on plain http are not read.
+- Distribution packages are matched under their source package (`glibc`, not `libc6`), which OSV indexes. Syft (BuildKit's default SBOM generator) records it; Docker Scout SBOMs (Docker Official Images) do not, so binary packages whose name differs from their source package are missed there. Language packages (Go modules in a binary, `node_modules`) get the same version check as lockfile findings; distribution versions are left to OSV. Supported: Debian, Ubuntu, Alpine, Wolfi, Chainguard, Rocky Linux and AlmaLinux packages, and npm, PyPI, Go, crates.io, RubyGems, Packagist, Maven, NuGet, Pub and Hex packages. Others are skipped.
+- Bounds: at most 10 images per deployment, 5000 packages per image, 500 vulnerable packages asked for full records and 2000 findings per image. Past a bound, or when an SBOM entry does not parse, the result is partial: the "partial image scan" note opens and nothing is marked fixed. An image of a service that has no SBOM this time leaves the advisories already stored for that deployment alone.
+- A failed read (network, timeout, rate limit) leaves the findings and the "image only" note as they are, says `error` in the note and is tried again next scan. An OSV outage shows on the scan run once.
+
+Only image only deployments are scanned; apps built from a repo are covered by their lockfiles and alerts. A scanner sidecar (Trivy or Grype as a second container that pulls and scans every image) is documented only, and Hinomi does not ship it: it needs a vulnerability database of hundreds of MB, registry credentials and image pulls, and on Coolify it would duplicate what Coolify already does.
 
 ## Troubleshooting
 
