@@ -165,7 +165,7 @@ All tokens are entered in the UI (onboarding or Settings, Sources) and stored en
 
 ### Coolify
 
-Create an API token in Coolify (Keys and Tokens, API tokens) with the **read** permission only. That is enough to list applications, services and servers. Use the panel URL reachable from the Hinomi container.
+Create an API token in Coolify (Keys and Tokens, API tokens) with the **read** permission only. That is enough to list applications, services and servers, and to read Coolify's image scan results when the [image scan](#image-scan) is on. Use the panel URL reachable from the Hinomi container.
 
 ### GitHub
 
@@ -227,6 +227,26 @@ On SIGTERM Hinomi waits up to `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` (25) for a runni
 ### Scan schedule
 
 Scans run every 6 hours by default and on demand. Change the interval (15 minutes to 7 days) under Settings.
+
+### Image scan
+
+Deployments that run an image with no git source (a service from a template, an app deployed from a registry image) have no lockfile to read, so they carry an "image only" coverage note. The image scan covers them. It is off by default; turn it on with the `imageScan` setting (`PATCH /api/settings` with `{ "imageScan": "coolify" }`, see [api.md](api.md#settings-and-scans)).
+
+`coolify` reads the scan results Coolify already computed for the image that actually runs: Hinomi asks `GET /api/v1/vulnerabilities` once per instance and scan, then `GET /api/v1/{applications,services,databases}/{uuid}/vulnerabilities` for each image only deployment. Nothing is installed and no image is pulled. What you need:
+
+- A Coolify version with those endpoints. They were added to Coolify's `next` branch on 2026-11-06 and are not in any tagged release yet: v4.6.0 (2026-11-02) and older do not have them, so expect them in the first release after v4.6.0. This is read from Coolify's source and OpenAPI file, not verified on a running release; check your instance's API reference for a Vulnerabilities section.
+- Image scanning turned on in Coolify for the instance and for each server (Coolify pulls its scanner onto the server and scans the images there).
+- The same read token as for the rest. A token that cannot read the results gets a 403: the scan run and the source show "The Coolify token may not read image scan results (403)", once per instance, and the coverage notes stay.
+
+How it behaves:
+
+- A Coolify without the endpoint (404) is not an error: its deployments keep their "image only" note, and the scan run's Coolify result counts `imageScanUnavailable`. The same holds when image scanning is switched off on the instance.
+- A deployment Coolify does not scan (off for its server or for the resource) keeps its note. While its first scan is still queued or running, the note is left as it is.
+- Results are read again only when Coolify reports a newer scan than the one stored (`image_scanned_at` on the deployment, compared with Coolify's `checked_at`), so unchanged images cost one request per instance.
+- Advisories become findings reported by `image`, ranked like lockfile advisories on that deployment. A finding ignored in Coolify starts as accepted with the reason "ignored in Coolify". A capped result (Coolify truncated an image's list, or more than 2000 findings) gets a "partial image scan" note and never marks anything fixed.
+- Turning the setting off reopens the "image only" notes. Image findings already stored stay as they were until the setting is on again.
+
+Only image only deployments are scanned for now; apps built from a repo are covered by their lockfiles and alerts. Two other ways to scan images are planned or documented only: an SBOM attestation read from the registry and checked on OSV (a later version), and a scanner sidecar (Trivy or Grype as a second container that pulls and scans every image), which Hinomi does not ship: it needs a vulnerability database of hundreds of MB, registry credentials and image pulls, and on Coolify it would duplicate what Coolify already does.
 
 ## Troubleshooting
 
