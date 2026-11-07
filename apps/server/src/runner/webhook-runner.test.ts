@@ -44,7 +44,7 @@ function setup(
   ])
   const runner = new WebhookRunner({
     repositories: repos,
-    github: () => openRunnerGithub(repos, { fetch: github.fetch }),
+    github: (repoId) => openRunnerGithub(repos, repoId, { fetch: github.fetch }),
     delivery,
     now: () => T0,
     correlationId: () => RUN_ID,

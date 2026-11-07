@@ -47,7 +47,7 @@ function setup(
   ])
   const runner = new GithubActionsRunner({
     repositories: repos,
-    github: () => openRunnerGithub(repos, { fetch: github.fetch }),
+    github: (repoId) => openRunnerGithub(repos, repoId, { fetch: github.fetch }),
     now: () => T0,
     correlationId: () => RUN_ID,
   })
@@ -123,7 +123,7 @@ describe('GithubActionsRunner.dispatch', () => {
     let n = 0
     const priv = new GithubActionsRunner({
       repositories: repos,
-      github: () => openRunnerGithub(repos, { fetch: privateGithub.fetch }),
+      github: (repoId) => openRunnerGithub(repos, repoId, { fetch: privateGithub.fetch }),
       now: () => T0,
       correlationId: () => `run-private-${++n}`,
     })
@@ -192,7 +192,7 @@ describe('GithubActionsRunner.dispatch', () => {
     const gone = fakeGithub([])
     const unreadable = new GithubActionsRunner({
       repositories: repos,
-      github: () => openRunnerGithub(repos, { fetch: gone.fetch }),
+      github: (repoId) => openRunnerGithub(repos, repoId, { fetch: gone.fetch }),
     })
     expect(await unreadable.dispatch({ repo: harbor, plan })).toMatchObject({
       created: false,

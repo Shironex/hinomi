@@ -9,7 +9,7 @@ import type { FixRunRow, RepoRow } from '../db/schema.js'
 import { transitionFixRun, type FixRunEvent, type Repositories } from '../repository/index.js'
 import { GithubError, fetchBranchHead } from '../sources/github/index.js'
 import { clipReason } from './dispatch.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import { majorsFailureReason } from './tracker-poll.js'
 
 // What a runner that is not polled on GitHub reports about a run (the webhook runner's callback,
@@ -35,7 +35,7 @@ export type RunReportOutcome =
 
 export interface RunReportContext {
   repositories: Repositories
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   now: () => Date
 }
 
@@ -100,7 +100,7 @@ async function checkHead(
   repo: RepoRow,
   headSha: string,
 ): Promise<RunReportOutcome | null> {
-  const github = context.github()
+  const github = context.github(repo.id)
   if (!github.ok) return { kind: 'unavailable', message: github.message }
   let head: string | null
   try {

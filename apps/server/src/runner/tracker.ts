@@ -6,8 +6,9 @@ import {
   GithubRateLimitError,
   type GithubClient,
   type GithubCompareStatus,
+  type GithubSource,
 } from '../sources/github/index.js'
-import { cachedRunnerGithub, type RunnerGithub } from './github.js'
+import { cachedRunnerGithub, type RunnerGithub, type RunnerGithubFor } from './github.js'
 import { pollFixRun, type PollContext, type RunTrackingState } from './tracker-poll.js'
 import { verifyFromFullScan, type FullScanReport, type RepoRescanner } from './tracker-verify.js'
 import {
@@ -38,7 +39,7 @@ export interface FixRunTrackerOptions {
   /** Overrides cadences and caps (tests). */
   config?: Partial<FixRunTrackingConfig>
   /** Replaces the GitHub source (tests). */
-  github?: () => RunnerGithub
+  github?: RunnerGithubFor
   /**
    * Rescans one repo to verify a deployed (or merged, or empty) fix. Without it, runs that wait
    * for a rescan are verified only by full scans reported through `scanFinished`.
@@ -267,29 +268,36 @@ export function createFixRunTracker(options: FixRunTrackerOptions): FixRunTracke
     const due = list.filter((d) => d.at <= started.getTime())
     if (due.length === 0 || meter.exhausted()) return summary(0, list, started)
 
-    const source = github()
-    if (!source.ok) {
-      for (const { run } of due) {
-        const state = stateOf(run.id)
-        urgent.delete(run.id)
-        state.lastPolledAt = started
-        state.lastError = source.message
+    // Each run polls through its repo's own source; runs of one source share its metered client.
+    const metered = new Map<GithubSource, RunnerGithub & { ok: true }>()
+    const meteredFor = (source: GithubSource) => {
+      let found = metered.get(source)
+      if (!found) {
+        found = { ok: true, source: { ...source, client: meteredClient(source.client, meter) } }
+        metered.set(source, found)
       }
-      return summary(0, followed(now()), now())
+      return found
     }
-    const client = meteredClient(source.source.client, meter)
-    const metered: RunnerGithub = { ok: true, source: { ...source.source, client } }
 
     let polled = 0
     for (const { run, phase } of due) {
       if (meter.exhausted()) break
       const state = stateOf(run.id)
+      const opened = github(run.repoId)
+      if (!opened.ok) {
+        urgent.delete(run.id)
+        state.lastPolledAt = started
+        state.lastError = opened.message
+        continue
+      }
+      const source = meteredFor(opened.source)
+      const client = source.source.client
       state.lastError = null
       if (phase !== 'publish') state.retryAt = null
       const context: PollContext = {
         repositories,
         client,
-        github: () => metered,
+        github: () => source,
         fetch: options.fetch,
         now,
         log,

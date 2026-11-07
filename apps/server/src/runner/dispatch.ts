@@ -16,7 +16,7 @@ import {
   type RunnerRepoMeta,
 } from '../sources/github/index.js'
 import { zlibCompressor } from './compressor.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import type {
   FixRunDispatchCreated,
   FixRunDispatchRefusal,
@@ -39,7 +39,7 @@ export function clipReason(text: string): string {
 export interface PrepareDispatchOptions {
   repositories: Repositories
   /** The GitHub source to read the repo through, opened per dispatch. */
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   compressor?: FixPayloadCompressor
   now?: () => Date
   /** The correlation id. Random by default. */
@@ -62,7 +62,7 @@ export async function prepareDispatch(
   { repo, plan, kind = 'fix' }: FixRunDispatchRequest,
 ): Promise<PreparedDispatch | FixRunDispatchRefusal> {
   const now = options.now ?? currentTime
-  const github = options.github()
+  const github = options.github(repo.id)
   if (!github.ok) return { created: false, code: 'no_source', message: github.message }
   const source = github.source
 

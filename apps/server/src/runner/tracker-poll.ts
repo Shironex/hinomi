@@ -23,7 +23,7 @@ import {
 } from '../sources/github/index.js'
 import { MAX_RESULT_ARTIFACT_BYTES, fixResultArtifactNames, readFixResultZip } from './artifact.js'
 import { callerWorkflowOf } from './github-actions.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import { pollDeployments, verifyRun, type RepoRescanner } from './tracker-verify.js'
 import {
@@ -55,7 +55,7 @@ export interface PollContext {
   repositories: Repositories
   client: GithubClient
   /** The same source as `client`, for the publisher. */
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   fetch: typeof fetch | undefined
   now: () => Date
   log: Logger

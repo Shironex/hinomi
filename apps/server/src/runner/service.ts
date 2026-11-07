@@ -19,7 +19,7 @@ import type { Repositories } from '../repository/index.js'
 import { fetchRunnerRepoMeta, type RunnerRepoMeta } from '../sources/github/index.js'
 import { readCaller, unknownCaller, type LatestFixWorkflow } from './caller.js'
 import { GithubActionsRunner, callerWorkflowOf } from './github-actions.js'
-import { openRunnerGithub, type RunnerGithub } from './github.js'
+import { openRunnerGithub, type RunnerGithubFor } from './github.js'
 import { releaseLatestSource, type LatestFixWorkflowSource } from './latest.js'
 import { probeRunnerPermissions } from './permissions.js'
 import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
@@ -197,8 +197,8 @@ export function createFixRunService(options: FixRunServiceOptions) {
       : null
   const resolveLatest = (): Promise<LatestFixWorkflow | null> =>
     source ? source.get() : Promise.resolve(fixed ?? null)
-  const github = (): RunnerGithub =>
-    openRunnerGithub(repositories, { ...(options.fetch && { fetch: options.fetch }) })
+  const github: RunnerGithubFor = (repoId) =>
+    openRunnerGithub(repositories, repoId, { ...(options.fetch && { fetch: options.fetch }) })
   const webhookDelivery = options.webhookDelivery
   const runners: Record<FixRunnerKind, FixRunner | null> = {
     github_actions: options.runner ?? new GithubActionsRunner({ repositories, github, now }),
@@ -246,7 +246,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
       permissions: NO_PERMISSIONS(message),
       caller: unknownCaller(workflow, message, latest, repo.runnerMajorsAgent),
     })
-    const gh = github()
+    const gh = github(repo.id)
     if (!gh.ok) return unread(gh.message)
     let meta: RunnerRepoMeta
     try {
@@ -323,7 +323,7 @@ export function createFixRunService(options: FixRunServiceOptions) {
       const repo = repositories.repos.get(repoId)
       if (!repo)
         return { kind: 'refused', status: 404, code: 'not_found', message: 'Repo not found' }
-      return openSetupPr({ repo, github: github(), latest: await resolveLatest() })
+      return openSetupPr({ repo, github: github(repo.id), latest: await resolveLatest() })
     },
 
     /**

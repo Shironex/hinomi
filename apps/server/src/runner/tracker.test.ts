@@ -575,6 +575,27 @@ describe('poll now', () => {
     expect((await t.tick()).polled).toBe(0)
   })
 
+  it("polls a run a webhook named through its repo's own GitHub source", async () => {
+    const labs = repos.sources.create({
+      kind: 'github',
+      name: 'kestrel-labs',
+      token: 'github_pat_fictionalLabs000000000000',
+    })
+    repos.repoSources.setOwner(harbor.id, labs.id)
+    const run = dispatched()
+    const { tracker: t, requests } = tracker()
+    await t.tick()
+    advance(5 * SECOND)
+    requests.length = 0
+
+    expect(t.pollNow((r) => r.repoId === harbor.id)).toEqual([run.id])
+    expect((await t.tick()).polled).toBe(1)
+    const sent = new Set(
+      requests.filter((r) => r.host === 'api.github.com').map((r) => r.authorization),
+    )
+    expect([...sent]).toEqual(['Bearer github_pat_fictionalLabs000000000000'])
+  })
+
   it('marks only followed runs the predicate picks', () => {
     const run = dispatched()
     const { tracker: t } = tracker()

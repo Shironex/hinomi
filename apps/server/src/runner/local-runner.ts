@@ -6,7 +6,7 @@ import { currentTime, type FixPayloadCompressor } from '@hinomi/shared'
 import type { Repositories } from '../repository/index.js'
 import { MAX_RESULT_FILE_BYTES } from './artifact.js'
 import { finishDispatch, isRefusal, prepareDispatch, type PreparedDispatch } from './dispatch.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import {
   nodeProcessRunner,
   scrubSecrets,
@@ -57,7 +57,7 @@ export interface LocalRunnerLog {
 
 export interface LocalRunnerOptions {
   repositories: Repositories
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   /** HINOMI_LOCAL_RUNNER. Off: the kind cannot be chosen and nothing is spawned. */
   enabled: boolean
   /** HINOMI_LOCAL_RUNNER_CHECKS: also run install scripts and checks on the host. */

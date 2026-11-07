@@ -7,7 +7,7 @@ import {
 } from '@hinomi/shared'
 import type { Repositories } from '../repository/index.js'
 import { finishDispatch, isRefusal, prepareDispatch } from './dispatch.js'
-import type { RunnerGithub } from './github.js'
+import type { RunnerGithubFor } from './github.js'
 import type { FixRunDispatchOutcome, FixRunDispatchRequest, FixRunner } from './runner.js'
 
 // The webhook runner: the same prepared dispatch as GitHub Actions, posted as a signed JSON body
@@ -25,7 +25,7 @@ export interface WebhookDelivery {
 
 export interface WebhookRunnerOptions {
   repositories: Repositories
-  github: () => RunnerGithub
+  github: RunnerGithubFor
   delivery: WebhookDelivery
   compressor?: FixPayloadCompressor
   now?: () => Date
