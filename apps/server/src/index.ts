@@ -59,6 +59,7 @@ const app = createApp({
     scheduler,
     log,
     notifications: { notifier, onDigestHourChanged: () => digest?.rearm() },
+    fixRunTracking: tracker,
   },
   access: {
     ...(config.trustedProxies.length > 0 && {

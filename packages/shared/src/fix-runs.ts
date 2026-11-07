@@ -147,3 +147,24 @@ export const fixRunSchema = z.object({
   }),
 })
 export type FixRun = z.infer<typeof fixRunSchema>
+
+/**
+ * What the fix run tracker knows about a run. Kept in memory, so it is null after a restart until
+ * the tracker looked at the run again, and for runs it no longer follows.
+ */
+export const fixRunTrackingSchema = z.object({
+  lastPolledAt: isoDate.nullable(),
+  /** Null when the run is no longer polled (it ended, or waits for a deployment or rescan). */
+  nextPollAt: isoDate.nullable(),
+  /** The last GitHub error or refusal while polling, cleared by the next good poll. */
+  lastError: z.string().nullable(),
+  /** Set while polling waits for GitHub's rate limit window. */
+  pausedUntil: isoDate.nullable(),
+})
+export type FixRunTracking = z.infer<typeof fixRunTrackingSchema>
+
+/** GET /api/fix-runs/:id: the run and its tracking state. */
+export const fixRunDetailSchema = fixRunSchema.extend({
+  tracking: fixRunTrackingSchema.nullable(),
+})
+export type FixRunDetail = z.infer<typeof fixRunDetailSchema>

@@ -7037,6 +7037,13 @@ const fixRunSchema = object({
 		stateChanged: isoDate$1
 	})
 });
+const fixRunTrackingSchema = object({
+	lastPolledAt: isoDate$1.nullable(),
+	nextPollAt: isoDate$1.nullable(),
+	lastError: string().nullable(),
+	pausedUntil: isoDate$1.nullable()
+});
+const fixRunDetailSchema = fixRunSchema.extend({ tracking: fixRunTrackingSchema.nullable() });
 
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({ status: literal("ok") });
