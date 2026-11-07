@@ -1,5 +1,5 @@
 import type { FindingTier } from '@hinomi/shared'
-import type { FindingEventRow } from '../db/schema.js'
+import type { FindingEventRow, FixRunRow } from '../db/schema.js'
 import type { SecretBox } from '../crypto/secret-box.js'
 import type { Repositories } from '../repository/index.js'
 import {
@@ -13,6 +13,21 @@ import {
 import { ChannelNotFoundError, createChannelStore, type ResolvedChannel } from './channels.js'
 import { defaultSleep, deliver, type DeliverOptions } from './deliver.js'
 import { createSmtpSender, emailContent, type MailSender } from './email.js'
+import { eventsOf, isEnabled } from './fix-run-events.js'
+import {
+  fixRunDiscord,
+  fixRunEmail,
+  fixRunMessage,
+  fixRunWebhook,
+  type FixRunMessage,
+} from './fix-run-format.js'
+import {
+  markSent,
+  pruneFixRunState,
+  readFixRunState,
+  wasSent,
+  writeFixRunState,
+} from './fix-run-state.js'
 import {
   digestSummary,
   discordMessages,
@@ -36,7 +51,7 @@ import {
   type MessageFinding,
   type NotificationItem,
 } from './items.js'
-import { readNotifySettings } from './settings.js'
+import { readFixRunEvents, readNotifySettings } from './settings.js'
 import { isPrimed, pruneState, readState, writeState, type NotifyState } from './state.js'
 import { currentTime } from '@hinomi/shared'
 
@@ -377,6 +392,57 @@ export function createNotifier(options: NotifierOptions) {
     }
   }
 
+  /** Posts one fix run message to one channel in the channel's own form. */
+  async function sendFixRun(channel: ResolvedChannel, message: FixRunMessage): Promise<void> {
+    if (channel.kind === 'email' && channel.email) {
+      await sendMail(channel.email, {
+        from: channel.email.from,
+        to: channel.email.to,
+        ...fixRunEmail(message),
+      })
+    } else if (channel.kind === 'webhook') {
+      await deliver(channel.url, fixRunWebhook(message, now()), delivery)
+    } else {
+      await deliver(channel.url, fixRunDiscord(message), delivery)
+    }
+  }
+
+  /**
+   * Announces what a changed fix run calls for (see fix-run-events.ts), on every enabled
+   * channel, right away: fix events are rare and a person is waiting on them, so they skip the
+   * scan batching and the digest. Events that are switched off are skipped and not recorded.
+   * Each (run, event, channel) is sent once; the record is written as soon as it is delivered.
+   */
+  async function notifyFixRun(run: FixRunRow): Promise<void> {
+    const switches = readFixRunEvents(repositories.settings)
+    const due = eventsOf(run).filter((event) => isEnabled(event, switches))
+    if (due.length === 0) return
+    const enabled = channels.resolve({ onlyEnabled: true })
+    if (enabled.length === 0) return
+    const repo = repositories.repos.get(run.repoId)
+    if (!repo) return
+    const { publicBaseUrl } = readNotifySettings(repositories.settings)
+    const state = readFixRunState(repositories.settings)
+    pruneFixRunState(state, (id) => repositories.fixRuns.get(id) !== undefined)
+    for (const channel of enabled) {
+      const open = due.filter((event) => !wasSent(state, run.id, event, channel.id))
+      // A PR that opens as a draft because its checks fail is one story: one message, both recorded.
+      const merged = open.includes('pr_opened') && open.includes('checks_failing')
+      for (const event of open) {
+        if (event === 'checks_failing' && merged) continue
+        try {
+          await sendFixRun(channel, fixRunMessage(event, run, repo, publicBaseUrl))
+          markSent(state, run.id, event, channel.id)
+          if (event === 'pr_opened' && merged) markSent(state, run.id, 'checks_failing', channel.id)
+        } catch (error) {
+          // Not recorded: the run's next change tries this channel again.
+          failed(channel, `fix run ${event}`, error)
+        }
+        writeFixRunState(repositories.settings, state)
+      }
+    }
+  }
+
   return {
     /** Manage channels (add, update, remove, list masked). */
     channels,
@@ -388,6 +454,20 @@ export function createNotifier(options: NotifierOptions) {
           await notifyImmediate(summary)
         } catch (error) {
           log.error('notifications for a finished scan failed', {
+            error: error instanceof Error ? error.message : 'unknown error',
+          })
+        }
+      })
+    },
+
+    /** Call after a fix run changed (see `fixRuns.onChanged`). Never throws. */
+    handleFixRunChanged(run: FixRunRow): Promise<void> {
+      return exclusive(async () => {
+        try {
+          await notifyFixRun(run)
+        } catch (error) {
+          log.error('notifications for a fix run failed', {
+            runId: run.id,
             error: error instanceof Error ? error.message : 'unknown error',
           })
         }

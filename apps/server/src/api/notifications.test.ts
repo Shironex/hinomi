@@ -95,6 +95,14 @@ describe('notification settings', () => {
     expect((await call('GET', '/notifications/settings')).json).toEqual({
       publicBaseUrl: null,
       digestHour: 8,
+      fixRunEvents: {
+        prOpened: true,
+        checksFailing: true,
+        verified: true,
+        notCleared: true,
+        failed: true,
+        warnings: true,
+      },
     })
     expect((await call('PATCH', '/notifications/settings', { digestHour: 24 })).status).toBe(400)
     expect(
@@ -105,10 +113,51 @@ describe('notification settings', () => {
       publicBaseUrl: 'https://hinomi.example.dev/',
       digestHour: 18,
     })
-    expect(updated.json).toEqual({ publicBaseUrl: 'https://hinomi.example.dev', digestHour: 18 })
+    expect(updated.json).toMatchObject({
+      publicBaseUrl: 'https://hinomi.example.dev',
+      digestHour: 18,
+    })
     expect(onDigestHourChanged).toHaveBeenCalledTimes(1)
     const cleared = await call('PATCH', '/notifications/settings', { publicBaseUrl: '' })
     expect(cleared.json).toMatchObject({ publicBaseUrl: null })
+  })
+})
+
+describe('fix run event settings', () => {
+  it('switches single events and keeps the others', async () => {
+    const { call, onDigestHourChanged } = createTestApi()
+    const off = await call('PATCH', '/notifications/settings', {
+      fixRunEvents: { warnings: false, verified: false },
+    })
+    expect(off.status).toBe(200)
+    expect(off.json).toMatchObject({
+      fixRunEvents: {
+        prOpened: true,
+        checksFailing: true,
+        verified: false,
+        notCleared: true,
+        failed: true,
+        warnings: false,
+      },
+    })
+    const back = await call('PATCH', '/notifications/settings', {
+      fixRunEvents: { verified: true },
+    })
+    expect((back.json as { fixRunEvents: Record<string, boolean> }).fixRunEvents).toMatchObject({
+      verified: true,
+      warnings: false,
+    })
+    expect((await call('GET', '/notifications/settings')).json).toMatchObject({
+      fixRunEvents: { verified: true, warnings: false },
+    })
+    expect(onDigestHourChanged).not.toHaveBeenCalled()
+  })
+
+  it('refuses unknown events, other types and an empty change', async () => {
+    const { call } = createTestApi()
+    for (const fixRunEvents of [{ merged: true }, { failed: 'no' }, {}]) {
+      expect((await call('PATCH', '/notifications/settings', { fixRunEvents })).status).toBe(400)
+    }
   })
 })
 

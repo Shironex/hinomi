@@ -44,6 +44,8 @@ const notifier = createNotifier({
   log,
 })
 connectNotifier(scheduler, notifier)
+// Fix run changes (a PR opened, checks failing, verified, failed, ...) go to the same channels.
+storage.repositories.fixRuns.onChanged((run) => void notifier.handleFixRunChanged(run))
 let digest: DigestTimer | null = null
 const tracker = createFixRunTracker({
   repositories: storage.repositories,
