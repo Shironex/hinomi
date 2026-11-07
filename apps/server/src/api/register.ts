@@ -3,7 +3,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { silentLogger, type Logger } from '../log.js'
 import { readNotifySettings } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
-import { createFixRunService, type FixRunService } from '../runner/index.js'
+import { createFixRunService, type FixRunService, type FixRunTracker } from '../runner/index.js'
 import type { Scheduler } from '../scheduler/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
@@ -33,6 +33,8 @@ export interface ApiOptions {
   notifications?: NotificationsApiOptions
   /** Runner settings and fix run dispatch. Defaults to the GitHub Actions runner on `sourceFetch`. */
   fixRuns?: FixRunService
+  /** The fix run tracker, for the tracking state on GET /api/fix-runs/:id. */
+  fixRunTracking?: Pick<FixRunTracker, 'status'>
 }
 
 /**
@@ -48,6 +50,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
     log: options.log ?? silentLogger,
     now,
     ...(options.sourceFetch && { sourceFetch: options.sourceFetch }),
+    ...(options.fixRunTracking && { fixRunTracking: options.fixRunTracking }),
     fixRuns:
       options.fixRuns ??
       createFixRunService({

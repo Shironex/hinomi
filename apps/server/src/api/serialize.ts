@@ -12,6 +12,7 @@ import {
   type FixPlan,
   type FixPlanRef,
   type FixRun,
+  type FixRunTracking,
   type ScanRun,
   type SeverityCounts,
   type SourceDto,
@@ -281,5 +282,20 @@ export function toFixRun(row: FixRunRow): FixRun {
       ended: isoOrNull(row.endedAt),
       stateChanged: iso(row.stateChangedAt),
     },
+  }
+}
+
+/** The tracker's state of a run, as GET /api/fix-runs/:id serves it. */
+export function toFixRunTracking(view: {
+  lastPolledAt: Date | null
+  nextPollAt: Date | null
+  lastError: string | null
+  pausedUntil: Date | null
+}): FixRunTracking {
+  return {
+    lastPolledAt: isoOrNull(view.lastPolledAt),
+    nextPollAt: isoOrNull(view.nextPollAt),
+    lastError: view.lastError,
+    pausedUntil: isoOrNull(view.pausedUntil),
   }
 }

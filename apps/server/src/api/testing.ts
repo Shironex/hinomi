@@ -8,6 +8,7 @@ import { createNotifier, SmtpError, type MailMessage, type ResolvedEmail } from 
 import type { Repositories } from '../repository/index.js'
 import type { FindingChange, RunScanOptions, ScanSources, ScanSummary } from '../scan/index.js'
 import { createScheduler } from '../scheduler/index.js'
+import type { ApiOptions } from './index.js'
 import { currentTime } from '@hinomi/shared'
 
 // Test helpers for the API and scheduler. Every name and domain is fictional.
@@ -94,7 +95,12 @@ export function recordingLogger() {
 export function createTestApi({
   withSecret = true,
   sourceFetch,
-}: { withSecret?: boolean; sourceFetch?: typeof fetch } = {}) {
+  fixRunTracking,
+}: {
+  withSecret?: boolean
+  sourceFetch?: typeof fetch
+  fixRunTracking?: ApiOptions['fixRunTracking']
+} = {}) {
   const { handle, repos } = createTestRepositories({ withSecret })
   const scan = controllableScan()
   const logger = recordingLogger()
@@ -158,6 +164,7 @@ export function createTestApi({
       log: logger.log,
       notifications: { notifier, onDigestHourChanged },
       ...(sourceFetch && { sourceFetch }),
+      ...(fixRunTracking && { fixRunTracking }),
     },
   })
 

@@ -1,8 +1,8 @@
 import {
   dispatchFixRunRequestSchema,
   dispatchFixRunResponseSchema,
+  fixRunDetailSchema,
   fixRunReopenRequiredSchema,
-  fixRunSchema,
   fixRunsQuerySchema,
   fixRunsResponseSchema,
   idParamSchema,
@@ -13,7 +13,7 @@ import { Hono, type Context } from 'hono'
 import type { RepoRow } from '../../db/schema.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
-import { toFixRun } from '../serialize.js'
+import { toFixRun, toFixRunTracking } from '../serialize.js'
 
 // The GitHub Actions fix runner per repo (settings, status) and its fix runs (dispatch, list,
 // detail). See docs/api.md "Fix runner and fix runs".
@@ -107,14 +107,18 @@ export function repoFixRunsRoutes(deps: ApiDeps) {
   return app
 }
 
-/** GET /api/fix-runs/:id. */
+/** GET /api/fix-runs/:id: the run with the tracker's state. */
 export function fixRunsRoutes(deps: ApiDeps) {
   const app = new Hono()
   app.get('/:id', (c) => {
     const { id } = readParams(c, idParamSchema)
     const run = deps.repositories.fixRuns.get(id)
     if (!run) throw notFound('Fix run')
-    return send(c, fixRunSchema, toFixRun(run))
+    const tracking = deps.fixRunTracking?.status(run) ?? null
+    return send(c, fixRunDetailSchema, {
+      ...toFixRun(run),
+      tracking: tracking && toFixRunTracking(tracking),
+    })
   })
   return app
 }

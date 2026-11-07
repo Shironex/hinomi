@@ -1,7 +1,7 @@
 import {
   dispatchFixRunResponseSchema,
   fixRunReopenRequiredSchema,
-  fixRunSchema,
+  fixRunDetailSchema,
   fixRunsResponseSchema,
   renderCallerWorkflow,
   runnerStatusSchema,
@@ -38,9 +38,9 @@ function github(extra: FakeRoute[] = []) {
   ])
 }
 
-function setup(extra: FakeRoute[] = []) {
+function setup(extra: FakeRoute[] = [], options: Parameters<typeof createTestApi>[0] = {}) {
   const gh = github(extra)
-  const api = createTestApi({ sourceFetch: gh.fetch })
+  const api = createTestApi({ ...options, sourceFetch: gh.fetch })
   const harbor = api.repos.repos.upsert({ owner: 'kestrel-co', name: 'harbor' })
   return { ...api, harbor, requests: gh.requests }
 }
@@ -174,8 +174,8 @@ describe('POST /api/repos/:id/fix-runs', () => {
       (await call('GET', `/repos/${harbor.id}/fix-runs?kind=fix&limit=5`)).json,
     )
     expect(list.items.map((r) => r.id)).toEqual([body.run.id])
-    const one = fixRunSchema.parse((await call('GET', `/fix-runs/${body.run.id}`)).json)
-    expect(one.correlationId).toBe(body.run.correlationId)
+    const one = fixRunDetailSchema.parse((await call('GET', `/fix-runs/${body.run.id}`)).json)
+    expect(one).toMatchObject({ correlationId: body.run.correlationId, tracking: null })
     expect((await call('GET', '/fix-runs/9999')).status).toBe(404)
     expect((await call('GET', `/repos/${harbor.id}/fix-runs?limit=0`)).status).toBe(400)
 
@@ -226,5 +226,37 @@ describe('POST /api/repos/:id/fix-runs', () => {
     const confirmed = await call('POST', `/repos/${harbor.id}/fix-runs`, { confirmReopen: true })
     expect(confirmed.status).toBe(201)
     expect(dispatchFixRunResponseSchema.parse(confirmed.json).run.state).toBe('dispatched')
+  })
+})
+
+describe('fix run tracking state', () => {
+  it('adds what the tracker knows to a run', async () => {
+    const T1 = new Date('2026-11-07T10:00:20.000Z')
+    const { repos, harbor, call } = setup([], {
+      fixRunTracking: {
+        status: (run) =>
+          run.state === 'dispatched'
+            ? {
+                lastPolledAt: T0,
+                nextPollAt: T1,
+                lastError: 'GitHub answered 502',
+                pausedUntil: null,
+              }
+            : null,
+      },
+    })
+    connectGithubToken(repos)
+    saveRunnerPlan(repos, harbor, T0)
+    await call('PATCH', `/repos/${harbor.id}/runner`, { enabled: true })
+    const created = dispatchFixRunResponseSchema.parse(
+      (await call('POST', `/repos/${harbor.id}/fix-runs`, {})).json,
+    )
+    const one = fixRunDetailSchema.parse((await call('GET', `/fix-runs/${created.run.id}`)).json)
+    expect(one.tracking).toEqual({
+      lastPolledAt: T0.toISOString(),
+      nextPollAt: T1.toISOString(),
+      lastError: 'GitHub answered 502',
+      pausedUntil: null,
+    })
   })
 })
