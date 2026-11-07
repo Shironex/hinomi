@@ -229,7 +229,7 @@ How the fix PR is opened (mode A, Hinomi opens it with its own credential):
 How a fix run is tracked (`apps/server/src/runner/tracker.ts`, cadences in `tracking.ts`):
 
 1. A timer ticks the tracker at least every 20 s. Each tick polls the runs that are due, oldest due first, at most 40 GitHub requests per tick and 600 per rolling hour. Below 500 requests left in GitHub's window (`x-ratelimit-remaining`), or on a rate limit answer (`retry-after`, `x-ratelimit-reset`), polling pauses until the window resets.
-2. Cadence: dispatched, queued and running every 20 s for the first 5 minutes after the dispatch, then every minute; `pr_open` and `checks_pending` every 2 minutes; settled checks every 10 minutes, every hour after 3 days; runs that ended `failed`, `cancelled` or `closed_unmerged` every 30 minutes for 7 days, so a re-run of the workflow (a higher `run_attempt`) or a reopened PR brings the run back without a webhook; merged runs every 2 minutes for the first hour, then every 15 minutes (see below).
+2. Cadence: dispatched, queued and running every 20 s for the first 5 minutes after the dispatch, then every minute; `pr_open` and `checks_pending` every 2 minutes; settled checks every 10 minutes, every hour after 3 days; runs that ended `failed`, `cancelled` or `closed_unmerged` every 30 minutes for 7 days, so a re-run of the workflow (a higher `run_attempt`) or a reopened PR brings the run back even without the [webhook](github-webhook.md), which only polls the runs it names sooner; merged runs every 2 minutes for the first hour, then every 15 minutes (see below).
 3. Reads are conditional: the last ETag of the workflow run, the PR and the checks is stored on the run and sent as `If-None-Match`; a 304 changes nothing and does not count against GitHub's limit. An ETag is stored only once its answer was fully handled.
 4. A run without a GitHub run id (a 204 dispatch, or a dispatch that failed in transit) is matched by its run name `hinomi fix <correlationId>` among the caller workflow's `workflow_dispatch` runs created since a minute before the dispatch (`GET /repos/{owner}/{repo}/actions/workflows/{workflow}/runs`), then linked. Without a match after 15 minutes it is `lost`.
 5. The workflow run (`GET /actions/runs/{id}`): queued, waiting, requested or pending is `run_queued`, in progress is `run_started`. A run still going 40 minutes after it started, or still queued 6 hours after the dispatch, or deleted, is `lost`.
@@ -282,6 +282,19 @@ A test answers `{ ok: true, message, version?, login?, scopes?, account?, reposi
 | `GET /api/scans?limit=` | Scan runs, newest first |
 | `GET /api/scans/:id` | One run with per source results |
 | `POST /api/scans` | Starts a scan: 202 `{ started: true, run }`, or 200 `{ started: false, run }` with the scan already running |
+
+### GitHub webhook
+
+Optional, off by default; see [github-webhook.md](github-webhook.md) for the setup and how to expose only the receiver.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/settings/github-webhook` | `{ enabled, secretSet, secretCreatedAt, canStoreSecret, includePush, path, dedicatedPort, events, lastDeliveryAt, lastDeliveryEvent, lastErrorAt, lastError }`. `events` lists the events to tick in GitHub for the current settings; `dedicatedPort` is `HINOMI_WEBHOOK_PORT` or null; `lastError` covers rejected requests and failed deliveries since the server started. The secret is never returned |
+| `PATCH /api/settings/github-webhook` | Any of `enabled`, `includePush`. Turning it on before a secret exists is a 409 |
+| `POST /api/settings/github-webhook/secret` | Makes a new random secret and replaces the old one: 201 `{ secret, settings }`. The only time the secret is shown. Without `HINOMI_SECRET_KEY` it is a 400 `secret_key_missing` |
+| `POST /api/github/webhook` | The receiver GitHub posts to (also the only route on `HINOMI_WEBHOOK_PORT`). Not under the 64 KiB API body limit: it reads at most 1 MiB of raw body itself. 404 while off, 401 with an empty body for a missing or wrong `X-Hub-Signature-256`, 413 over the cap, 400 without `X-GitHub-Event` or `X-GitHub-Delivery`, 415 unless JSON, 200 `{ status: "duplicate" }` for a delivery id seen in the last 24 hours, else 202 `{ status: "accepted" \| "ignored" }` |
+
+A delivery only makes the fix runs it names due for a poll at once (by workflow run id, run name, PR number, head commit or branch); the poll, inside the usual request budget and rate limit pauses, is what moves them.
 
 ### Onboarding
 

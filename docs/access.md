@@ -12,6 +12,8 @@ Hinomi has no login yet, so it must sit behind something that has one: Tailscale
 
 They are checked in that order. The answer is per request: two people on different paths can see different states.
 
+The one route meant to be public is the optional [GitHub webhook](github-webhook.md) receiver, `POST /api/github/webhook`. It does not use the access status at all: it answers only deliveries signed with its secret, and 404 while it is off. Expose that path alone (or the `HINOMI_WEBHOOK_PORT` listener, which serves nothing else), never the whole server.
+
 ## What Hinomi trusts
 
 - The client address is the TCP peer of the socket. `X-Forwarded-For` and `CF-Connecting-IP` are ignored unless the peer is listed in `HINOMI_TRUSTED_PROXIES`, since anyone can send them.

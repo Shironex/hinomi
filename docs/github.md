@@ -18,7 +18,7 @@ In setup, the GitHub step links to the classic token form with both scopes ticke
 ## Create the GitHub App
 
 1. Open Settings, Developer settings, GitHub Apps, New GitHub App. For an organization, use the organization's settings instead, so the app belongs to it.
-2. Give it a name and any homepage URL. Untick Webhook, Active: Hinomi does not need events.
+2. Give it a name and any homepage URL. Untick Webhook, Active: Hinomi polls and does not need events. The optional [webhook](github-webhook.md) for faster fix run updates can be turned on later.
 3. Under Repository permissions, set these to Read-only:
    - **Dependabot alerts**: the alerts themselves.
    - **Contents**: lockfiles for the OSV.dev scan.
