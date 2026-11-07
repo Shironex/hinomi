@@ -5696,7 +5696,7 @@ const ecosystemSchema = _enum([
 	"other"
 ]);
 const dependencyScopeSchema = _enum(["runtime", "dev"]);
-const isoDate$3 = datetime({ offset: true });
+const isoDate$4 = datetime({ offset: true });
 const advisoryRecordSchema = object({
 	ghsaId: string(),
 	cveIds: array(string()),
@@ -5708,7 +5708,7 @@ const advisoryRecordSchema = object({
 	description: string().nullable().optional(),
 	vulnerableRange: string(),
 	firstPatched: string().nullable(),
-	publishedAt: isoDate$3.nullable()
+	publishedAt: isoDate$4.nullable()
 });
 const repoAlertRecordSchema = object({
 	owner: string(),
@@ -5719,11 +5719,11 @@ const repoAlertRecordSchema = object({
 	ecosystem: ecosystemSchema,
 	scope: dependencyScopeSchema.nullable(),
 	manifestPath: string().nullable(),
-	createdAt: isoDate$3,
-	dismissedAt: isoDate$3.nullable()
+	createdAt: isoDate$4,
+	dismissedAt: isoDate$4.nullable()
 });
 const dismissedAlertRecordSchema = repoAlertRecordSchema.extend({
-	dismissedAt: isoDate$3,
+	dismissedAt: isoDate$4,
 	dismissReason: string().nullable(),
 	dismissComment: string().nullable()
 });
@@ -5744,7 +5744,7 @@ const repoHealthSchema = object({
 	defaultBranch: string(),
 	visibility: repoVisibilitySchema,
 	alertsEnabled: boolean().nullable(),
-	pushedAt: isoDate$3.nullable()
+	pushedAt: isoDate$4.nullable()
 });
 const accountRepoSchema = object({
 	owner: string(),
@@ -5753,7 +5753,7 @@ const accountRepoSchema = object({
 	fork: boolean(),
 	defaultBranch: string().nullable(),
 	visibility: repoVisibilitySchema,
-	pushedAt: isoDate$3.nullable()
+	pushedAt: isoDate$4.nullable()
 });
 const githubConnectionSchema = object({
 	login: string(),
@@ -5872,8 +5872,8 @@ function nowMs() {
 }
 
 // ../../packages/shared/src/api.ts
-const isoDate$2 = datetime({ offset: true });
-const id$2 = number$1().int().positive();
+const isoDate$3 = datetime({ offset: true });
+const id$3 = number$1().int().positive();
 const API_ERROR_CODES = [
 	"bad_request",
 	"validation_failed",
@@ -5898,16 +5898,16 @@ function csvOf(item) {
 }
 const csvIds = string().max(500).transform((value) => value.split(",").map((part) => part.trim()).filter((part) => part !== "")).pipe(array(string().regex(/^[1-9][0-9]{0,15}$/, "Must be an id").transform(Number)).max(50));
 const repoRefSchema = object({
-	id: id$2,
+	id: id$3,
 	owner: string(),
 	name: string(),
 	fullName: string(),
 	archived: boolean(),
 	alertsEnabled: boolean().nullable(),
-	lastScannedAt: isoDate$2.nullable()
+	lastScannedAt: isoDate$3.nullable()
 });
 const deploymentRefSchema = object({
-	id: id$2,
+	id: id$3,
 	name: string(),
 	kind: deploymentKindSchema,
 	reach: deploymentReachSchema,
@@ -5932,7 +5932,7 @@ const FINDING_TIERS = [
 ];
 const findingTierSchema = _enum(FINDING_TIERS);
 const advisorySummarySchema = object({
-	id: id$2,
+	id: id$3,
 	advisoryKey: string(),
 	ghsaId: string().nullable(),
 	cveIds: array(string()),
@@ -5945,7 +5945,7 @@ const advisorySummarySchema = object({
 	firstPatchedVersion: string().nullable()
 });
 const findingListItemSchema = object({
-	id: id$2,
+	id: id$3,
 	kind: findingKindSchema,
 	rank: number$1(),
 	tier: findingTierSchema,
@@ -5955,7 +5955,7 @@ const findingListItemSchema = object({
 	patchedInLockfile: boolean(),
 	state: findingStateSchema,
 	stateReason: string().nullable(),
-	stateUntil: isoDate$2.nullable(),
+	stateUntil: isoDate$3.nullable(),
 	stateUntilNewAdvisory: boolean(),
 	scope: findingScopeSchema,
 	sources: array(reporterSchema),
@@ -5965,21 +5965,21 @@ const findingListItemSchema = object({
 	installedVersion: string().nullable(),
 	repo: repoRefSchema.nullable(),
 	deployments: array(deploymentRefSchema),
-	firstSeenAt: isoDate$2,
-	lastSeenAt: isoDate$2,
-	fixedAt: isoDate$2.nullable()
+	firstSeenAt: isoDate$3,
+	lastSeenAt: isoDate$3,
+	fixedAt: isoDate$3.nullable()
 });
 const findingEventSchema = object({
-	id: id$2,
-	findingId: id$2,
+	id: id$3,
+	findingId: id$3,
 	type: string(),
 	fromState: findingStateSchema.nullable(),
 	toState: findingStateSchema.nullable(),
 	reason: string().nullable(),
-	until: isoDate$2.nullable(),
+	until: isoDate$3.nullable(),
 	untilNewAdvisory: boolean(),
 	actor: _enum(["system", "user"]),
-	at: isoDate$2
+	at: isoDate$3
 });
 const severityCountsSchema = object({
 	critical: number$1().int(),
@@ -5998,11 +5998,11 @@ const scanSourceResultSchema = object({
 	durationMs: number$1().optional()
 });
 const scanRunSchema = object({
-	id: id$2,
+	id: id$3,
 	trigger: scanTriggerSchema,
 	status: scanRunStatusSchema,
-	startedAt: isoDate$2,
-	finishedAt: isoDate$2.nullable(),
+	startedAt: isoDate$3,
+	finishedAt: isoDate$3.nullable(),
 	durationMs: number$1().int().nullable(),
 	sourceResults: partialRecord(sourceKindSchema, scanSourceResultSchema),
 	findingsOpened: number$1().int(),
@@ -6010,7 +6010,7 @@ const scanRunSchema = object({
 	error: string().nullable()
 });
 const sourceSchema = object({
-	id: id$2,
+	id: id$3,
 	kind: sourceKindSchema,
 	name: string(),
 	baseUrl: string().nullable(),
@@ -6019,11 +6019,11 @@ const sourceSchema = object({
 	appId: string().nullable(),
 	installationId: string().nullable(),
 	hasToken: boolean(),
-	lastOkAt: isoDate$2.nullable(),
-	lastErrorAt: isoDate$2.nullable(),
+	lastOkAt: isoDate$3.nullable(),
+	lastErrorAt: isoDate$3.nullable(),
 	lastError: string().nullable(),
-	createdAt: isoDate$2,
-	updatedAt: isoDate$2
+	createdAt: isoDate$3,
+	updatedAt: isoDate$3
 });
 const sourcesResponseSchema = object({
 	sources: array(sourceSchema),
@@ -6087,7 +6087,7 @@ const sourceTestResultSchema = discriminatedUnion("ok", [object({
 	message: string()
 })]);
 const sourceHealthSchema = object({
-	id: id$2.nullable(),
+	id: id$3.nullable(),
 	kind: sourceKindSchema,
 	name: string(),
 	status: _enum([
@@ -6097,12 +6097,12 @@ const sourceHealthSchema = object({
 		"disabled",
 		"missing_token"
 	]),
-	lastOkAt: isoDate$2.nullable(),
-	lastErrorAt: isoDate$2.nullable(),
+	lastOkAt: isoDate$3.nullable(),
+	lastErrorAt: isoDate$3.nullable(),
 	lastError: string().nullable()
 });
 const activityItemSchema = findingEventSchema.extend({ finding: object({
-	id: id$2,
+	id: id$3,
 	kind: findingKindSchema,
 	title: string(),
 	severity: severitySchema,
@@ -6183,7 +6183,7 @@ const fixPlanTargetFields = {
 	packageManager: packageManagerSchema,
 	workspaces: array(string()),
 	via: array(string()),
-	findingIds: array(id$2),
+	findingIds: array(id$3),
 	advisories: array(string()),
 	byTier: tierCounts
 };
@@ -6198,14 +6198,14 @@ const fixPlanStepSchema = object({
 	riskReasons: array(fixPlanRiskReasonSchema),
 	note: string().nullable(),
 	apply: fixPlanApplySchema,
-	releasedAt: isoDate$2.nullable(),
+	releasedAt: isoDate$3.nullable(),
 	releaseAge: releaseAgeSchema
 });
 const fixPlanUnfixedSchema = object({
 	...fixPlanTargetFields,
 	installed: array(string()),
 	blocker: _enum(["no_patch", "too_new"]),
-	availableAt: isoDate$2.nullable()
+	availableAt: isoDate$3.nullable()
 });
 const fixPlanSummarySchema = object({
 	findings: object({
@@ -6223,7 +6223,7 @@ const fixPlanSummarySchema = object({
 	unfixed: number$1().int()
 });
 const fixPlanPreviousSchema = object({
-	scanRunId: id$2,
+	scanRunId: id$3,
 	findings: number$1().int(),
 	cleared: number$1().int(),
 	stillOpen: number$1().int()
@@ -6231,8 +6231,8 @@ const fixPlanPreviousSchema = object({
 const fixPlanSchema = object({
 	version: literal(1),
 	repo: repoRefSchema,
-	scanRunId: id$2,
-	createdAt: isoDate$2,
+	scanRunId: id$3,
+	createdAt: isoDate$3,
 	projects: array(fixPlanProjectSchema),
 	steps: array(fixPlanStepSchema),
 	unfixed: array(fixPlanUnfixedSchema),
@@ -6240,9 +6240,9 @@ const fixPlanSchema = object({
 	previous: fixPlanPreviousSchema.nullable()
 });
 const fixPlanRefSchema = object({
-	repoId: id$2,
-	scanRunId: id$2,
-	createdAt: isoDate$2,
+	repoId: id$3,
+	scanRunId: id$3,
+	createdAt: isoDate$3,
 	summary: fixPlanSummarySchema
 });
 const fixPlanQuerySchema = strictObject({ scan: number().int().positive().optional() });
@@ -6271,7 +6271,7 @@ const fixItemSchema = object({
 		byTier: record(findingTierSchema, number$1().int()),
 		bySeverity: severityCountsSchema
 	}),
-	findingIds: array(id$2),
+	findingIds: array(id$3),
 	bestTier: findingTierSchema,
 	exposedCritical: boolean(),
 	repos: array(fixRepoSchema),
@@ -6318,7 +6318,7 @@ const overviewResponseSchema = object({
 	tiers: record(findingTierSchema, number$1().int()),
 	tierSeverity: record(findingTierSchema, severityCountsSchema),
 	lastScan: scanRunSchema.nullable(),
-	nextScanAt: isoDate$2.nullable(),
+	nextScanAt: isoDate$3.nullable(),
 	sources: array(sourceHealthSchema),
 	recentActivity: array(activityItemSchema),
 	topFixes: array(fixItemSchema)
@@ -6365,16 +6365,16 @@ const findingNotificationSchema = object({
 	channelName: string().nullable(),
 	channelKind: string().nullable(),
 	event: string(),
-	eventId: id$2,
-	sentAt: isoDate$2
+	eventId: id$3,
+	sentAt: isoDate$3
 });
 const findingDetailSchema = findingListItemSchema.extend({
 	advisory: advisorySummarySchema.extend({
 		aliases: array(string()),
 		cvssVector: string().nullable(),
 		vulnerableRanges: array(string()),
-		publishedAt: isoDate$2.nullable(),
-		withdrawnAt: isoDate$2.nullable(),
+		publishedAt: isoDate$3.nullable(),
+		withdrawnAt: isoDate$3.nullable(),
 		description: string().nullable()
 	}).nullable(),
 	versions: object({
@@ -6399,7 +6399,7 @@ const findingDetailSchema = findingListItemSchema.extend({
 });
 const deferFields = {
 	reason: string().trim().min(1, "A reason is required").max(500),
-	until: isoDate$2.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
+	until: isoDate$3.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
 	untilNewAdvisory: literal(true).optional()
 };
 const oneExpiry = (value) => value.until === void 0 !== (value.untilNewAdvisory === void 0);
@@ -6412,19 +6412,19 @@ const reopenFindingRequestSchema = strictObject({ reason: string().trim().max(50
 const BULK_FINDINGS_MAX = 200;
 const bulkFindingsRequestSchema = discriminatedUnion("action", [strictObject({
 	action: _enum(["snooze", "accept"]),
-	ids: array(id$2).min(1).max(200),
+	ids: array(id$3).min(1).max(200),
 	...deferFields
 }).refine(oneExpiry, ONE_EXPIRY), strictObject({
 	action: literal("reopen"),
-	ids: array(id$2).min(1).max(200),
+	ids: array(id$3).min(1).max(200),
 	reason: string().trim().max(500).optional()
 })]);
 const bulkFindingResultSchema = discriminatedUnion("ok", [object({
-	id: id$2,
+	id: id$3,
 	ok: literal(true),
 	state: findingStateSchema
 }), object({
-	id: id$2,
+	id: id$3,
 	ok: literal(false),
 	error: object({
 		code: apiErrorCodeSchema,
@@ -6439,11 +6439,11 @@ const bulkFindingsResponseSchema = object({
 const repoOverrideSchema = object({
 	repo: repoRefSchema,
 	note: string().nullable(),
-	createdAt: isoDate$2
+	createdAt: isoDate$3
 });
 const deploymentItemSchema = deploymentRefSchema.extend({
 	source: object({
-		id: id$2,
+		id: id$3,
 		kind: sourceKindSchema,
 		name: string()
 	}),
@@ -6452,9 +6452,9 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 	image: string().nullable(),
 	gitRepository: string().nullable(),
 	gitBranch: string().nullable(),
-	lastDeployedAt: isoDate$2.nullable(),
-	firstSeenAt: isoDate$2,
-	lastSeenAt: isoDate$2,
+	lastDeployedAt: isoDate$3.nullable(),
+	firstSeenAt: isoDate$3,
+	lastSeenAt: isoDate$3,
 	mapping: _enum([
 		"auto",
 		"override",
@@ -6487,8 +6487,8 @@ const deployRecordSchema = object({
 	status: string(),
 	commit: string().nullable(),
 	commitMessage: string().nullable(),
-	startedAt: isoDate$2.nullable(),
-	finishedAt: isoDate$2.nullable(),
+	startedAt: isoDate$3.nullable(),
+	finishedAt: isoDate$3.nullable(),
 	webhook: boolean(),
 	rollback: boolean()
 });
@@ -6541,17 +6541,17 @@ const scanStatusSchema = discriminatedUnion("state", [
 	object({ state: literal("unconfigured") }),
 	object({
 		state: literal("queued"),
-		nextScanAt: isoDate$2.nullable()
+		nextScanAt: isoDate$3.nullable()
 	}),
 	object({
 		state: literal("idle"),
-		lastScanAt: isoDate$2,
-		nextScanAt: isoDate$2.nullable()
+		lastScanAt: isoDate$3,
+		nextScanAt: isoDate$3.nullable()
 	}),
 	object({
 		state: literal("scanning"),
-		scanRunId: id$2,
-		startedAt: isoDate$2,
+		scanRunId: id$3,
+		startedAt: isoDate$3,
 		phase: scanPhaseSchema,
 		done: number$1().int().nonnegative(),
 		total: number$1().int().nonnegative(),
@@ -6559,7 +6559,7 @@ const scanStatusSchema = discriminatedUnion("state", [
 	}),
 	object({
 		state: literal("failed"),
-		lastScanAt: isoDate$2.nullable(),
+		lastScanAt: isoDate$3.nullable(),
 		message: string()
 	})
 ]);
@@ -6686,8 +6686,8 @@ const FIX_DISPATCH_SCHEMA = "hinomi.fix-dispatch/1";
 const FIX_RESULT_SCHEMA = "hinomi.fix-result/1";
 const FIX_DISPATCH_MAX_STEPS = 200;
 const CHECK_OUTPUT_MAX_CHARS = 4e3;
-const isoDate$1 = datetime({ offset: true });
-const id$1 = number$1().int().positive();
+const isoDate$2 = datetime({ offset: true });
+const id$2 = number$1().int().positive();
 const count = number$1().int().nonnegative();
 const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
 const CRATE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -6765,7 +6765,7 @@ const dispatchStepFields = object({
 	level: bumpLevelSchema,
 	apply: fixDispatchApplySchema,
 	advisories: array(advisoryKey).max(100),
-	releasedAt: isoDate$1.nullable(),
+	releasedAt: isoDate$2.nullable(),
 	releaseAge: releaseAgeSchema
 });
 function stepProblems(step) {
@@ -6814,14 +6814,14 @@ const fixChecksModeSchema = _enum(["full", "install"]);
 const fixDispatchV1Schema = object({
 	schema: literal(FIX_DISPATCH_SCHEMA),
 	runId: string().min(1).max(64).regex(RUN_ID),
-	dispatchedAt: isoDate$1,
+	dispatchedAt: isoDate$2,
 	plan: object({
 		version: literal(1),
-		scanRunId: id$1,
-		createdAt: isoDate$1
+		scanRunId: id$2,
+		createdAt: isoDate$2
 	}),
 	repo: object({
-		id: id$1,
+		id: id$2,
 		fullName: string().max(200).regex(REPO_FULL_NAME),
 		baseBranch: branchName
 	}),
@@ -6863,11 +6863,11 @@ const fixReleaseAgeCheckSchema = object({
 	stepId: string().min(1).max(512),
 	packageName: loosePackageName,
 	version: looseVersion,
-	publishedAt: isoDate$1.nullable(),
+	publishedAt: isoDate$2.nullable(),
 	gateDays: count,
 	gateSource: string().max(100),
 	status: releaseAgeSchema,
-	eligibleAt: isoDate$1.nullable()
+	eligibleAt: isoDate$2.nullable()
 });
 const output = {
 	output: string().max(CHECK_OUTPUT_MAX_CHARS).nullable(),
@@ -6888,7 +6888,7 @@ const fixCheckResultSchema = object({
 const fixResultV1Schema = object({
 	schema: literal(FIX_RESULT_SCHEMA),
 	runId: string().min(1).max(64).regex(RUN_ID),
-	planScanRunId: id$1,
+	planScanRunId: id$2,
 	repo: string().max(200).regex(REPO_FULL_NAME),
 	baseSha: string().regex(SHA),
 	packageManager: packageManagerSchema,
@@ -6912,7 +6912,7 @@ const fixResultV1Schema = object({
 		insertions: count,
 		deletions: count
 	}).nullable(),
-	finishedAt: isoDate$1
+	finishedAt: isoDate$2
 });
 var FixPayloadError = class extends Error {
 	name = "FixPayloadError";
@@ -6988,14 +6988,14 @@ const FIX_RUNNER_KINDS = [
 const fixRunnerKindSchema = _enum(FIX_RUNNER_KINDS);
 const FIX_RUN_KINDS = ["fix", "majors"];
 const fixRunKindSchema = _enum(FIX_RUN_KINDS);
-const isoDate = datetime({ offset: true });
-const id = number$1().int().positive();
+const isoDate$1 = datetime({ offset: true });
+const id$1 = number$1().int().positive();
 const fixRunSchema = object({
-	id,
-	repoId: id,
+	id: id$1,
+	repoId: id$1,
 	plan: object({
-		fixPlanId: id.nullable(),
-		scanRunId: id,
+		fixPlanId: id$1.nullable(),
+		scanRunId: id$1,
 		version: number$1().int().positive()
 	}),
 	runner: fixRunnerKindSchema,
@@ -7007,31 +7007,31 @@ const fixRunSchema = object({
 	stateReason: string().nullable(),
 	terminal: boolean(),
 	github: object({
-		runId: id,
+		runId: id$1,
 		runAttempt: number$1().int().positive().nullable()
 	}).nullable(),
 	headSha: string().nullable(),
 	pr: object({
-		number: id,
+		number: id$1,
 		url: string(),
 		draft: boolean(),
 		mergeSha: string().nullable()
 	}).nullable(),
 	result: fixResultV1Schema.nullable(),
 	at: object({
-		created: isoDate,
-		dispatched: isoDate.nullable(),
-		started: isoDate.nullable(),
-		completed: isoDate.nullable(),
-		pushed: isoDate.nullable(),
-		prOpened: isoDate.nullable(),
-		checksUpdated: isoDate.nullable(),
-		merged: isoDate.nullable(),
-		closed: isoDate.nullable(),
-		deployed: isoDate.nullable(),
-		rescanned: isoDate.nullable(),
-		ended: isoDate.nullable(),
-		stateChanged: isoDate
+		created: isoDate$1,
+		dispatched: isoDate$1.nullable(),
+		started: isoDate$1.nullable(),
+		completed: isoDate$1.nullable(),
+		pushed: isoDate$1.nullable(),
+		prOpened: isoDate$1.nullable(),
+		checksUpdated: isoDate$1.nullable(),
+		merged: isoDate$1.nullable(),
+		closed: isoDate$1.nullable(),
+		deployed: isoDate$1.nullable(),
+		rescanned: isoDate$1.nullable(),
+		ended: isoDate$1.nullable(),
+		stateChanged: isoDate$1
 	})
 });
 
@@ -7040,6 +7040,7 @@ const healthResponseSchema = object({ status: literal("ok") });
 
 // ../../packages/shared/src/runner-payload.ts
 const WORKFLOW_DISPATCH_INPUT_LIMIT = 65535;
+const FIX_DISPATCH_ENCODINGS = ["json", "gzip-base64"];
 async function decodeFixDispatch(payload, encoding, options) {
 	if (payload.length > 65535) throw new FixPayloadError("too_large", "The plan input is over the workflow_dispatch limit");
 	let text;
@@ -7058,6 +7059,102 @@ async function decodeFixDispatch(payload, encoding, options) {
 	}
 	return parseFixDispatch(value);
 }
+
+// ../../packages/shared/src/runner-setup.ts
+const callerWorkflowSchema = string().min(5).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/, "Must be a workflow file name ending in .yml");
+const isoDate = datetime({ offset: true });
+const id = number$1().int().positive();
+const runnerSettingsSchema = object({
+	enabled: boolean(),
+	workflow: callerWorkflowSchema
+});
+const updateRunnerSettingsRequestSchema = strictObject({
+	enabled: boolean().optional(),
+	workflow: callerWorkflowSchema.nullable().optional()
+});
+const RUNNER_AUTHS = [
+	"github_app",
+	"fine_grained_token",
+	"classic_token"
+];
+const runnerAuthSchema = _enum(RUNNER_AUTHS);
+const runnerPermissionStatusSchema = _enum([
+	"granted",
+	"missing",
+	"unverified"
+]);
+const runnerPermissionSchema = object({
+	name: string(),
+	label: string(),
+	purpose: string(),
+	required: boolean(),
+	status: runnerPermissionStatusSchema
+});
+const runnerPermissionsSchema = object({
+	auth: runnerAuthSchema.nullable(),
+	ok: boolean(),
+	canOpenSetupPr: boolean(),
+	items: array(runnerPermissionSchema),
+	message: string()
+});
+const RUNNER_CALLER_STATES = [
+	"missing",
+	"invalid",
+	"not_hinomi",
+	"unpinned",
+	"pinned",
+	"current",
+	"outdated",
+	"unknown"
+];
+const runnerCallerStateSchema = _enum(RUNNER_CALLER_STATES);
+const runnerCallerSchema = object({
+	state: runnerCallerStateSchema,
+	path: string(),
+	ref: string().nullable(),
+	latestSha: string().nullable(),
+	missingInputs: array(string()),
+	message: string(),
+	template: string()
+});
+const fixRunPreviousPrSchema = object({
+	runId: id,
+	pr: object({
+		number: id,
+		url: string()
+	}),
+	closedAt: isoDate.nullable()
+});
+const runnerStatusSchema = object({
+	repoId: id,
+	settings: runnerSettingsSchema,
+	defaultWorkflow: string(),
+	ready: boolean(),
+	github: object({
+		fullName: string(),
+		defaultBranch: string(),
+		visibility: _enum(["public", "private"]),
+		checksMode: fixChecksModeSchema
+	}).nullable(),
+	permissions: runnerPermissionsSchema,
+	caller: runnerCallerSchema,
+	latestRun: fixRunSchema.nullable(),
+	closedUnmerged: fixRunPreviousPrSchema.nullable(),
+	checkedAt: isoDate,
+	message: string()
+});
+const dispatchFixRunRequestSchema = strictObject({ confirmReopen: boolean().optional() });
+const dispatchFixRunResponseSchema = object({
+	run: fixRunSchema,
+	encoding: _enum(FIX_DISPATCH_ENCODINGS),
+	omittedStepIds: array(string())
+});
+const fixRunReopenRequiredSchema = apiErrorSchema.extend({ previous: fixRunPreviousPrSchema });
+const fixRunsQuerySchema = strictObject({
+	kind: fixRunKindSchema.optional(),
+	limit: number().int().min(1).max(100).optional()
+});
+const fixRunsResponseSchema = object({ items: array(fixRunSchema) });
 
 // src/actions-io.ts
 function getInput(env, name) {
