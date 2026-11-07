@@ -6994,6 +6994,15 @@ const repoSourceViewSchema = object({
 	overrideId: id$3.nullable(),
 	seenBy: array(repoSourceSeenSchema)
 });
+const REPO_RELEASE_STATUSES = [
+	"released",
+	"deployed",
+	"turned_off",
+	"no_release",
+	"no_installers",
+	"not_checked"
+];
+const repoReleaseStatusSchema = _enum(REPO_RELEASE_STATUSES);
 const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema });
 const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
 const checkOverrideSchema = object({
@@ -13869,6 +13878,14 @@ const healthResponseSchema = object({
 	status: literal("ok"),
 	version: string()
 });
+
+// ../../packages/shared/src/releases.ts
+const RELEASE_TIER_MODES = [
+	"auto",
+	"on",
+	"off"
+];
+const releaseTierModeSchema = _enum(RELEASE_TIER_MODES);
 
 // ../../packages/shared/src/runner-payload.ts
 const WORKFLOW_DISPATCH_INPUT_LIMIT = 65535;

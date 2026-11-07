@@ -1193,6 +1193,25 @@ export const repoSourceViewSchema = z.object({
 })
 export type RepoSourceView = z.infer<typeof repoSourceViewSchema>
 
+/**
+ * Where a repo stands in the desktop release tier. released: its latest release counts as in
+ * users' hands and is scanned. deployed: a deployment exists (stopped ones too), so it keeps its
+ * deploy tiers. turned_off: the repo's mode is `off`. no_release: GitHub has no final release.
+ * no_installers: the latest release has no installer like asset (mode `auto`). not_checked: the
+ * daily release check has not run for it yet (Hinomi scans it only when nothing deploys it and
+ * account repos are scanned).
+ */
+export const REPO_RELEASE_STATUSES = [
+  'released',
+  'deployed',
+  'turned_off',
+  'no_release',
+  'no_installers',
+  'not_checked',
+] as const
+export const repoReleaseStatusSchema = z.enum(REPO_RELEASE_STATUSES)
+export type RepoReleaseStatus = z.infer<typeof repoReleaseStatusSchema>
+
 /** GET /api/repos/:id. */
 export const repoDetailSchema = repoRefSchema.extend({ source: repoSourceViewSchema })
 export type RepoDetail = z.infer<typeof repoDetailSchema>
