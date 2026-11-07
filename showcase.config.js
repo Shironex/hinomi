@@ -51,6 +51,19 @@ const DESKTOP_SHOTS = [
     nav: open('/?tab=fixes', 'What it clears'),
   },
   {
+    id: 'fix-plan',
+    title: 'Fix plan',
+    caption:
+      'Fix plan: the safe steps of one repo as the diff its pull request makes, with the runner setup.',
+    nav: open('/fix-runs?sel=plan-1', 'What the fix PR changes'),
+  },
+  {
+    id: 'fix-run',
+    title: 'Fix run',
+    caption: 'Fix run: where the run stands, its pull request and the failed checks first.',
+    nav: open('/fix-runs?sel=41', 'Checks failing on the pull request'),
+  },
+  {
     id: 'deployments',
     title: 'Deployments',
     caption: 'Deployments: every app by server, shaded by exposure, with blind spots marked.',
