@@ -115,6 +115,8 @@ export function context(
     index: { deployments, byRepo, unmapped: deployments.filter((d) => d.repoId === null) },
     scans,
     now: AT,
+    support: null,
+    supportWindowDays: 90,
   }
 }
 

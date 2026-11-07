@@ -14,6 +14,7 @@ import { applyBlindSpots } from './blind-spots.js'
 import { collectGithub, collectOsv, collectRepo, errorMessage, type RepoScan } from './collect.js'
 import { repoKey } from './ownership.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
+import { readSupportWindowDays, type SupportIndex } from '../support/index.js'
 import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { saveScanPlans } from './plans.js'
 import type { ScanSources } from './sources.js'
@@ -36,6 +37,8 @@ export interface RunScanOptions {
   onProgress?: (progress: ScanProgress) => void
   /** Guard checks to run in the ranking phase. Defaults to the registered ones (GUARDS). */
   guards?: readonly Guard[]
+  /** The support data the support checks read; null (the default) leaves their findings alone. */
+  support?: () => SupportIndex | null
 }
 
 export interface ScanProgress {
@@ -490,6 +493,8 @@ export async function runScan(
       repos,
       index,
       scans: result.scans,
+      support: options.support?.() ?? null,
+      supportWindowDays: readSupportWindowDays(ctx.repositories.settings),
       now: now(),
     }
     const guards = options.guards ?? GUARDS
