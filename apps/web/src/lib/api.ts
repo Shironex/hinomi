@@ -17,9 +17,7 @@ export class ApiError extends Error {
     kind: ApiErrorKind,
     path: string,
     message: string,
-    status?: number,
-    cause?: unknown,
-    code?: string,
+    { status, cause, code }: { status?: number; cause?: unknown; code?: string } = {},
   ) {
     super(message, { cause })
     this.name = 'ApiError'
@@ -42,13 +40,10 @@ async function readBody(res: Response, path: string): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch (cause) {
-    throw new ApiError(
-      'parse',
-      path,
-      'The server sent a response that is not JSON',
-      res.status,
+    throw new ApiError('parse', path, 'The server sent a response that is not JSON', {
+      status: res.status,
       cause,
-    )
+    })
   }
 }
 
@@ -85,33 +80,26 @@ export async function request<S extends z.ZodType>(
     })
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') throw cause
-    throw new ApiError('network', path, 'Could not reach the Hinomi server', undefined, cause)
+    throw new ApiError('network', path, 'Could not reach the Hinomi server', { cause })
   }
 
   if (!res.ok) {
     // An error page from a proxy is often HTML; fall back to the status line.
     const body = await readBody(res, path).catch(() => undefined)
     const { code, message } = serverError(body)
-    throw new ApiError(
-      'http',
-      path,
-      message ?? `The server answered ${res.status}`,
-      res.status,
-      undefined,
-      code,
-    )
+    throw new ApiError('http', path, message ?? `The server answered ${res.status}`, {
+      status: res.status,
+      ...(code !== undefined && { code }),
+    })
   }
 
   const body = await readBody(res, path)
   const parsed = schema.safeParse(body)
   if (!parsed.success) {
-    throw new ApiError(
-      'parse',
-      path,
-      'The server response did not match the expected shape',
-      res.status,
-      parsed.error,
-    )
+    throw new ApiError('parse', path, 'The server response did not match the expected shape', {
+      status: res.status,
+      cause: parsed.error,
+    })
   }
   return parsed.data
 }
