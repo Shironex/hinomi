@@ -197,17 +197,16 @@ function tallyRepo(ctx: ScanContext, scan: RepoScan): void {
     }
     if (scan.alerts.status === 'ok') bump(t, 'alerts', scan.alerts.value.alerts.length)
   }
-  if (ctx.sources.osv) {
-    const t = tally(ctx.tallies, 'osv')
-    t.attempted++
-    bump(t, 'repos')
-    if (scan.osv.status === 'error') {
-      t.failed++
-      recordError(ctx, { source: 'osv', subject: name, error: scan.osv.error })
-    } else if (scan.osv.status === 'ok') {
-      bump(t, 'lockfiles', scan.osv.value.lockfiles.length)
-      bump(t, 'matches', scan.osv.value.matches.length)
-    }
+  if (!ctx.sources.osv) return
+  const t = tally(ctx.tallies, 'osv')
+  t.attempted++
+  bump(t, 'repos')
+  if (scan.osv.status === 'error') {
+    t.failed++
+    recordError(ctx, { source: 'osv', subject: name, error: scan.osv.error })
+  } else if (scan.osv.status === 'ok') {
+    bump(t, 'lockfiles', scan.osv.value.lockfiles.length)
+    bump(t, 'matches', scan.osv.value.matches.length)
   }
 }
 
