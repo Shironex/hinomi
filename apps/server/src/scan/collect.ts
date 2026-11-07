@@ -13,7 +13,7 @@ import {
 } from '../sources/osv/index.js'
 import { lockfileRef } from './deployments.js'
 import { resolveOwnership, type SourceProbe } from './ownership.js'
-import type { GithubScanSource, ScanSources } from './sources.js'
+import type { GithubScanSource, OsvScanSource, ScanSources } from './sources.js'
 
 /** What one source said about one repo in this scan. */
 export type SourceOutcome<T> =
@@ -109,12 +109,25 @@ export async function collectOsv(
     health.status === 'ok' ? health.value.defaultBranch : null,
   )
   if (!ref) return { status: 'error', error: 'branch to read lockfiles from is unknown' }
-  return attempt(async () => {
-    const files = await sources.fetchLockfiles(repo.owner, repo.name, ref, sourceId)
-    const { all, deps, lockfiles, unparseable } = parseAll(files)
-    const matches = await scanDependencies(deps, osv.client)
-    return { matches, lockfiles, unparseable, dependencies: all }
-  })
+  return attempt(() => scanLockfilesAt(sources, osv, repo, ref, sourceId))
+}
+
+/**
+ * Reads the lockfiles of one repo at a branch or tag and checks them against OSV.dev. Throws
+ * when GitHub or OSV fails.
+ */
+export async function scanLockfilesAt(
+  sources: Pick<ScanSources, 'fetchLockfiles'>,
+  osv: OsvScanSource,
+  repo: Pick<RepoRow, 'owner' | 'name'>,
+  ref: string,
+  /** The GitHub source that reads the repo; null reads lockfiles anonymously. */
+  sourceId: number | null,
+): Promise<OsvRepoResult> {
+  const files = await sources.fetchLockfiles(repo.owner, repo.name, ref, sourceId)
+  const { all, deps, lockfiles, unparseable } = parseAll(files)
+  const matches = await scanDependencies(deps, osv.client)
+  return { matches, lockfiles, unparseable, dependencies: all }
 }
 
 export interface GithubRepoScan {

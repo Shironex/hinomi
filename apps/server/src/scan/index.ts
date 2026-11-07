@@ -9,7 +9,13 @@ export type {
   ScanSummary,
 } from './run.js'
 export { errorMessage } from './collect.js'
-export { isImageOnly, needsRepoMapping } from './deployments.js'
+export { indexDeployments, isImageOnly, needsRepoMapping } from './deployments.js'
+export {
+  cachedInstallerAssets,
+  isReleaseFinding,
+  releaseStatus,
+  RELEASE_CHECK_INTERVAL_MS,
+} from './releases.js'
 export { buildScanSources } from './sources.js'
 export type {
   BuildScanSourcesOptions,

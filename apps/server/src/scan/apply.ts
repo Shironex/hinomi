@@ -2,7 +2,7 @@ import type { FindingScope, Reporter } from '@hinomi/shared'
 import type { FindingRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { advisoryFromGithub, advisoryFromOsv, saveAdvisory } from './advisories.js'
-import type { RepoScan } from './collect.js'
+import type { OsvRepoResult, RepoScan } from './collect.js'
 import { resolveFromLockfiles } from './installed.js'
 import {
   markDismissedUpstream,
@@ -32,7 +32,8 @@ export interface FindingChange {
     | 'turned_off'
 }
 
-interface Observation {
+/** What one scan saw of one advisory on a repo, folded over every alert and lockfile match. */
+export interface Observation {
   advisoryId: number
   reporters: Set<Reporter>
   scopes: Set<FindingScope>
@@ -117,7 +118,7 @@ function notePath(obs: Observation, path: string[] | undefined, runtime: boolean
   obs.pathIsRuntime = runtime
 }
 
-function collectObservations(repositories: Repositories, scan: RepoScan) {
+function collectObservations(repositories: Repositories, scan: Pick<RepoScan, 'alerts' | 'osv'>) {
   const map = new Map<number, Observation>()
   if (scan.alerts.status === 'ok') {
     const { advisories, alerts } = scan.alerts.value
@@ -156,6 +157,23 @@ function collectObservations(repositories: Repositories, scan: RepoScan) {
     }
   }
   return map
+}
+
+/**
+ * The OSV matches of one lockfile read (a release tag), folded per advisory, with each advisory
+ * saved. For readers other than the default branch scan.
+ */
+export function lockfileObservations(
+  repositories: Repositories,
+  osv: OsvRepoResult,
+): Observation[] {
+  const skipped = { status: 'skipped', reason: 'not asked' } as const
+  return [
+    ...collectObservations(repositories, {
+      alerts: skipped,
+      osv: { status: 'ok', value: osv },
+    }).values(),
+  ]
 }
 
 /** An advisory GitHub reports as dismissed on this repo and does not report as open. */
@@ -362,7 +380,8 @@ export function applyRepoAdvisories(
     if (covered.size === 0) return changes
     const existing = repositories.findings.list({ repoId: scan.repo.id, kind: 'advisory' })
     for (const finding of existing) {
-      if (seen.has(finding.id) || finding.state === 'fixed') continue
+      // Desktop release rows follow the release tag, not the default branch (see releases.ts).
+      if (seen.has(finding.id) || finding.state === 'fixed' || finding.releaseTag !== null) continue
       applyMissing(repositories, finding, covered, now, changes)
     }
     return changes
