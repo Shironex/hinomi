@@ -90,16 +90,29 @@ const DIGEST_EVENTS: Record<string, ItemEvent> = {
   resolved: 'resolved',
   snooze_expired: 'expired',
   acceptance_expired: 'expired',
+  escalated: 'escalated',
 }
 
-/** Not reported, but they end a story: a finding dismissed upstream must not be announced as new. */
-const SILENCING_EVENT = 'dismissed_upstream'
+/**
+ * Not reported, but they end a story: a finding dismissed upstream, or one whose check was turned
+ * off, must not be announced as new.
+ */
+const SILENCING_EVENTS: ReadonlySet<string> = new Set(['dismissed_upstream', 'turned_off'])
 
-const isAnnouncement = (type: string) => type === 'opened' || type === 'reopened'
+/** Events a message announces right away: a new or reopened finding, or a guard escalation. */
+const isAnnouncement = (type: string) =>
+  type === 'opened' || type === 'reopened' || type === 'escalated'
+
+const ANNOUNCED_AS: ReadonlyMap<string, ItemEvent> = new Map([
+  ['opened', 'opened'],
+  ['reopened', 'reopened'],
+  ['escalated', 'escalated'],
+])
 
 /**
- * True when a finding needs a message right away: a critical or high
- * advisory, or any blind spot, on something that is deployed.
+ * True when a finding needs a message right away: a critical or high advisory, any blind spot,
+ * or a guard at `fail` (decision Q14: warn goes to the digest), on something that is deployed.
+ * A guard must also be running: a stopped deployment's guard waits for the digest.
  */
 function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
   if (!isMessageFinding(ranked)) return false
@@ -108,6 +121,7 @@ function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
   if (ranked.state !== 'open' && ranked.state !== 'fixing') return false
   if (ranked.deployments.length === 0) return false
   if (ranked.kind === 'blind_spot') return true
+  if (ranked.kind === 'guard') return ranked.guardLevel === 'fail' && ranked.factors.deployed
   return ranked.factors.severity === 'critical' || ranked.factors.severity === 'high'
 }
 
@@ -205,7 +219,7 @@ export function createNotifier(options: NotifierOptions) {
     })
   }
 
-  /** The latest opened or reopened event of a finding: what an announcement is about. */
+  /** The latest opened, reopened or escalated event of a finding: what an announcement is about. */
   function announcementEvent(findingId: number): FindingEventRow | undefined {
     return repositories.findings.listEvents(findingId).find((e) => isAnnouncement(e.type))
   }
@@ -218,14 +232,14 @@ export function createNotifier(options: NotifierOptions) {
     tier: FindingTier
   }
 
-  /** New and reopened findings of a scan that need a message, highest rank first. */
+  /** New, reopened and escalated findings of a scan that need a message, highest rank first. */
   function pendingAnnouncements(summary: ScanSummary, baseUrl: string | null): Pending[] {
     // A dismissal never seen before emits `opened` first: the dismissal in the same summary wins.
     const dismissed = new Set(
       summary.changes.filter((c) => c.change === 'dismissed_upstream').map((c) => c.findingId),
     )
     const candidates = summary.changes.filter(
-      (c) => (c.change === 'opened' || c.change === 'reopened') && !dismissed.has(c.findingId),
+      (c) => isAnnouncement(c.change) && !dismissed.has(c.findingId),
     )
     if (candidates.length === 0) return []
 
@@ -239,7 +253,7 @@ export function createNotifier(options: NotifierOptions) {
       const event = announcementEvent(change.findingId)
       if (!found || !event || !isImmediate(found)) continue
       pending.push({
-        item: buildItem(found, event.type === 'reopened' ? 'reopened' : 'opened', baseUrl),
+        item: buildItem(found, ANNOUNCED_AS.get(event.type) ?? 'opened', baseUrl),
         eventId: event.id,
         rank: found.rank,
         tier: tierOf(found),
@@ -335,14 +349,14 @@ export function createNotifier(options: NotifierOptions) {
   ): NotificationItem[] {
     const items: NotificationItem[] = []
     for (const { finding, events } of findingChangesSince(repositories, since)) {
-      const relevant = events.filter((e) => e.type in DIGEST_EVENTS || e.type === SILENCING_EVENT)
+      const relevant = events.filter((e) => e.type in DIGEST_EVENTS || SILENCING_EVENTS.has(e.type))
       const first = relevant[0]
       const last = relevant.at(-1)
       const found = ranked.get(finding.id)
       // Coverage notes are not news: they show in the app, never in a message.
       if (!first || !last || !found || !isMessageFinding(found)) continue
       if (found.patchedInLockfile) continue
-      if (last.type === SILENCING_EVENT) continue
+      if (SILENCING_EVENTS.has(last.type)) continue
       const event = DIGEST_EVENTS[last.type] as ItemEvent
       // Opened and gone again within the window: nothing changed on net.
       if (first.type === 'opened' && (event === 'fixed' || event === 'resolved')) continue
