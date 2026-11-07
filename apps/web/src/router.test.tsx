@@ -61,6 +61,7 @@ describe('routes', () => {
         deployments: 12,
         alerts: 4917,
         activeFixRuns: 3,
+        guards: null,
       },
     })
     await renderApp('/settings')

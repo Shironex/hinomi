@@ -170,7 +170,14 @@ export function configuredRoutes(): Record<string, unknown> {
   return {
     'GET /health': { status: 'ok', version: '0.3.0' },
     'GET /version': versionInfo(),
-    'GET /shell/nav-counts': { needsAction: 0, deployments: 1, alerts: 0, activeFixRuns: null },
+    'GET /shell/nav-counts': {
+      needsAction: 0,
+      deployments: 1,
+      alerts: 0,
+      activeFixRuns: null,
+      guards: null,
+    },
+    guards: null,
     'GET /shell/scan-status': { state: 'idle', lastScanAt: at, nextScanAt: null },
     'GET /onboarding': { finished: true, alertsSkipped: false },
     'GET /sources': { sources: [coolifySource, githubSource], canStoreTokens: true },

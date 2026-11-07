@@ -1,6 +1,7 @@
 import {
   FINDING_TIERS,
   FUNNEL_STEPS,
+  GUARD_COPY,
   TOP_FIXES,
   idParamSchema,
   navCountsSchema,
@@ -114,6 +115,7 @@ function allSourceHealth(repositories: Repositories): SourceHealth[] {
 function findingTitle(r: RankedFinding): string {
   if (r.advisory) return `${r.advisory.packageName} ${r.advisory.advisoryKey}`
   if (r.kind === 'coverage_note') return 'image only'
+  if (r.guardCheck) return GUARD_COPY[r.guardCheck].title
   return (r.finding.blindSpotType ?? 'blind spot').replaceAll('_', ' ')
 }
 
@@ -234,6 +236,7 @@ export function overviewRoutes(deps: ApiDeps) {
         .filter((fix) => fix.target !== null)
         .slice(0, TOP_FIXES)
         .map((fix) => toFixItem(fix, plans)),
+      guardCounts: counts.guards.byCheck,
     })
   })
 
@@ -324,7 +327,8 @@ export function shellRoutes(deps: ApiDeps) {
       needsAction: counts.advisories.needsAction,
       deployments: repositories.deployments.list().length,
       alerts: counts.advisories.total + counts.blindSpots.total,
-      activeFixRuns: null,
+      activeFixRuns: repositories.fixRuns.listActive().length,
+      guards: counts.guards.needsAction,
     })
   })
 

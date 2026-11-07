@@ -4,6 +4,7 @@ import {
   deferFindingRequestSchema,
   FINDING_STATES,
   FINDING_TIERS,
+  GUARD_COPY,
   findingDetailSchema,
   findingsQuerySchema,
   findingsResponseSchema,
@@ -46,6 +47,7 @@ function haystack(ranked: RankedFinding): string {
     advisory?.summary,
     repo ? `${repo.owner}/${repo.name}` : null,
     finding.blindSpotType?.replaceAll('_', ' '),
+    ranked.guardCheck ? GUARD_COPY[ranked.guardCheck].title : null,
     finding.installedVersion,
     ...ranked.deployments.map((d) => d.name),
   ]
@@ -81,6 +83,9 @@ export function filterFindings(items: RankedFinding[], filter: FindingsFilter): 
       hasAny(filter.tier, tierOf(r)) &&
       hasAny(filter.severity, r.factors.severity) &&
       hasAny(filter.scope, r.finding.scope) &&
+      (!filter.check?.length || (r.guardCheck !== null && filter.check.includes(r.guardCheck))) &&
+      (!filter.level?.length || (r.guardLevel !== null && filter.level.includes(r.guardLevel))) &&
+      (filter.release === undefined || filter.release === (r.finding.releaseTag !== null)) &&
       sourcesMatch(r.finding.reportedBy, filter.source, filter.sourceMatch) &&
       (!filter.repo?.length || (r.repo !== null && filter.repo.includes(r.repo.id))) &&
       (!filter.deployment?.length ||
@@ -104,7 +109,7 @@ const TIER_LABEL: Record<(typeof FINDING_TIERS)[number], string> = {
   dev: 'Deployed, dev dependencies only',
   not_deployed: 'Not deployed',
   patched: 'Patched in the lockfile, GitHub alert still open',
-  coverage: 'Image only, covered by the image scan later',
+  coverage: 'Not checked: image only deployments and checks the source cannot answer',
 }
 
 function groupKey(r: RankedFinding, group: Exclude<FindingGroup, 'none'>): [string, string] {
@@ -125,6 +130,7 @@ function groupKey(r: RankedFinding, group: Exclude<FindingGroup, 'none'>): [stri
       `${r.advisory.packageName} ${r.advisory.advisoryKey}`,
     ]
   }
+  if (r.guardCheck) return [`guard:${r.guardCheck}`, GUARD_COPY[r.guardCheck].title]
   const type = r.kind === 'coverage_note' ? 'image_only' : (r.finding.blindSpotType ?? 'blind_spot')
   return [`blind:${type}`, type.replaceAll('_', ' ')]
 }

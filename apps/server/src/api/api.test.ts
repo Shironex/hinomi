@@ -482,7 +482,13 @@ describe('scans, overview and shell', () => {
     expect(overview.recentActivity[0]?.finding.title).toBeTruthy()
 
     const counts = navCountsSchema.parse((await call('GET', '/shell/nav-counts')).json)
-    expect(counts).toEqual({ needsAction: 1, deployments: 2, alerts: 4, activeFixRuns: null })
+    expect(counts).toEqual({
+      needsAction: 1,
+      deployments: 2,
+      alerts: 4,
+      activeFixRuns: 0,
+      guards: 0,
+    })
   })
 })
 

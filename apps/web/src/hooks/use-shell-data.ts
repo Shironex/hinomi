@@ -20,6 +20,7 @@ export const EMPTY_NAV_COUNTS: NavCounts = {
   deployments: null,
   alerts: null,
   activeFixRuns: null,
+  guards: null,
 }
 
 const UNCONFIGURED: ScanStatus = { state: 'unconfigured' }

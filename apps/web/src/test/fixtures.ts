@@ -11,6 +11,7 @@ export function shellRoutes(): Record<string, unknown> {
       deployments: null,
       alerts: null,
       activeFixRuns: null,
+      guards: null,
     },
     'GET /shell/scan-status': { state: 'idle', lastScanAt: T0, nextScanAt: null },
     'GET /repos': { items: [] },

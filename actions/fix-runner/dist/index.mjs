@@ -6770,7 +6770,8 @@ const overviewResponseSchema = object({
 	nextScanAt: isoDate$5.nullable(),
 	sources: array(sourceHealthSchema),
 	recentActivity: array(activityItemSchema),
-	topFixes: array(fixItemSchema)
+	topFixes: array(fixItemSchema),
+	guardCounts: record(guardCheckSchema, record(guardLevelSchema, number$1().int()))
 });
 const FINDING_GROUPS = [
 	"none",
@@ -6930,10 +6931,18 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 	openBlindSpots: number$1().int()
 });
 const deploymentsResponseSchema = object({ items: array(deploymentItemSchema) });
+const deploymentGuardSchema = object({
+	check: overridableCheckSchema,
+	result: guardResultSchema.nullable(),
+	evidence: guardEvidenceSchema.nullable(),
+	findingId: id$3.nullable(),
+	override: checkOverrideRefSchema.nullable()
+});
 const deploymentDetailSchema = deploymentItemSchema.extend({
 	watchPaths: array(string()).nullable(),
 	overrides: array(repoOverrideSchema),
-	findings: array(findingListItemSchema)
+	findings: array(findingListItemSchema),
+	guards: array(deploymentGuardSchema)
 });
 const deployRecordSchema = object({
 	id: string(),
@@ -7022,13 +7031,6 @@ const guardInfoSchema = object({
 	overrides: number$1().int()
 });
 const guardsResponseSchema = object({ items: array(guardInfoSchema) });
-const deploymentGuardSchema = object({
-	check: overridableCheckSchema,
-	result: guardResultSchema.nullable(),
-	evidence: guardEvidenceSchema.nullable(),
-	findingId: id$3.nullable(),
-	override: checkOverrideRefSchema.nullable()
-});
 const SCAN_INTERVAL_MIN_MINUTES = 15;
 const SCAN_INTERVAL_MAX_MINUTES = 10080;
 const settingsSchema = object({
@@ -7064,7 +7066,8 @@ const navCountsSchema = object({
 	needsAction: number$1().int().nullable(),
 	deployments: number$1().int().nullable(),
 	alerts: number$1().int().nullable(),
-	activeFixRuns: number$1().int().nullable()
+	activeFixRuns: number$1().int().nullable(),
+	guards: number$1().int().nullable()
 });
 const SCAN_PHASES = [
 	"deployments",

@@ -19,6 +19,7 @@ import type {
 import {
   deploymentItem,
   deploymentRef,
+  emptyGuardCounts,
   findingDetail,
   findingItem,
   fixItem,
@@ -682,6 +683,7 @@ export function deploymentDetailFor(item: DeploymentItem): DeploymentDetail {
     findings: FINDINGS.filter(
       (f) => f.state !== 'fixed' && f.deployments.some((d) => d.id === item.id),
     ),
+    guards: [],
   }
 }
 
@@ -838,6 +840,7 @@ export const OVERVIEW: OverviewResponse = overview({
     },
   ],
   topFixes: FIXES.slice(0, 3),
+  guardCounts: emptyGuardCounts(),
 })
 
 const source = (over: Partial<SourceDto>): SourceDto => ({

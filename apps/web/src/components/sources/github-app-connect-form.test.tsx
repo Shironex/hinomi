@@ -24,6 +24,7 @@ const base = (over: Record<string, unknown> = {}) => ({
     deployments: null,
     alerts: null,
     activeFixRuns: null,
+    guards: null,
   },
   'GET /shell/scan-status': { state: 'unconfigured' },
   'GET /notifications/channels': { items: [] },
