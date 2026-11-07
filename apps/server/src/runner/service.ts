@@ -3,6 +3,7 @@ import {
   LATEST_FIX_WORKFLOW,
   currentTime,
   type FixDispatchEncoding,
+  type FixResultV1,
   type FixRunPreviousPr,
   type RunnerCaller,
   type RunnerPermissions,
@@ -16,6 +17,7 @@ import { readCaller, unknownCaller, type LatestFixWorkflow } from './caller.js'
 import { GithubActionsRunner, callerWorkflowOf } from './github-actions.js'
 import { openRunnerGithub, type RunnerGithub } from './github.js'
 import { probeRunnerPermissions } from './permissions.js'
+import { publishFixPr, type PublishFixPrOutcome } from './publisher.js'
 import type { FixRunner } from './runner.js'
 
 // What the API calls: runner settings and status per repo, and dispatching the latest plan.
@@ -58,6 +60,11 @@ export interface FixRunServiceOptions {
   latest?: LatestFixWorkflow | null
   /** Replaces the GitHub Actions runner in tests. */
   runner?: FixRunner
+  /**
+   * Public address of this Hinomi (the notification setting), read per publish. Fix PRs of
+   * private repos link back to it; without it they carry no link.
+   */
+  publicBaseUrl?: () => string | null
 }
 
 export type FixRunService = ReturnType<typeof createFixRunService>
@@ -217,6 +224,28 @@ export function createFixRunService(options: FixRunServiceOptions) {
       }
       if (outcome.code === 'unavailable') return refused(503, 'unavailable', outcome.message)
       return refused(409, 'conflict', outcome.message)
+    },
+
+    /**
+     * Opens or updates the fix PR once the run's workflow pushed its branch (mode A), from the
+     * decoded result artifact and the head SHA of the pushed branch. See publishFixPr.
+     */
+    publishFixPr(
+      run: FixRunRow,
+      result: FixResultV1,
+      headSha: string,
+    ): Promise<PublishFixPrOutcome> {
+      return publishFixPr(
+        {
+          repositories,
+          github,
+          now,
+          ...(options.publicBaseUrl && { publicBaseUrl: options.publicBaseUrl }),
+        },
+        run,
+        result,
+        headSha,
+      )
     },
   }
 }

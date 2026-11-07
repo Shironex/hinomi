@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { silentLogger, type Logger } from '../log.js'
+import { readNotifySettings } from '../notify/index.js'
 import type { Repositories } from '../repository/index.js'
 import { createFixRunService, type FixRunService } from '../runner/index.js'
 import type { Scheduler } from '../scheduler/index.js'
@@ -52,6 +53,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
       createFixRunService({
         repositories: options.repositories,
         now,
+        publicBaseUrl: () => readNotifySettings(options.repositories.settings).publicBaseUrl,
         ...(options.sourceFetch && { fetch: options.sourceFetch }),
       }),
   }

@@ -1,5 +1,6 @@
 // Fix runners: hand a repo's fix plan to whatever applies it (GitHub Actions now) and check that
-// a repo is set up for it (permissions, caller workflow pin).
+// a repo is set up for it (permissions, caller workflow pin), then open or update the fix PR
+// from the pushed branch.
 export { inspectCallerWorkflow, readCaller, unknownCaller } from './caller.js'
 export type { CallerInspection, LatestFixWorkflow, ReadCallerOptions } from './caller.js'
 export { MAX_DECOMPRESSED_PLAN_BYTES, zlibCompressor } from './compressor.js'
@@ -20,6 +21,14 @@ export {
   type FineGrainedProbes,
   type ProbeTarget,
 } from './permissions.js'
+export {
+  FIX_PR_LABELS,
+  publishFailureReason,
+  publishFixPr,
+  type FixPrPublisherOptions,
+  type PublishFixPrOutcome,
+  type PublishedPr,
+} from './publisher.js'
 export type {
   FixRunDispatchCreated,
   FixRunDispatchOutcome,
