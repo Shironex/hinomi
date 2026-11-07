@@ -1180,6 +1180,20 @@ function runnerBase(repoId: number): RunnerStatus | null {
         },
         message: 'Turn the runner on, then add the caller workflow to the default branch.',
       })
+    case R.auth.id:
+      return runner(repo, {
+        ready: false,
+        permissions: {
+          auth: 'classic_token',
+          ok: false,
+          canOpenSetupPr: false,
+          items: PERMISSIONS.map((p) =>
+            p.name === 'actions' || p.name === 'pull_requests' ? { ...p, status: 'missing' } : p,
+          ),
+          message: 'Missing Actions: write, Pull requests: write.',
+        },
+        message: 'The GitHub token lacks the runner permissions.',
+      })
     case R.storefront.id:
       return runner(repo, {
         caller: callerOf(repo, 'outdated', OLD_SHA),

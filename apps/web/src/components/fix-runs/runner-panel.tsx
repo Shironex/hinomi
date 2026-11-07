@@ -27,6 +27,7 @@ import {
 import { Field } from '@/components/form/field'
 import { StatusText } from '@/components/findings/finding-state'
 import { ErrorState } from '@/components/states/error-state'
+import { FineGrainedToken } from '@/components/token/fine-grained-token'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { Input } from '@/components/ui/input'
@@ -43,6 +44,7 @@ import {
   runnerKindOf,
 } from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
+import { ownerOf } from '@/lib/github-token-url'
 import { RunnerKindPicker } from './runner-kind-picker'
 import { SetupPrButton } from './setup-pr-button'
 
@@ -402,6 +404,16 @@ function RunnerBody({ status, repoId }: { status: RunnerStatus; repoId: number }
           {status.permissions.ok ? null : (
             <p className="text-sm text-foreground-2">{status.permissions.message}</p>
           )}
+          {!status.permissions.ok &&
+          status.permissions.auth &&
+          status.permissions.auth !== 'github_app' ? (
+            <FineGrainedToken
+              preset="runner"
+              owner={ownerOf(github?.fullName)}
+              label="Create a token for the runner"
+              intro="Opens GitHub with the runner permissions below ticked. Paste the new token in Settings, Sources."
+            />
+          ) : null}
           <ul className="m-0 flex list-none flex-col p-0">
             {status.permissions.items
               .filter((item) => actions || !ACTIONS_ONLY_PERMISSIONS.has(item.name))

@@ -274,6 +274,7 @@ export default defineConfig(
             'shell',
             'split',
             'views',
+            'token',
             'confirm-dialog',
             'copy-command',
             'page-header',
