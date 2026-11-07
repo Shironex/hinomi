@@ -575,6 +575,7 @@ describe('guard findings', () => {
       support: null,
       supportWindowDays: 90,
       repoFiles: noRepoFiles(),
+      behindReleases: { rust: 4, bun: 4 },
       now: clock,
     }
     return summary(await runGuards(repos, [fake.guard], ctx, { warn: () => {} }))

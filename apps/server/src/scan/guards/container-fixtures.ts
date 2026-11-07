@@ -64,6 +64,7 @@ export function contextOf(
     repoFiles: noRepoFiles(),
     support: null,
     supportWindowDays: 90,
+    behindReleases: { rust: 4, bun: 4 },
     now: new Date('2026-11-08T10:00:00Z'),
     ...over,
   }

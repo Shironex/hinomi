@@ -11,10 +11,17 @@ import type { Repositories } from '../repository/index.js'
 import { mapLimit } from '../sources/osv/index.js'
 import { applyRepoAdvisories, coveringSources, type FindingChange } from './apply.js'
 import { applyBlindSpots } from './blind-spots.js'
-import { collectGithub, collectOsv, collectRepo, errorMessage, type RepoScan } from './collect.js'
+import {
+  collectGithub,
+  collectOsv,
+  collectPins,
+  collectRepo,
+  errorMessage,
+  type RepoScan,
+} from './collect.js'
 import { repoKey } from './ownership.js'
 import { indexDeployments, syncDeployments, type DeploymentIndex } from './deployments.js'
-import { readSupportWindowDays, type SupportIndex } from '../support/index.js'
+import { readBehindReleases, readSupportWindowDays, type SupportIndex } from '../support/index.js'
 import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { createRepoFileReader } from './guards/repo-files.js'
 import { runImageScan, type ImageScanResult } from './image-scan.js'
@@ -335,9 +342,27 @@ async function scanRepos(
   const github = await perRepo(ctx, 'alerts', repos, concurrency, (repo) =>
     collectGithub(ctx.sources, repo, ctx.listed),
   )
-  const osv = await perRepo(ctx, 'lockfiles', repos, concurrency, (repo, i) =>
-    collectOsv(ctx.sources, repo, deploymentsOf(repo), github[i]!.health, github[i]!.sourceId),
-  )
+  // Runtime pins are read in the lockfile phase, after the lockfiles, through the same reader.
+  const osv = await perRepo(ctx, 'lockfiles', repos, concurrency, async (repo, i) => {
+    const { health, sourceId } = github[i]!
+    const lockfiles = await collectOsv(ctx.sources, repo, deploymentsOf(repo), health, sourceId)
+    const pins = await collectPins(
+      ctx.sources,
+      ctx.repositories.runtimePins,
+      repo,
+      deploymentsOf(repo),
+      health,
+      sourceId,
+      ctx.now(),
+    )
+    if (pins?.error) {
+      ctx.log.warn('scan: runtime pins could not be read, keeping the last good ones', {
+        repo: `${repo.owner}/${repo.name}`,
+        error: pins.error,
+      })
+    }
+    return { lockfiles, pins }
+  })
   const step = startPhase(ctx, 'matching', repos.length)
   const scans = new Map<number, RepoScan>()
   const changes: FindingChange[] = []
@@ -346,7 +371,8 @@ async function scanRepos(
       repo,
       deployed: deploymentsOf(repo).length > 0,
       ...github[i]!,
-      osv: osv[i]!,
+      osv: osv[i]!.lockfiles,
+      ...(osv[i]!.pins !== undefined && { pins: osv[i]!.pins }),
     }
     tallyRepo(ctx, scan)
     try {
@@ -575,6 +601,7 @@ export async function runScan(
         scans: result.scans,
         now,
       }),
+      behindReleases: readBehindReleases(ctx.repositories.settings),
       now: now(),
     }
     const guards = options.guards ?? GUARDS

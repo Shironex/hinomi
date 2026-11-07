@@ -1,3 +1,4 @@
+export { deployedDockerfilePath, deployedDockerfiles } from './deployed.js'
 export { fetchPinFiles, MAX_PIN_FILES } from './fetch.js'
 export { isPinFilePath, productionPin, readRuntimePins } from './read.js'
 export type { PinFile, ReadPinsOptions } from './read.js'
