@@ -8,6 +8,7 @@ import {
   IconPlug,
   IconServer2,
   IconShieldCheck,
+  IconSend,
   IconWebhook,
   type Icon,
 } from '@tabler/icons-react'
@@ -20,6 +21,7 @@ import {
   type SettingsSectionKey,
 } from '@/components/settings/section-summaries'
 import { SetBox, SettingsSection, SetRow } from '@/components/settings/settings-section'
+import { WebhookRunnerSection } from '@/components/settings/webhook-runner-section'
 import { WebhookSection } from '@/components/settings/webhook-section'
 import { SourcesSection } from '@/components/settings/sources-section'
 import { ThemeSwitch } from '@/components/shell/theme-switch'
@@ -44,6 +46,7 @@ const SECTIONS: readonly SectionMeta[] = [
   { key: 'scans', label: 'Scans', icon: IconClock },
   { key: 'mapping', label: 'Repo mapping', icon: IconPlug },
   { key: 'webhook', label: 'GitHub webhook', icon: IconWebhook },
+  { key: 'runner', label: 'Webhook runner', icon: IconSend },
   { key: 'access', label: 'Access', icon: IconLock },
   { key: 'appearance', label: 'Appearance', icon: IconPalette },
 ]
@@ -148,6 +151,17 @@ function SectionDetail({
           intro="Lets GitHub tell Hinomi a fix run changed, so it polls that run at once. Polling stays the source of truth, so leaving this off loses nothing."
         >
           <WebhookSection />
+        </SettingsSection>
+      )
+    case 'runner':
+      return (
+        <SettingsSection
+          id="settings-runner"
+          title="Webhook runner"
+          note="Optional"
+          intro="For fix plans that should run on your own CI or build box. Hinomi posts the plan, the external runner applies it, pushes the branch and reports back. Pick it per repo under Fix runs."
+        >
+          <WebhookRunnerSection />
         </SettingsSection>
       )
     case 'access':

@@ -6,6 +6,7 @@ import {
   channelsQuery,
   deploymentsQuery,
   githubWebhookQuery,
+  webhookRunnerQuery,
   settingsQuery,
   sourcesQuery,
 } from '@/lib/settings-api'
@@ -13,7 +14,7 @@ import { useTheme } from '@/lib/theme'
 import { THEME_LABEL } from '@/components/shell/theme-meta'
 
 export type SettingsSectionKey =
-  'sources' | 'notifications' | 'scans' | 'mapping' | 'webhook' | 'access' | 'appearance'
+  'sources' | 'notifications' | 'scans' | 'mapping' | 'webhook' | 'runner' | 'access' | 'appearance'
 
 const KIND_WORD = { discord: 'Discord', webhook: 'webhook', email: 'email' } as const
 
@@ -43,6 +44,7 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const channels = useQuery(channelsQuery)
   const deployments = useQuery(deploymentsQuery)
   const webhook = useQuery(githubWebhookQuery)
+  const runner = useQuery(webhookRunnerQuery)
   const scan = useScanStatus()
   const access = useAccessStatus()
   const theme = useTheme()
@@ -98,6 +100,17 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
         : w.secretSet
           ? 'Secret set, off'
           : 'Off'
+  }
+
+  if (runner.data) {
+    const r = runner.data
+    out.runner = !r.canStoreSecret
+      ? 'secret key missing'
+      : r.configured
+        ? 'Configured'
+        : r.url
+          ? 'URL set, needs a secret'
+          : 'Not configured'
   }
 
   if (access) out.access = accessLabel(access)
