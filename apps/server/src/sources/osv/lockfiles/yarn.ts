@@ -1,6 +1,7 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import { parse } from 'yaml'
 import {
+  addWorkspace,
   asDict,
   classifyGraph,
   isRegistryVersion,
@@ -9,6 +10,7 @@ import {
   splitAtVersion,
   type GraphNode,
   type PackageJsonDeps,
+  workspaceFolder,
 } from './graph.js'
 
 interface YarnEntry {
@@ -20,6 +22,8 @@ interface YarnEntry {
   deps: string[]
   /** Berry workspace entries, which list the manifests' own dependencies. */
   workspace: boolean
+  /** Folder of a Berry workspace entry (`.` for the root). */
+  folder?: string
 }
 
 const unquote = (s: string) => s.trim().replace(/^"(.*)"$/, '$1')
@@ -60,11 +64,14 @@ function buildGraph(
     (berry && !range.includes(':') ? byDescriptor.get(`${name}@npm:${range}`) : undefined)
 
   const directKeys = new Set<string>()
+  const workspaces = new Map<string, Set<string>>()
   for (const entry of entries) {
     if (!entry.workspace) continue
     for (const d of entry.deps) {
       const key = byDescriptor.get(d)
-      if (key) directKeys.add(key)
+      if (!key) continue
+      directKeys.add(key)
+      addWorkspace(workspaces, key, entry.folder ?? '.')
     }
   }
 
@@ -77,6 +84,7 @@ function buildGraph(
         if (key) {
           into.push(key)
           directKeys.add(key)
+          addWorkspace(workspaces, key, '.')
         }
       }
     }
@@ -92,6 +100,7 @@ function buildGraph(
     devRoots,
     directKeys,
     scopeKnown: manifest !== null,
+    workspaces,
   })
 }
 
@@ -170,6 +179,9 @@ function parseBerry(text: string): YarnEntry[] {
       version: isNpm ? version : '',
       deps,
       workspace: split.rest.startsWith('workspace:'),
+      ...(split.rest.startsWith('workspace:') && {
+        folder: workspaceFolder(split.rest.slice('workspace:'.length)),
+      }),
     })
   }
   return entries

@@ -1,5 +1,5 @@
 import type { LockfileDependency } from '@hinomi/shared'
-import { classifyGraph, type GraphNode } from './graph.js'
+import { addWorkspace, classifyGraph, type GraphNode } from './graph.js'
 
 interface CargoPackage {
   name: string
@@ -66,10 +66,13 @@ export function parseCargoLock(text: string): LockfileDependency[] {
 
   const nodes = new Map<string, GraphNode>()
   const directKeys: string[] = []
+  const workspaces = new Map<string, Set<string>>()
   for (const p of packages) {
     const deps = p.dependencies.flatMap((d) => resolve(d) ?? [])
-    if (p.source === null) directKeys.push(...deps)
-    else if (p.source.startsWith('registry+') || p.source.startsWith('sparse+')) {
+    if (p.source === null) {
+      directKeys.push(...deps)
+      for (const dep of deps) addWorkspace(workspaces, dep, p.name)
+    } else if (p.source.startsWith('registry+') || p.source.startsWith('sparse+')) {
       nodes.set(keyOf(p), { name: p.name, version: p.version, deps })
     }
   }
@@ -81,5 +84,6 @@ export function parseCargoLock(text: string): LockfileDependency[] {
     devRoots: [],
     directKeys,
     scopeKnown: false,
+    workspaces,
   })
 }

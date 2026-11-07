@@ -19,7 +19,20 @@ export interface GraphInput {
   directKeys: Iterable<string>
   /** When false every scope is `unknown` (no manifest to tell prod from dev). */
   scopeKnown: boolean
+  /** Per direct node key, the workspaces (folders or crate names) whose manifest lists it. */
+  workspaces?: ReadonlyMap<string, ReadonlySet<string>>
 }
+
+/** Records that `workspace` lists `key` directly. */
+export function addWorkspace(map: Map<string, Set<string>>, key: string, workspace: string): void {
+  const set = map.get(key) ?? new Set<string>()
+  set.add(workspace)
+  map.set(key, set)
+}
+
+/** A lockfile's workspace key as a folder: the root project is `.`. */
+export const workspaceFolder = (path: string): string =>
+  path === '' || path === '.' ? '.' : path.replace(/^\.\//, '').replace(/\/$/, '')
 
 function reachable(nodes: Map<string, GraphNode>, roots: Iterable<string>): Set<string> {
   const seen = new Set<string>()
@@ -97,6 +110,7 @@ export function classifyGraph(input: GraphInput): LockfileDependency[] {
     if (runtime.has(key)) scope = 'runtime'
     else if (dev.has(key)) scope = 'dev'
     const chain = paths.get(key)
+    const workspaces = input.workspaces?.get(key)
     out.push({
       name: node.name,
       version: node.version,
@@ -104,6 +118,7 @@ export function classifyGraph(input: GraphInput): LockfileDependency[] {
       scope,
       direct: direct.has(key),
       ...(chain && { path: namePath(input.nodes, chain) }),
+      ...(workspaces && workspaces.size > 0 && { workspaces: [...workspaces].sort() }),
     })
   }
   return dedupeDependencies(out)
@@ -149,6 +164,9 @@ export function dedupeDependencies(deps: Iterable<LockfileDependency>): Lockfile
     }
     if (prev.lockfile === undefined && dep.lockfile !== undefined) prev.lockfile = dep.lockfile
     prev.direct = prev.direct || dep.direct
+    if (dep.workspaces) {
+      prev.workspaces = [...new Set([...(prev.workspaces ?? []), ...dep.workspaces])].sort()
+    }
   }
   return [...byKey.values()].sort(
     (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),

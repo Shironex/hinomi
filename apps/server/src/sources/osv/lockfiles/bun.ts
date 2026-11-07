@@ -1,11 +1,13 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import {
+  addWorkspace,
   asDict,
   classifyGraph,
   isRegistryVersion,
   splitAtVersion,
   type Dict,
   type GraphNode,
+  workspaceFolder,
 } from './graph.js'
 
 /**
@@ -95,14 +97,17 @@ export function parseBunLock(text: string): LockfileDependency[] {
 
   const prodRoots: string[] = []
   const devRoots: string[] = []
-  for (const raw of Object.values(workspaces)) {
+  const declaredBy = new Map<string, Set<string>>()
+  for (const [folder, raw] of Object.entries(workspaces)) {
     const ws = asDict(raw)
     // Conflicting versions inside one workspace are keyed under its package name.
     const from = typeof ws.name === 'string' ? [ws.name] : []
     const add = (field: string, into: string[]) => {
       for (const depName of Object.keys(asDict(ws[field]))) {
         const target = resolveKey(packages, from, depName)
-        if (target) into.push(target)
+        if (!target) continue
+        into.push(target)
+        addWorkspace(declaredBy, target, workspaceFolder(folder))
       }
     }
     for (const field of PROD_FIELDS) add(field, prodRoots)
@@ -116,5 +121,6 @@ export function parseBunLock(text: string): LockfileDependency[] {
     devRoots,
     directKeys: [...prodRoots, ...devRoots],
     scopeKnown: true,
+    workspaces: declaredBy,
   })
 }

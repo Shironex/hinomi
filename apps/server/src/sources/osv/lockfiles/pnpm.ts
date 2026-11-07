@@ -1,12 +1,14 @@
 import type { LockfileDependency } from '@hinomi/shared'
 import { parse } from 'yaml'
 import {
+  addWorkspace,
   asDict,
   classifyGraph,
   isRegistryVersion,
   scalarText,
   splitAtVersion,
   type GraphNode,
+  workspaceFolder,
 } from './graph.js'
 
 const PROD_FIELDS = ['dependencies', 'optionalDependencies'] as const
@@ -78,14 +80,17 @@ export function parsePnpmLock(text: string): LockfileDependency[] {
   const importers = doc.importers ? asDict(doc.importers) : { '.': doc }
   const prodRoots: string[] = []
   const devRoots: string[] = []
-  for (const importer of Object.values(importers)) {
+  const workspaces = new Map<string, Set<string>>()
+  for (const [importerPath, importer] of Object.entries(importers)) {
     const fields = asDict(importer)
     const collect = (names: readonly string[], into: string[]) => {
       for (const field of names) {
         for (const [depName, value] of Object.entries(asDict(fields[field]))) {
           const ref = importerRef(value)
           const key = ref ? refToKey(depName, ref, v6) : null
-          if (key) into.push(key)
+          if (!key) continue
+          into.push(key)
+          addWorkspace(workspaces, key, workspaceFolder(importerPath))
         }
       }
     }
@@ -100,5 +105,6 @@ export function parsePnpmLock(text: string): LockfileDependency[] {
     devRoots,
     directKeys: [...prodRoots, ...devRoots],
     scopeKnown: true,
+    workspaces,
   })
 }
