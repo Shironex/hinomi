@@ -1,0 +1,13 @@
+[package]
+name = "kestrel-api"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+heron-codec = { workspace = true, features = ["std"] }
+ibis-net = "0.4"
+kestrel-core = { path = "../core" }
+
+[target.'cfg(unix)'.dependencies]
+swift-log = { version = "=0.3.0", default-features = false }
