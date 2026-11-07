@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   IconBell,
   IconCheck,
+  IconInfoCircle,
   IconClock,
   IconLock,
   IconPalette,
@@ -13,6 +14,7 @@ import {
   type Icon,
 } from '@tabler/icons-react'
 import { AccessCallout } from '@/components/access-callout'
+import { AboutSection } from '@/components/settings/about-section'
 import { MappingSection } from '@/components/settings/mapping-section'
 import { NotificationsSection } from '@/components/settings/notifications-section'
 import { ScansSection } from '@/components/settings/scans-section'
@@ -49,6 +51,7 @@ const SECTIONS: readonly SectionMeta[] = [
   { key: 'runner', label: 'Webhook runner', icon: IconSend },
   { key: 'access', label: 'Access', icon: IconLock },
   { key: 'appearance', label: 'Appearance', icon: IconPalette },
+  { key: 'about', label: 'About', icon: IconInfoCircle },
 ]
 
 /**
@@ -187,6 +190,17 @@ function SectionDetail({
               <ThemeSwitch className="w-full max-w-[300px]" />
             </SetRow>
           </SetBox>
+        </SettingsSection>
+      )
+    case 'about':
+      return (
+        <SettingsSection
+          id="settings-about"
+          title="About"
+          note="The running build"
+          intro="Which Hinomi build this is, and whether a newer release exists."
+        >
+          <AboutSection />
         </SettingsSection>
       )
   }

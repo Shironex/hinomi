@@ -1,9 +1,12 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { IconAlertTriangle, IconLoader2, IconPlugConnected, type Icon } from '@tabler/icons-react'
 import type { NavCounts, ScanStatus } from '@/hooks/use-shell-data'
 import { formatRelative } from '@/lib/format'
+import { versionQuery } from '@/lib/queries'
 import { describeScanning } from '@/lib/scan-phases'
 import { cn } from '@/lib/utils'
+import { versionLabel, versionTitle } from '@/lib/version'
 import { BrandMark } from './brand-mark'
 import { formatCount, RAIL_NAV, SETTINGS_NAV, type NavItem, type NavKey } from './nav'
 import { ThemeCycleButton } from './theme-switch'
@@ -40,6 +43,7 @@ export function IconRail({ current, counts, scan }: IconRailProps) {
         <RailLink item={SETTINGS_NAV} current={current} />
       </nav>
       <ScanDot scan={scan} />
+      <RailVersion />
     </aside>
   )
 }
@@ -135,5 +139,33 @@ function ScanDot({ scan }: { scan: ScanStatus }) {
       <span aria-hidden="true" className="size-2 rounded-full bg-success" />
       <span className="sr-only">{title}</span>
     </span>
+  )
+}
+
+/**
+ * The running version at the foot of the rail, with the build commit in its tooltip. When the
+ * server found a newer release, a link to its notes sits under it. Nothing shows until the
+ * version is known, and nothing when the request fails: the rail never carries an error for it.
+ */
+function RailVersion() {
+  const version = useQuery(versionQuery).data
+  if (!version) return null
+  return (
+    <div className="flex w-[72px] flex-col items-center gap-0.5 text-center text-xs leading-tight">
+      <span title={versionTitle(version)} className="font-mono text-muted-foreground">
+        {versionLabel(version)}
+      </span>
+      {version.update ? (
+        <a
+          href={version.update.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={`v${version.update.version} is available. Open the release notes.`}
+          className="rounded-sm font-semibold text-accent-ink underline-offset-2 hover:underline"
+        >
+          v{version.update.version} available
+        </a>
+      ) : null}
+    </div>
   )
 }
