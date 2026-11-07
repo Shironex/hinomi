@@ -24,7 +24,6 @@ describe('runtime pins migration', () => {
     ) as Journal
     const upTo = journal.entries.findIndex((e) => e.tag.endsWith('_runtime_pins'))
     if (upTo < 1) throw new Error('no runtime_pins migration')
-    expect(upTo).toBe(journal.entries.length - 1)
     const entries = journal.entries.slice(0, upTo)
     const old = join(dir, 'old')
     mkdirSync(join(old, 'meta'), { recursive: true })

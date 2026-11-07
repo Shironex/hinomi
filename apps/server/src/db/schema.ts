@@ -19,6 +19,7 @@ import {
   GUARD_CHECKS,
   GUARD_LEVELS,
   OVERRIDABLE_CHECKS,
+  RELEASE_TIER_MODES,
   type AdvisorySeverity,
   type DeploymentFacts,
   type GuardEvidence,
@@ -124,6 +125,19 @@ export const repos = sqliteTable(
     sourceOverrideId: integer('source_override_id').references(() => sources.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Desktop release tier mode: `auto` follows the installer heuristic, `on` and `off` override
+     * it for this repo (see packages/shared/src/releases.ts).
+     */
+    releaseTier: text('release_tier', { enum: RELEASE_TIER_MODES }).notNull().default('auto'),
+    /** Tag of the latest final release (not a draft, not a prerelease). Null: none or not checked. */
+    latestReleaseTag: text('latest_release_tag'),
+    /** When the latest release was published. */
+    latestReleaseAt: timestamp('latest_release_at'),
+    /** The latest release has installer like assets. Null until the release check ran. */
+    releaseInstallers: integer('release_installers', { mode: 'boolean' }),
+    /** When the daily release check last asked GitHub. Null: never, or asked to check again. */
+    releaseCheckedAt: timestamp('release_checked_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -302,6 +316,13 @@ export const findings = sqliteTable(
     evidence: text('evidence', { mode: 'json' }).$type<GuardEvidence>(),
     /** Desktop release advisories: the release tag that was scanned. Null otherwise. */
     releaseTag: text('release_tag'),
+    /**
+     * Desktop release advisories: the default branch no longer has the vulnerable version, so a
+     * patched release is due. False for every other finding.
+     */
+    fixedOnDefaultBranch: integer('fixed_on_default_branch', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     state: text('state', { enum: FINDING_STATES }).notNull().default('open'),
     /** Why it was snoozed or accepted. */
     stateReason: text('state_reason'),

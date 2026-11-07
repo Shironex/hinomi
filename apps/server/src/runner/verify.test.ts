@@ -19,6 +19,11 @@ const repo = {
   runnerKind: 'github_actions' as const,
   sourceId: null,
   sourceOverrideId: null,
+  releaseTier: 'auto' as const,
+  latestReleaseTag: null,
+  latestReleaseAt: null,
+  releaseInstallers: null,
+  releaseCheckedAt: null,
   createdAt: AT,
   updatedAt: AT,
 }

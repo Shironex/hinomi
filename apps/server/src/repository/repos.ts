@@ -1,7 +1,12 @@
 import { and, asc, eq } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { repos, type RepoRow } from '../db/schema.js'
-import { currentTime, type FixRunnerKind, type RunnerMajorsAgent } from '@hinomi/shared'
+import {
+  currentTime,
+  type FixRunnerKind,
+  type ReleaseTierMode,
+  type RunnerMajorsAgent,
+} from '@hinomi/shared'
 
 export interface UpsertRepoInput {
   owner: string
@@ -21,6 +26,13 @@ export interface RepoRunnerPatch {
 /** GitHub owner and repo names are case-insensitive; rows store them lowercased. */
 export function normalizeRepoName(owner: string, name: string): { owner: string; name: string } {
   return { owner: owner.trim().toLowerCase(), name: name.trim().toLowerCase() }
+}
+
+/** What the daily release check found: the latest final release, or null when there is none. */
+export interface ReleaseCheck {
+  tag: string
+  publishedAt: Date | null
+  installers: boolean
 }
 
 export type ReposRepository = ReturnType<typeof createReposRepository>
@@ -81,6 +93,38 @@ export function createReposRepository(db: Db) {
         return db.select().from(repos).where(eq(repos.id, id)).get()
       }
       return db.update(repos).set(set).where(eq(repos.id, id)).returning().get()
+    },
+
+    /**
+     * Sets the repo's desktop tier mode and clears the release check time, so the next scan asks
+     * GitHub again instead of waiting a day. Undefined when the repo does not exist.
+     */
+    setReleaseTier(id: number, tier: ReleaseTierMode): RepoRow | undefined {
+      return db
+        .update(repos)
+        .set({ releaseTier: tier, releaseCheckedAt: null })
+        .where(eq(repos.id, id))
+        .returning()
+        .get()
+    },
+
+    /**
+     * Stores the result of a release check. `undefined` means GitHub said nothing changed (a 304):
+     * only the check time moves.
+     */
+    recordReleaseCheck(id: number, release: ReleaseCheck | null | undefined, at: Date): void {
+      const found =
+        release === undefined
+          ? {}
+          : {
+              latestReleaseTag: release?.tag ?? null,
+              latestReleaseAt: release?.publishedAt ?? null,
+              releaseInstallers: release ? release.installers : null,
+            }
+      db.update(repos)
+        .set({ ...found, releaseCheckedAt: at })
+        .where(eq(repos.id, id))
+        .run()
     },
 
     markScanned(id: number, at: Date = currentTime()): void {

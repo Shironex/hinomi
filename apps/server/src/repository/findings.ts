@@ -1,13 +1,14 @@
-import type {
-  BlindSpotType,
-  CoverageNoteType,
-  FindingKind,
-  FindingScope,
-  FindingState,
-  GuardCheck,
-  GuardEvidence,
-  GuardLevel,
-  Reporter,
+import {
+  COVERAGE_NOTE_TYPES,
+  type BlindSpotType,
+  type CoverageNoteType,
+  type FindingKind,
+  type FindingScope,
+  type FindingState,
+  type GuardCheck,
+  type GuardEvidence,
+  type GuardLevel,
+  type Reporter,
 } from '@hinomi/shared'
 import { and, asc, desc, eq, gte, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
@@ -38,6 +39,24 @@ export function blindSpotFindingKey(
 /** Dedupe key of a coverage note: one row per type and deployment. */
 export function coverageNoteFindingKey(type: CoverageNoteType, deploymentId: number): string {
   return `note:${type}:deployment:${deploymentId}`
+}
+
+/** Dedupe key of a coverage note about a repo (a release without a lockfile at its tag). */
+export function repoCoverageNoteFindingKey(type: CoverageNoteType, repoId: number): string {
+  return `note:${type}:repo:${repoId}`
+}
+
+/**
+ * The type of a coverage note, read back from its dedupe key (`note:{type}:...`). The table has
+ * no column for it; null for any other finding or a key this version does not know.
+ */
+export function coverageNoteTypeOf(finding: {
+  kind: FindingKind
+  dedupeKey: string
+}): CoverageNoteType | null {
+  if (finding.kind !== 'coverage_note') return null
+  const type = finding.dedupeKey.split(':')[1]
+  return COVERAGE_NOTE_TYPES.find((t) => t === type) ?? null
 }
 
 /** What a guard finding is about: one deployment or one repo. */
@@ -77,6 +96,13 @@ export type ObserveFindingInput =
       patchedInLockfile?: boolean
       /** Chain from a lockfile; left alone when undefined. */
       dependencyPath?: string[] | null
+      /**
+       * Desktop release advisory: the tag that was scanned. Makes it a separate row from the
+       * default branch advisory (releaseAdvisoryFindingKey); the row follows the latest tag.
+       */
+      releaseTag?: string
+      /** Release advisories: the default branch no longer has it. Left alone when undefined. */
+      fixedOnDefaultBranch?: boolean
     }
   | {
       kind: Extract<FindingKind, 'blind_spot'>
@@ -87,7 +113,9 @@ export type ObserveFindingInput =
   | {
       kind: Extract<FindingKind, 'coverage_note'>
       coverageNoteType: CoverageNoteType
-      deploymentId: number
+      /** The subject: a deployment, or a repo for notes about a repo. */
+      deploymentId?: number
+      repoId?: number
     }
   | {
       kind: Extract<FindingKind, 'guard'>
@@ -121,9 +149,20 @@ export interface ListFindingsFilter {
 export type FindingsRepository = ReturnType<typeof createFindingsRepository>
 
 function keyFor(input: ObserveFindingInput): string {
-  if (input.kind === 'advisory') return advisoryFindingKey(input.advisoryId, input.repoId)
-  if (input.kind === 'coverage_note')
-    return coverageNoteFindingKey(input.coverageNoteType, input.deploymentId)
+  if (input.kind === 'advisory') {
+    return input.releaseTag === undefined
+      ? advisoryFindingKey(input.advisoryId, input.repoId)
+      : releaseAdvisoryFindingKey(input.advisoryId, input.repoId)
+  }
+  if (input.kind === 'coverage_note') {
+    if (input.deploymentId !== undefined) {
+      return coverageNoteFindingKey(input.coverageNoteType, input.deploymentId)
+    }
+    if (input.repoId !== undefined) {
+      return repoCoverageNoteFindingKey(input.coverageNoteType, input.repoId)
+    }
+    throw new Error('A coverage note needs a deploymentId or a repoId')
+  }
   if (input.kind === 'guard') return guardFindingKey(input.guardCheck, input.subject)
   if (input.repoId !== undefined)
     return blindSpotFindingKey(input.blindSpotType, { repoId: input.repoId })
@@ -205,9 +244,11 @@ export function createFindingsRepository(db: Db) {
                     installedVersion: input.installedVersion ?? null,
                     patchedInLockfile: input.patchedInLockfile ?? false,
                     dependencyPath: input.dependencyPath ?? null,
+                    releaseTag: input.releaseTag ?? null,
+                    fixedOnDefaultBranch: input.fixedOnDefaultBranch ?? false,
                   }
                 : input.kind === 'coverage_note'
-                  ? { deploymentId: input.deploymentId }
+                  ? { deploymentId: input.deploymentId ?? null, repoId: input.repoId ?? null }
                   : input.kind === 'guard'
                     ? {
                         guardCheck: input.guardCheck,
@@ -243,6 +284,10 @@ export function createFindingsRepository(db: Db) {
               ...(input.dependencyPath !== undefined && { dependencyPath: input.dependencyPath }),
               ...(input.patchedInLockfile !== undefined && {
                 patchedInLockfile: input.patchedInLockfile,
+              }),
+              ...(input.releaseTag !== undefined && { releaseTag: input.releaseTag }),
+              ...(input.fixedOnDefaultBranch !== undefined && {
+                fixedOnDefaultBranch: input.fixedOnDefaultBranch,
               }),
             }),
             ...(input.kind === 'guard' && {
