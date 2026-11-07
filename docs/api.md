@@ -36,7 +36,8 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 
 | Method and path | Returns |
 |---|---|
-| `GET /api/health` | `{ status: "ok" }` |
+| `GET /api/health` | `{ status: "ok", version }`, the running version (`0.3.0`, or `dev`) |
+| `GET /api/version` | The running build: `version` (`dev` for a build without a release version), `commit` (full sha or null), `buildDate` (ISO or null), `isDev`, `prerelease`, `imageTag` and `releaseNotesUrl` (null for a dev build), and `update`: null, or `{ version, url, imageTag }` when the daily check found a newer release. Values come from the `HINOMI_BUILD_*` build args, see [self-hosting.md](self-hosting.md#version-and-update-check) |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
 | `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below) |
 | `GET /api/shell/nav-counts` | Sidebar counts: `needsAction`, `deployments`, `alerts` (findings not fixed), `activeFixRuns` (null until fix runs exist) |
@@ -287,8 +288,8 @@ A test answers `{ ok: true, message, version?, login?, scopes?, account?, reposi
 
 | Method and path | Does |
 |---|---|
-| `GET /api/settings` | `{ scanIntervalMinutes, osvEnabled, includeAccountRepos }` |
-| `PATCH /api/settings` | Any of them. The interval is 15 minutes to 7 days (default 360) and replans the next scan |
+| `GET /api/settings` | `{ scanIntervalMinutes, osvEnabled, includeAccountRepos, updateCheckEnabled }` |
+| `PATCH /api/settings` | Any of them. The interval is 15 minutes to 7 days (default 360) and replans the next scan. `updateCheckEnabled` (default true) is the daily check for a newer release; turning it on checks at once |
 | `GET /api/scans?limit=` | Scan runs, newest first |
 | `GET /api/scans/:id` | One run with per source results |
 | `POST /api/scans` | Starts a scan: 202 `{ started: true, run }`, or 200 `{ started: false, run }` with the scan already running |
