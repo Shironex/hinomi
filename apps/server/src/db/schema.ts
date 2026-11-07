@@ -101,10 +101,45 @@ export const repos = sqliteTable(
       .default('off'),
     /** Where the repo's fix plans run: GitHub Actions (default), a webhook runner or locally. */
     runnerKind: text('runner_kind', { enum: FIX_RUNNER_KINDS }).notNull().default('github_actions'),
+    /**
+     * The GitHub source that reads and fixes the repo, chosen by scans (see scan/ownership.ts).
+     * Null when no GitHub source can read it; its findings and runs stay.
+     */
+    sourceId: integer('source_id').references(() => sources.id, { onDelete: 'set null' }),
+    /** A GitHub source picked by hand; wins over the scan's choice while it is enabled. */
+    sourceOverrideId: integer('source_override_id').references(() => sources.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('repos_owner_name_unique').on(t.owner, t.name)],
+  (t) => [
+    uniqueIndex('repos_owner_name_unique').on(t.owner, t.name),
+    index('repos_source_idx').on(t.sourceId),
+  ],
+)
+
+/**
+ * Which GitHub sources saw a repo on the last scan that asked them, so a repo seen by several can
+ * move to another when its source goes away, and the UI can offer the switch.
+ */
+export const repoSources = sqliteTable(
+  'repo_sources',
+  {
+    repoId: integer('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    sourceId: integer('source_id')
+      .notNull()
+      .references(() => sources.id, { onDelete: 'cascade' }),
+    /** The source could tell whether Dependabot alerts are on. Null when it was not asked. */
+    alertsReadable: integer('alerts_readable', { mode: 'boolean' }),
+    lastSeenAt: timestamp('last_seen_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.repoId, t.sourceId] }),
+    index('repo_sources_source_idx').on(t.sourceId),
+  ],
 )
 
 /** One running app (application, service or database) reported by a deployment source. */
@@ -418,6 +453,7 @@ export const settings = sqliteTable('settings', {
 export type SourceRow = typeof sources.$inferSelect
 export type RepoRow = typeof repos.$inferSelect
 export type NewRepoRow = typeof repos.$inferInsert
+export type RepoSourceRow = typeof repoSources.$inferSelect
 export type DeploymentRow = typeof deployments.$inferSelect
 export type NewDeploymentRow = typeof deployments.$inferInsert
 export type DeploymentRepoOverrideRow = typeof deploymentRepoOverrides.$inferSelect

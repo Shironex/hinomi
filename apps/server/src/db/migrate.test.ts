@@ -15,6 +15,7 @@ const TABLES = [
   'findings',
   'fix_plans',
   'fix_runs',
+  'repo_sources',
   'repos',
   'scan_runs',
   'settings',
