@@ -10,6 +10,7 @@ import type {
   FixesResponse,
   FixItem,
   OverviewResponse,
+  RepoDetail,
   RepoRef,
 } from '@hinomi/shared'
 
@@ -28,6 +29,32 @@ export function repoRef(over: Partial<RepoRef> = {}): RepoRef {
     archived: false,
     alertsEnabled: true,
     lastScannedAt: T0,
+    ...over,
+  }
+}
+
+/** A repo nothing deploys whose latest release ships installers: in the released tier. */
+export function repoDetail(over: Partial<RepoDetail> = {}): RepoDetail {
+  return {
+    ...repoRef({ id: 24, name: 'kestrel-desk' }),
+    source: {
+      current: { id: 2, name: 'kestrel-co app', auth: 'github_app', enabled: true },
+      mode: 'auto',
+      overrideId: null,
+      seenBy: [],
+    },
+    release: {
+      tier: 'auto',
+      status: 'released',
+      latestTag: 'v2.3.0',
+      latestAt: '2026-10-27T10:00:00.000Z',
+      installers: true,
+      installerAssets: ['Kestrel-2.3.0-universal.dmg', 'Kestrel-Setup-2.3.0.exe'],
+      checkedAt: T0,
+      openFindings: 2,
+      fixedOnDefaultBranch: 1,
+      lockfileMissing: false,
+    },
     ...over,
   }
 }

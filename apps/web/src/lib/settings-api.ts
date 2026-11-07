@@ -25,6 +25,7 @@ import {
   type UpdateGithubWebhookRequest,
   type UpdateNotifyChannelRequest,
   type UpdateNotifySettingsRequest,
+  type UpdateRepoReleaseTierRequest,
   type UpdateRepoRequest,
   type UpdateSettingsRequest,
   type UpdateSourceRequest,
@@ -198,3 +199,7 @@ export const updateWebhookRunner = (body: UpdateWebhookRunnerRequest) =>
 /** Generates or replaces the secret. The answer holds it once, with the settings after. */
 export const rotateWebhookRunnerSecret = () =>
   api.post('/settings/webhook-runner/secret', rotateWebhookRunnerSecretResponseSchema)
+
+/** Sets the repo's desktop release tier mode. Answers the repo like GET does. */
+export const updateRepoReleaseTier = (id: number, body: UpdateRepoReleaseTierRequest) =>
+  request(`/repos/${id}/release-tier`, repoDetailSchema, { method: 'PUT', json: body })
