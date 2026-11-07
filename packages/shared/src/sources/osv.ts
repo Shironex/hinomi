@@ -3,7 +3,14 @@ import { z } from 'zod'
 // Lockfile dependencies
 
 /** Ecosystem names as OSV spells them. */
-export const osvEcosystemSchema = z.enum(['npm', 'crates.io'])
+export const osvEcosystemSchema = z.enum([
+  'npm',
+  'crates.io',
+  'Go',
+  'PyPI',
+  'Packagist',
+  'RubyGems',
+])
 export type OsvEcosystem = z.infer<typeof osvEcosystemSchema>
 
 /**
