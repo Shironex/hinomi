@@ -27,6 +27,8 @@ Nothing is required to boot, but one value is needed before you can connect a so
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | Keep it below your stop grace period (default `25`). |
 | `HINOMI_TRUSTED_PROXIES`, `HINOMI_CF_ACCESS_TEAM_DOMAIN`, `HINOMI_CF_ACCESS_AUD` | Only for the access setups below. |
 | `HINOMI_WEBHOOK_PORT` | Only for the optional [GitHub webhook](github-webhook.md) and the [webhook runner](runners.md#the-webhook-runner) callback: a second port that serves those two paths alone, the one thing safe to expose. |
+| `HINOMI_LOCAL_RUNNER` | `1` allows the [local runner](runners.md#the-local-runner), which applies fix plans on this host. Off by default; read its risks first. |
+| `HINOMI_LOCAL_RUNNER_CHECKS` | `1` also runs install scripts and checks on the host during a local run. Off by default. |
 
 The full table is in the [README](../README.md#configuration) and [.env.example](../.env.example).
 
