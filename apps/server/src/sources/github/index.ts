@@ -79,6 +79,7 @@ export {
   type GithubCompareStatus,
   type GithubWorkflowRun,
 } from './runs.js'
+export { fetchLatestRelease, type GithubRelease } from './releases.js'
 export {
   combineChecks,
   fetchCheckRunsStatus,
