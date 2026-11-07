@@ -1,0 +1,7 @@
+[install]
+# Refuse releases younger than 14 days.
+minimumReleaseAge = 1209600 # seconds
+minimumReleaseAgeExcludes = [
+  "@kestrel/kit", # our own
+  "typescript@5.4.5",
+]

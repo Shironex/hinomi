@@ -1,0 +1,16 @@
+{
+  "name": "kestrel-edge",
+  "version": "0.4.0",
+  "private": true,
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "plover-parse": "^1.2.0",
+    "tern-stream": "^3.0.1"
+  },
+  "resolutions": {
+    "heron-log": "1.8.0"
+  }
+}

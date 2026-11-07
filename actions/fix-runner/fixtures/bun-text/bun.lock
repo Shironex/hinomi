@@ -1,0 +1,26 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "kestrel-edge",
+      "dependencies": {
+        "plover-parse": "^1.2.0",
+        "tern-stream": "^3.0.1",
+      },
+    },
+  },
+  "overrides": {
+    "heron-log": "1.8.0",
+  },
+  "packages": {
+    "heron-log": ["heron-log@1.8.0", "", {}, "sha512-ZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZQ=="],
+
+    "plover-parse": ["plover-parse@1.2.0", "", { "dependencies": { "wren-util": "^2.1.0" } }, "sha512-ZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZQ=="],
+
+    "tern-stream": ["tern-stream@3.0.1", "", { "dependencies": { "heron-log": "^1.7.0", "wren-util": "^2.0.0" } }, "sha512-ZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZQ=="],
+
+    "tern-stream/wren-util": ["wren-util@2.0.4", "", {}, "sha512-ZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZQ=="],
+
+    "wren-util": ["wren-util@2.1.0", "", {}, "sha512-ZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZWZha2VmYWtlZmFrZQ=="],
+  }
+}
