@@ -6,20 +6,19 @@ import {
   currentTime,
 } from '@hinomi/shared'
 import { z } from 'zod'
-import { readOnboarding } from '../api/routes/onboarding.js'
 import type { ScanRunRow } from '../db/schema.js'
 import { DEFAULT_SHUTDOWN_TIMEOUT_SECONDS } from '../config.js'
 import { silentLogger, type Logger } from '../log.js'
-import type { Repositories, SettingsRepository } from '../repository/index.js'
+import { readOnboarding, type Repositories, type SettingsRepository } from '../repository/index.js'
 import {
   buildScanSources,
+  errorMessage,
   runScan,
   type RunScanOptions,
   type ScanProgress,
   type ScanSources,
   type ScanSummary,
 } from '../scan/index.js'
-import { errorMessage } from '../scan/collect.js'
 
 /** Settings key of the scan interval, in minutes (plain JSON number). */
 export const SCAN_INTERVAL_KEY = 'scan.intervalMinutes'

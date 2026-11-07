@@ -1,5 +1,5 @@
 import type { LockfileDependency } from '@hinomi/shared'
-import { compareVersions, isComparableVersion } from '../sources/osv/semver.js'
+import { compareVersions, isComparableVersion } from '../sources/osv/index.js'
 import { normalizeEcosystem } from './advisories.js'
 
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1)
