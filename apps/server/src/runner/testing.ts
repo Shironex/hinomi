@@ -1,3 +1,4 @@
+import { crc32, deflateRawSync } from 'node:zlib'
 import {
   FINDING_TIERS,
   FIX_RESULT_SCHEMA,
@@ -237,4 +238,59 @@ export function runnerResult(
     patch: { sha256: 'b'.repeat(64), files: ['package.json'], insertions: 2, deletions: 2 },
     finishedAt: '2026-11-07T10:05:00.000Z',
   })
+}
+
+export interface ZipEntryInput {
+  name: string
+  data: string | Uint8Array
+  /** 0 stored, 8 deflated (default). */
+  method?: 0 | 8
+  /** Overrides written into the headers, to build broken archives. */
+  flags?: number
+  crc?: number
+}
+
+/** A zip archive as upload-artifact builds it, for artifact tests. */
+export function zipOf(entries: ZipEntryInput[]): Uint8Array {
+  const locals: Buffer[] = []
+  const centrals: Buffer[] = []
+  let offset = 0
+  for (const entry of entries) {
+    const data = typeof entry.data === 'string' ? Buffer.from(entry.data) : Buffer.from(entry.data)
+    const method = entry.method ?? 8
+    const packed = method === 8 ? deflateRawSync(data) : data
+    const name = Buffer.from(entry.name)
+    const crc = entry.crc ?? crc32(data)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(entry.flags ?? 0, 6)
+    local.writeUInt16LE(method, 8)
+    local.writeUInt32LE(crc, 14)
+    local.writeUInt32LE(packed.length, 18)
+    local.writeUInt32LE(data.length, 22)
+    local.writeUInt16LE(name.length, 26)
+    locals.push(local, name, packed)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(entry.flags ?? 0, 8)
+    central.writeUInt16LE(method, 10)
+    central.writeUInt32LE(crc, 16)
+    central.writeUInt32LE(packed.length, 20)
+    central.writeUInt32LE(data.length, 24)
+    central.writeUInt16LE(name.length, 28)
+    central.writeUInt32LE(offset, 42)
+    centrals.push(central, name)
+    offset += local.length + name.length + packed.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(entries.length, 8)
+  end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
 }
