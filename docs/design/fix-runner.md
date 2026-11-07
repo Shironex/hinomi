@@ -1,6 +1,6 @@
 # GitHub Actions fix runner: design
 
-Status: accepted, being built. Covers #62 (this runner) and #63 (tracking fix runs), on top of the fix plans of #61; #64 (fix runs view) and #65 (webhook and local runners) build on it. The decisions taken are in section 14 and the answers found while building #61 in section 15; where they differ from the options in section 11, sections 14 and 15 win. The dispatch and result contract lives in `packages/shared/src/runner.ts`, `runner-payload.ts` and `runner-pr.ts`.
+Status: accepted, being built. Covers #62 (this runner) and #63 (tracking fix runs), on top of the fix plans of #61; #64 (fix runs view) and #65 (webhook and local runners, section 21) build on it. The decisions taken are in section 14 and the answers found while building #61 in section 15; where they differ from the options in section 11, sections 14 and 15 win. The dispatch and result contract lives in `packages/shared/src/runner.ts`, `runner-payload.ts` and `runner-pr.ts`.
 
 ## 0. Summary
 
@@ -666,3 +666,53 @@ What the optional agent hand off for major upgrades settled, where it differs fr
 - **Network for the agent's own traffic.** Claude Code talks to the API outside the sandbox, so the job needs general egress; GitHub hosted runners have it.
 - **Cost.** Bounded per run by the 10 USD budget, 80 turns and the 40 minute stop, plus about 60 minutes of Actions on private repos.
 
+
+## 21. #65: webhook and local runners
+
+Two more runners behind the same `FixRunner` interface, picked per repo. Off by default like the GitHub Actions runner; the GitHub Actions path behaves exactly as before. The user facing description is in [runners.md](../runners.md).
+
+### 21.1 One interface, a runner kind per repo
+
+1. **Kind.** `repos.runner_kind` (`github_actions` by default, `webhook`, `local`), migration 0009, set through `PATCH /api/repos/:id/runner` with `kind`. The run row already records `runner`. The service picks the runner by the repo's kind at dispatch time; the checks shared by every runner (on, a plan, decision 10) stay in `service.ts`.
+2. **Shared preparation.** Reading the repo on GitHub (visibility, default branch, GitHub's spelling of the name), the projection to `FixDispatchV1`, the encoding and the `pending` row live in one `prepareDispatch` used by every runner. A runner only hands the prepared payload over and moves the run to `dispatched` or `failed`. Majors runs go through the same path, so a webhook runner receives them with `kind: majors` and its own branch.
+3. **Tracking per kind.** Before the push only GitHub Actions runs are polled on GitHub (`link`, `run`, `ended_run`). Webhook and local runs before the push are in the new `wait` phase: no request at all, only the timeout (`externalLostAfterMs`, 2 hours after the dispatch) that marks a run `lost` when no result ever came. Their results arrive by callback (webhook) or from the local process. From `branch_pushed` on everything is shared: the publisher opens the PR from the branch with the existing renderer, and the tracker follows the PR, its checks, the deploy and the rescan as before.
+
+### 21.2 The webhook runner
+
+For people who run the plan somewhere else (their own CI, a build box, a queue): Hinomi posts the plan, the external runner applies it, pushes the branch and reports back.
+
+1. **Settings.** One webhook runner per Hinomi: the target URL, a shared secret (256 random bits, stored encrypted with `HINOMI_SECRET_KEY`, shown once on rotation), `allowPrivate` (off) and an optional `callbackUrl` sent with every dispatch. Stored in the settings table, no migration. `GET` and `PATCH /api/settings/webhook-runner`, `POST /api/settings/webhook-runner/secret`.
+2. **Dispatch.** `POST <url>` with the JSON body `{ schema: 'hinomi.webhook-dispatch/1', runId, kind, repo, branch, encoding, plan, callbackUrl }`, where `plan` and `encoding` are exactly what the GitHub Actions runner sends as workflow inputs, so an external runner can hand them to the fix runner action unchanged. Headers: `X-Hinomi-Event: dispatch`, `X-Hinomi-Delivery: <uuid>`, `X-Hinomi-Signature: t=<unix seconds>,v1=<hex>`, where `v1` is HMAC SHA-256 of `<t>.<raw body>` under the secret. A 2xx answer moves the run to `dispatched`; anything else, a timeout (15 s) or a refused address fails the run with the reason.
+3. **SSRF care.** The URL must be https and carry no credentials. Unless `allowPrivate` is on, every address the host resolves to must be public (not loopback, private, link local, CGNAT, unique local, multicast, unspecified or reserved), and the check runs inside the connection's own DNS lookup, so a name cannot resolve to a public address for the check and a private one for the request. `allowPrivate` allows private addresses and plain http, for a runner on the same network. Redirects are never followed: a 3xx is a failure, so the signed body never travels to a second host. The answer body is read up to 4 KiB, for the failure reason only.
+4. **Callback.** `POST /api/runner/callback`, mounted like the GitHub webhook (before the API's body limit, with its own 1 MiB cap) and also served on the `HINOMI_WEBHOOK_PORT` listener. Same signature scheme and secret; the timestamp must be within 5 minutes and `X-Hinomi-Delivery` ids are remembered for 24 hours (a replay answers `duplicate` and changes nothing). While the webhook runner has no readable secret the path answers 404 like an unknown route. The body is `{ schema: 'hinomi.runner-callback/1', runId, status, result?, headSha?, reason? }`:
+
+   | `status` | Needs | Event |
+   |---|---|---|
+   | `queued` | | `run_queued` |
+   | `running` | | `run_started` |
+   | `completed` | `result` without a patch | result stored, `run_completed` with `nothingToDo` (majors: `failed` with the agent's reason) |
+   | `completed` | `result` with a patch and `headSha` | Hinomi reads the branch head on GitHub; when it equals `headSha`, result stored and `run_completed` with the head, which is `branch_pushed`; the tracker then opens the PR at once |
+   | `failed` | `reason` (optional `result`) | `failed` with the reason, control characters removed, at most 500 characters |
+   | `cancelled` | | `run_completed` with `cancelled` |
+
+   The run is found by `runId`, the correlation id Hinomi sent, and only among runs of the webhook runner. The result must carry the same run id and the repo's name and pass the strict `fixResultV1Schema`. Answers: 200 `applied`, `unchanged` or `duplicate`, 404 for an unknown run, 409 when the state machine refuses the event, 400 or 422 for a malformed body, 503 when GitHub could not be asked about the branch (the delivery id is forgotten, so a retry works).
+5. **Trust.** The external runner holds a push credential for the repo and is trusted as much as the repo's own CI. Hinomi still opens the PR itself (mode A), so the PR body comes from Hinomi's renderer and the result passes the same schema. Hinomi never sends its GitHub credential to the external runner.
+
+### 21.3 The local agent runner
+
+For people with no Actions minutes and no other runner: Hinomi applies the plan on its own host. It is the riskiest runner, so it is opt in twice: `HINOMI_LOCAL_RUNNER=1` in the environment (the UI cannot turn it on), then the repo's kind.
+
+1. **Availability.** Without the flag, or without `git` on the PATH, the kind cannot be set and a dispatch of a repo that has it fails with the reason. The status reports `available` read only, with a warning string the UI shows next to the switch.
+2. **Isolated checkout.** Per run a folder under `<HINOMI_DATA_DIR>/runner/<correlation id>` with `apply/`, `publish/`, `out/`, `home/` and `tmp/`, removed in a `finally` and swept on boot. `apply/` is a fresh shallow clone of the default branch, never one of the host's repos. The token reaches git through `GIT_CONFIG_*` environment variables (an `http.<origin>/.extraheader`), never argv or `.git/config`, and only the clone and the push processes get it.
+3. **The same code as the action.** The server spawns the bundled action (`actions/fix-runner/dist/index.mjs`, shipped in the image) with `process.execPath` and the inputs as `INPUT_*` variables, exactly as GitHub does, so the appliers, the release age gate, the patch capture, the allowlist, the caps and the publish verification are the action's own and are not duplicated. Steps: `apply` with `defer_checks: true` (lockfile only installs, which run no lifecycle scripts), copy the patch and result out of the checkout, then `publish` in `publish/`, a second fresh clone of the base commit, which verifies the patch against the apply step's outputs and pushes `hinomi/fix-plan` with the token in its environment.
+4. **No install scripts by default.** The local runner skips the action's `check` step, so neither install scripts nor the repo's tests run on the host; the PR's CI runs them. `HINOMI_LOCAL_RUNNER_CHECKS=1` runs the check step (the full install and the checks, per the dispatch's checks mode) in `apply/` after the patch was copied out.
+5. **Process isolation.** Every child runs in its own process group, killed as a group when it exits or times out (apply 20 minutes, checks 20, publish 5); its environment is built from nothing but `PATH`, `HOME` and `TMPDIR` (the run's folders), `LANG`, `CI=true`, the `GITHUB_*` and `RUNNER_TEMP` values the action reads and its inputs. Hinomi's own variables (`HINOMI_SECRET_KEY` and the rest), cloud credentials and Claude variables never reach it. Output is kept as a tail with the token, its base64 form and token shapes removed. One local run at a time.
+6. **Majors.** Not on the local runner in this release: the agent preset installs packages with `sudo apt` and needs a user namespace sandbox, which a Hinomi host or container should not grant. A majors dispatch for a local repo is left out with that reason. The GitHub Actions and webhook runners keep majors.
+7. **Credential.** A GitHub App installation token (one hour) is minted per run; with a personal access token the PAT itself is used, which is long lived, so the docs steer local runner users to the App. Pushing needs Contents: write on top of the runner permissions.
+
+### 21.4 Residual risks
+
+- **Webhook runner:** whoever holds the secret can report results for runs they know the id of; ids are random UUIDs sent only to the configured URL. An external runner can push anything to the fix branch; the PR is reviewed by a person and Hinomi never merges. With `allowPrivate` on, the URL can point anywhere on Hinomi's network, which is the point of the switch.
+- **Local runner, repo code on the host:** the lockfile update runs the repo's own `.pnpmfile.cjs` or yarn plugins and the package manager reads the repo's config files (`.npmrc`, `.yarnrc.yml`, `bunfig.toml`, `.cargo/config.toml`), as in the apply job. They run as the Hinomi user with access to the data folder, which holds the database and, while `HINOMI_SECRET_KEY` is in Hinomi's own memory only, encrypted tokens. Process groups and a scrubbed environment do not stop a process that reads files or calls `setsid`. With `HINOMI_LOCAL_RUNNER_CHECKS=1` every install script and test of the repo runs there too.
+- **Containers:** in the official image those processes run inside the Hinomi container as uid 10001. Run the local runner only in a container with no host mounts beyond the data volume and no Docker socket; never on a workstation with your own repos and credentials. The official image ships neither git nor package managers, so it has to be a derived image (see runners.md).
+- **Token:** the push token is in the environment of the clone and publish processes while they run, readable by any process of the same user. A PAT stays valid after the run; prefer the GitHub App.
