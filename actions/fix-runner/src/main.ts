@@ -2,16 +2,17 @@ import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { FixPayloadError, currentTime, parseFixResult } from '@hinomi/shared'
 import { consoleLogger, getInput, writeOutputs, type Env } from './actions-io.js'
-import { RESULT_FILE, writeArtifacts, writeResult } from './artifacts.js'
+import { PATCH_FILE, RESULT_FILE, writeArtifacts, writeResult } from './artifacts.js'
 import { FixRunnerError } from './errors.js'
 import { nodeExec } from './exec.js'
 import { runApply, runChecks, runDetect, type DispatchInputs } from './pipeline.js'
+import { publishPatch, verifyPublish } from './publish.js'
 import { registryPublishTimes, type HttpFetch } from './registry.js'
 import { nodeRepoFs } from './repo-fs.js'
 import { toolchainOutputs } from './toolchain.js'
 
-// The action entry: reads the inputs, runs the `detect`, `apply` or `check` step and sets
-// outputs. The plan reaches this code only through INPUT_PLAN, never through a shell.
+// The action entry: reads the inputs, runs the `detect`, `apply`, `check` or `publish` step and
+// sets outputs. The plan reaches this code only through INPUT_PLAN, never through a shell.
 
 /** Folder inside the checkout the workflow uploads, as in the reusable workflow sketch. */
 export const OUTPUT_DIR = '.hinomi'
@@ -25,6 +26,16 @@ async function readResult(dir: string) {
     if (error instanceof FixPayloadError) throw error
     throw new FixRunnerError(`${RESULT_FILE} is not JSON`, { cause: error })
   }
+}
+
+function parseFileList(value: string): string[] {
+  try {
+    const list: unknown = JSON.parse(value)
+    if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list
+  } catch {
+    // Reported below.
+  }
+  throw new FixRunnerError('The patch_files input is not a JSON list of paths')
 }
 
 export interface MainIo {
@@ -70,6 +81,45 @@ export async function main(io: MainIo): Promise<number> {
     }
 
     const exec = nodeExec({ env, echo: (chunk) => io.write(chunk.replace(/\n$/, '')) })
+    if (step === 'publish') {
+      const dir = resolve(workspace, getInput(env, 'artifact_dir') || OUTPUT_DIR)
+      const result = await readResult(dir)
+      const patchPath = join(dir, PATCH_FILE)
+      const patch = await readFile(patchPath).catch(() => null)
+      if (patch === null) throw new FixRunnerError(`No ${PATCH_FILE} in ${dir}`)
+      const baseSha = getInput(env, 'base_sha')
+      const paths = verifyPublish({
+        patch,
+        result,
+        expectedSha256: getInput(env, 'patch_sha256'),
+        expectedFiles: parseFileList(getInput(env, 'patch_files')),
+        baseSha,
+        repository: dispatchInputs.repository,
+        runId: dispatchInputs.runId,
+      })
+      const published = await publishPatch({
+        exec,
+        log,
+        root: workspace,
+        patchPath,
+        paths,
+        result,
+        baseSha,
+        dryRun: getInput(env, 'dry_run') === 'true',
+        token: getInput(env, 'token'),
+        serverUrl: env.GITHUB_SERVER_URL ?? 'https://github.com',
+        repository: dispatchInputs.repository,
+        write: io.write,
+      })
+      Object.assign(outputs, {
+        branch: published.branch,
+        commit_sha: published.commitSha,
+        pushed: String(published.pushed),
+      })
+      flush()
+      return 0
+    }
+
     const runnerDeps = {
       fs,
       exec,
@@ -106,6 +156,9 @@ export async function main(io: MainIo): Promise<number> {
       patch_path: written.patchPath ?? '',
       output_dir: outputDir,
       package_manager: outcome.result.packageManager,
+      base_sha: outcome.result.baseSha,
+      patch_sha256: outcome.result.patch?.sha256 ?? '',
+      patch_files: JSON.stringify(outcome.result.patch?.files ?? []),
     })
     flush()
     return 0

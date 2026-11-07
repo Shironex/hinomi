@@ -4,12 +4,13 @@ author: Shironex
 
 inputs:
   step:
-    description: 'detect (validate the dispatch and name every toolchain, before they are set up), apply, or check (the full install and checks after apply with defer_checks)'
+    description: 'detect (validate the dispatch and name every toolchain, before they are set up), apply, check (the full install and checks after apply with defer_checks) or publish (verify the patch and push the fix branch)'
     required: false
     default: apply
   plan:
-    description: The dispatch from Hinomi, JSON or gzip plus base64.
-    required: true
+    description: The dispatch from Hinomi, JSON or gzip plus base64. Not used by publish.
+    required: false
+    default: ''
   encoding:
     description: json or gzip-base64
     required: false
@@ -26,6 +27,30 @@ inputs:
     description: 'apply: true leaves the full install and the checks to the check step, so the patch is final before any install script runs'
     required: false
     default: 'false'
+  artifact_dir:
+    description: 'publish: folder with the downloaded hinomi-result.json and fix.patch'
+    required: false
+    default: .hinomi
+  base_sha:
+    description: "publish: the apply step's base_sha output"
+    required: false
+    default: ''
+  patch_sha256:
+    description: "publish: the apply step's patch_sha256 output; the patch must hash to it"
+    required: false
+    default: ''
+  patch_files:
+    description: "publish: the apply step's patch_files output; the patch must touch exactly these"
+    required: false
+    default: '[]'
+  dry_run:
+    description: 'publish: true verifies, applies and commits but pushes nothing'
+    required: false
+    default: 'false'
+  token:
+    description: 'publish: token with contents write, used only for the push'
+    required: false
+    default: ''
 
 outputs:
   package_manager:
@@ -62,6 +87,18 @@ outputs:
     description: Folder of the first cargo project, where a rust-toolchain file applies (detect).
   artifact_name:
     description: Name for the uploaded artifact, from the validated dispatch run id (detect).
+  base_sha:
+    description: The commit the steps were applied to (apply).
+  patch_sha256:
+    description: SHA-256 of fix.patch, empty without a patch (apply).
+  patch_files:
+    description: JSON list of the files in fix.patch (apply).
+  branch:
+    description: The fix branch (publish).
+  commit_sha:
+    description: The fix commit (publish).
+  pushed:
+    description: false in a dry run (publish).
   has_changes:
     description: true when the apply step produced a patch.
   agent_needed:
