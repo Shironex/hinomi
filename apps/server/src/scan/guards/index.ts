@@ -2,6 +2,12 @@
 export { applyGuards, evaluateGuards, toOutcomes } from './apply.js'
 export { GUARDS } from './registry.js'
 export { runGuards } from './run.js'
+export { evaluatePinsDisagree, runtimePinsDisagreeGuard } from './runtime-pins-disagree.js'
+export {
+  evaluateRuntimeSupport,
+  runtimeSupportGuard,
+  type RuntimeSupportOptions,
+} from './runtime-support.js'
 export type {
   Guard,
   GuardContext,

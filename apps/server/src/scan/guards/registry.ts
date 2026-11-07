@@ -1,6 +1,8 @@
 import { dockerSocketGuard } from './docker-socket.js'
 import { frameworkSupportGuard } from './framework-support.js'
 import { rootUserGuard } from './root-user.js'
+import { runtimePinsDisagreeGuard } from './runtime-pins-disagree.js'
+import { runtimeSupportGuard } from './runtime-support.js'
 import { sharedNetworkGuard } from './shared-network.js'
 import type { Guard } from './types.js'
 import { watchPathsSkipGuard } from './watch-paths-skip.js'
@@ -15,4 +17,6 @@ export const GUARDS: readonly Guard[] = [
   frameworkSupportGuard,
   rootUserGuard,
   dockerSocketGuard,
+  runtimeSupportGuard,
+  runtimePinsDisagreeGuard,
 ]
