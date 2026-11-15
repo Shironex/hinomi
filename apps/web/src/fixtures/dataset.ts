@@ -599,6 +599,7 @@ interface DeploymentInput {
   status?: string
   mapping?: DeploymentItem['mapping']
   coverage?: Partial<DeploymentItem['coverage']>
+  imageSecurity?: DeploymentItem['imageSecurity']
 }
 
 function deployment(input: DeploymentInput): DeploymentItem {
@@ -636,7 +637,7 @@ function deployment(input: DeploymentInput): DeploymentItem {
       imageOnly: false,
       ...input.coverage,
     },
-    imageSecurity: null,
+    imageSecurity: input.imageSecurity ?? null,
     openFindings: {
       critical: count('critical'),
       high: count('high'),
@@ -677,6 +678,14 @@ export const DEPLOYMENTS: DeploymentItem[] = [
     image: 'billing:7c03e55',
     git: 'kestrel-co/billing',
     deployedHours: 24,
+    imageSecurity: {
+      status: 'ok',
+      anyExploited: false,
+      exploitedCount: 0,
+      actions: [],
+      eol: null,
+      checkedAt: ago(3),
+    },
   }),
   deployment({
     ref: APPS.search,
@@ -692,6 +701,27 @@ export const DEPLOYMENTS: DeploymentItem[] = [
     git: null,
     deployedHours: 8 * 24,
     coverage: { imageOnly: true, covered: false },
+    imageSecurity: {
+      status: 'update_now',
+      anyExploited: true,
+      exploitedCount: 2,
+      actions: [
+        {
+          type: 'update_image',
+          sentence: 'Update imgproxy to 3.24 to fix 5 advisories, 2 of them exploited.',
+          target: '3.24',
+          image: 'registry.example.dev/imgproxy:3.21',
+        },
+        {
+          type: 'base_image',
+          sentence: 'Rebuild on a base image that still gets fixes: https://example.com/eol-guide',
+          target: null,
+          image: 'registry.example.dev/imgproxy:3.21',
+        },
+      ],
+      eol: { name: 'Debian', version: '10', fixed: false },
+      checkedAt: ago(3),
+    },
   }),
   deployment({
     ref: APPS.status,
@@ -723,6 +753,14 @@ export const DEPLOYMENTS: DeploymentItem[] = [
     image: 'ingest:66f1a20',
     git: 'kestrel-co/ingest',
     deployedHours: 48,
+    imageSecurity: {
+      status: 'no_fix',
+      anyExploited: false,
+      exploitedCount: 0,
+      actions: [],
+      eol: null,
+      checkedAt: ago(3),
+    },
   }),
   deployment({
     ref: APPS.db,
@@ -730,6 +768,21 @@ export const DEPLOYMENTS: DeploymentItem[] = [
     image: 'postgres:16-alpine',
     git: null,
     deployedHours: 40 * 24,
+    imageSecurity: {
+      status: 'update_available',
+      anyExploited: false,
+      exploitedCount: 0,
+      actions: [
+        {
+          type: 'update_image',
+          sentence: 'Update postgres to 16.6 to fix 2 advisories.',
+          target: '16.6',
+          image: 'postgres:16-alpine',
+        },
+      ],
+      eol: null,
+      checkedAt: ago(3),
+    },
   }),
 ]
 

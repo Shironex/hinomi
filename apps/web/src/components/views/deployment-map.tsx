@@ -2,6 +2,8 @@ import type { DeploymentItem } from '@hinomi/shared'
 import type { ReactNode } from 'react'
 import { IconAlertOctagon, IconEyeOff, IconLock, IconWorld } from '@tabler/icons-react'
 import { Badge } from '@/components/ui/badge'
+import { ImageSecurityChip } from '@/components/views/image-security-chip'
+import { showsInList } from '@/lib/image-security-meta'
 import {
   deploymentFacts,
   HEAT_STEPS,
@@ -115,6 +117,7 @@ export function TileBody({ d }: { d: DeploymentItem }) {
       </span>
       <span className="flex min-h-6 flex-wrap items-center gap-2">
         {d.openFindings.critical > 0 ? <CriticalChip count={d.openFindings.critical} /> : null}
+        {showsInList(d.imageSecurity) ? <ImageSecurityChip security={d.imageSecurity} /> : null}
         {f.blind ? (
           <Badge variant="blind">
             <IconEyeOff aria-hidden="true" stroke={2} />
@@ -191,6 +194,7 @@ export function DeploymentRow({ d }: { d: DeploymentItem }) {
             <span className="sr-only"> critical</span>
           </span>
         ) : null}
+        {showsInList(d.imageSecurity) ? <ImageSecurityChip security={d.imageSecurity} /> : null}
       </span>
       {right}
       <span className="col-start-2 col-end-4 truncate text-xs text-muted-foreground">
