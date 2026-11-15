@@ -25,6 +25,7 @@ const SOURCE_LABEL: Record<SourceKind, string> = {
   github: 'GitHub',
   osv: 'OSV.dev lockfiles',
   manual: 'Manual list',
+  dokploy: 'Dokploy',
 }
 
 const plural = (n: number, one: string, many = `${one}s`) =>
@@ -34,7 +35,8 @@ const plural = (n: number, one: string, many = `${one}s`) =>
 function describeCounts(kind: SourceKind, counts: Record<string, number>): string {
   const parts: string[] = []
   const n = (key: string) => counts[key] ?? 0
-  if (kind === 'coolify' || kind === 'manual') parts.push(plural(n('deployments'), 'deployment'))
+  if (kind === 'coolify' || kind === 'manual' || kind === 'dokploy')
+    parts.push(plural(n('deployments'), 'deployment'))
   if (kind === 'github') parts.push(plural(n('repos'), 'repo'), plural(n('alerts'), 'open alert'))
   if (kind === 'osv')
     parts.push(plural(n('lockfiles'), 'lockfile'), plural(n('matches'), 'match', 'matches'))

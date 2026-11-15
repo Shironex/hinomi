@@ -1,6 +1,7 @@
 import { isDeploymentSourceKind, type DeploymentSourceKind, type SourceKind } from '@hinomi/shared'
 import { coolifyDeploymentSource } from '../coolify/source.js'
 import { manualDeploymentSource } from '../manual/source.js'
+import { dokployDeploymentSource } from '../dokploy/source.js'
 import type {
   CachedFacts,
   DeploymentSource,
@@ -13,6 +14,7 @@ import type {
 export const DEPLOYMENT_SOURCES: Record<DeploymentSourceKind, DeploymentSourceFactory> = {
   coolify: coolifyDeploymentSource,
   manual: manualDeploymentSource,
+  dokploy: dokployDeploymentSource,
 }
 
 /** The fields of a `sources` row that opening a deployment source reads. */

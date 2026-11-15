@@ -1,5 +1,6 @@
 import type { SourceTestResult } from '@hinomi/shared'
 import { testCoolifyConnection } from '../sources/coolify/index.js'
+import { testDokployConnection } from '../sources/dokploy/index.js'
 import {
   createGithubAppSource,
   createGithubSource,
@@ -7,6 +8,11 @@ import {
 } from '../sources/github/index.js'
 
 export interface TestCoolifyInput {
+  baseUrl: string
+  token: string
+}
+
+export interface TestDokployInput {
   baseUrl: string
   token: string
 }
@@ -26,6 +32,7 @@ export interface TestGithubAppInput {
 /** Connection checks for the settings and onboarding screens. Never echo a secret. */
 export interface SourceTesters {
   coolify(input: TestCoolifyInput): Promise<SourceTestResult>
+  dokploy(input: TestDokployInput): Promise<SourceTestResult>
   github(input: TestGithubInput): Promise<SourceTestResult>
   githubApp(input: TestGithubAppInput): Promise<SourceTestResult>
 }
@@ -60,6 +67,22 @@ export function createSourceTesters(options: { fetch?: typeof fetch } = {}): Sou
       return {
         ok: true,
         message: result.version ? `Connected to Coolify ${result.version}` : 'Connected to Coolify',
+        version: result.version,
+      }
+    },
+
+    async dokploy({ baseUrl, token }) {
+      const result = await testDokployConnection({
+        baseUrl,
+        token,
+        timeoutMs: TEST_TIMEOUT_MS,
+        ...(options.fetch && { fetch: options.fetch }),
+      })
+      if (!result.ok) return result
+      const where = result.version ? `Dokploy ${result.version}` : 'Dokploy'
+      return {
+        ok: true,
+        message: `Connected to ${where}, ${plural(result.projects, 'project')} visible`,
         version: result.version,
       }
     },

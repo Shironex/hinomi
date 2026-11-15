@@ -1,0 +1,12 @@
+{
+  "applicationId": "app-lantern-0003",
+  "name": "lantern",
+  "env": null,
+  "sourceType": "git",
+  "customGitUrl": "https://deploy-bot:FAKE-SECRET-git-url-token@git.example.dev/lantern.git",
+  "customGitBranch": "release",
+  "applicationStatus": "error",
+  "createdAt": "2024-06-20T10:00:00.000Z",
+  "server": { "name": "lab-1" },
+  "domains": [{ "host": "lantern.example.dev", "https": true, "path": "/" }]
+}

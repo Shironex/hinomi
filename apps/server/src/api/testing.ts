@@ -132,6 +132,9 @@ export function createTestApi({
     coolify: vi.fn((): Promise<SourceTestResult> =>
       Promise.resolve({ ok: true, message: 'Connected' }),
     ),
+    dokploy: vi.fn((): Promise<SourceTestResult> =>
+      Promise.resolve({ ok: true, message: 'Connected to Dokploy, 2 projects visible' }),
+    ),
     github: vi.fn((): Promise<SourceTestResult> =>
       Promise.resolve({ ok: true, message: 'Connected as kestrel-bot', login: 'kestrel-bot' }),
     ),

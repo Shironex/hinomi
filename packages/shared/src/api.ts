@@ -363,9 +363,9 @@ const httpUrl = z
 export const createSourceRequestSchema = z.strictObject({
   kind: sourceKindSchema,
   name: sourceName,
-  /** Coolify: required. GitHub: optional, for GitHub Enterprise. OSV: not used. */
+  /** Coolify and Dokploy: required. GitHub: optional, for GitHub Enterprise. OSV: not used. */
   baseUrl: httpUrl.nullable().optional(),
-  /** Coolify and GitHub with token auth: required. Encrypted before it is stored. */
+  /** Coolify, Dokploy and GitHub with token auth: required. Encrypted before it is stored. */
   token: token.optional(),
   enabled: z.boolean().optional(),
   /** GitHub only. Defaults to `token`. */
@@ -394,9 +394,9 @@ export const updateSourceRequestSchema = z
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateSourceRequest = z.infer<typeof updateSourceRequestSchema>
 
-/** Test a Coolify or GitHub token before saving it. */
+/** Test a Coolify or GitHub token, or a Dokploy API key, before saving it. */
 export const testTokenRequestSchema = z.strictObject({
-  kind: z.enum(['coolify', 'github']),
+  kind: z.enum(['coolify', 'github', 'dokploy']),
   auth: z.literal('token').optional(),
   baseUrl: httpUrl.nullable().optional(),
   token,

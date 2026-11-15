@@ -1,0 +1,20 @@
+{
+  "applicationId": "app-proxy-0002",
+  "name": "image-proxy",
+  "env": "UPSTREAM_TOKEN=FAKE-SECRET-proxy-env",
+  "refreshToken": "FAKE-SECRET-proxy-refresh-token",
+  "sourceType": "docker",
+  "owner": null,
+  "repository": null,
+  "branch": null,
+  "dockerImage": "ghcr.io/kestrel-co/image-proxy:1.4.0",
+  "username": "kestrel-bot",
+  "password": "FAKE-SECRET-docker-password",
+  "registryUrl": "ghcr.io",
+  "applicationStatus": "done",
+  "createdAt": "2026-10-03T10:00:00.000Z",
+  "serverId": null,
+  "server": null,
+  "domains": [],
+  "deployments": []
+}

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { COOLIFY_CAPABILITIES } from '@hinomi/shared'
+import { COOLIFY_CAPABILITIES, DOKPLOY_CAPABILITIES } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
+import { fakeDokployFetch } from '../dokploy/testing.js'
 import { openDeploymentSource, type DeploymentSourceStore } from './registry.js'
 
 // The registry binds a stored source to its kind; the Coolify adapter is checked through it.
@@ -62,6 +63,32 @@ describe('openDeploymentSource', () => {
     expect(records.length).toBeGreaterThan(0)
     expect(records.every((r) => r.source === 'main')).toBe(true)
     expect(asked.every((a) => a.auth === 'Bearer fictional-token-01')).toBe(true)
+  })
+
+  it('binds a Dokploy row to the Dokploy adapter, inventory only', async () => {
+    const { impl, asked } = fakeDokployFetch()
+    const source = openDeploymentSource(
+      { ...ROW, kind: 'dokploy', name: 'apps', baseUrl: 'https://dokploy.example.dev' },
+      store('fictional-dokploy-key-01'),
+      { fetch: impl },
+    )!
+    expect(source).toMatchObject({ sourceId: 7, kind: 'dokploy', name: 'apps' })
+    expect(source.capabilities).toBe(DOKPLOY_CAPABILITIES)
+    expect(source.capabilities.facts.size).toBe(0)
+    expect(source.deployHistory).toBeUndefined()
+    expect(source.imageScan).toBeUndefined()
+    const records = await source.inventory()
+    expect(records.length).toBeGreaterThan(0)
+    expect(records.every((r) => r.source === 'apps')).toBe(true)
+    expect(asked.every((a) => a.apiKey === 'fictional-dokploy-key-01')).toBe(true)
+  })
+
+  it('fails a Dokploy inventory without a URL with a message', async () => {
+    const source = openDeploymentSource(
+      { ...ROW, kind: 'dokploy', name: 'apps', baseUrl: null },
+      store('fictional-dokploy-key-01'),
+    )!
+    await expect(source.inventory()).rejects.toThrow('The source "apps" has no URL.')
   })
 
   it('passes the stored facts to the inventory so unchanged resources are not read again', async () => {
