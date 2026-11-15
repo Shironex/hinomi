@@ -226,6 +226,16 @@ describe('deployment detail', () => {
     )
   })
 
+  it('links every repo name to the repo page', async () => {
+    mockViews({ 'GET /deployments/1': deploymentDetail() })
+    await renderApp('/deployments/1')
+    await screen.findByRole('heading', { level: 1, name: 'storefront-web' })
+    const repo = deploymentDetail().repos[0]!
+    const links = screen.getAllByRole('link', { name: repo.fullName })
+    expect(links.length).toBeGreaterThanOrEqual(2)
+    for (const link of links) expect(link).toHaveAttribute('href', `/repos/${repo.id}`)
+  })
+
   it('shows the bumps that clear the most exposed findings here', async () => {
     mockViews({ 'GET /deployments/1': deploymentDetail() })
     await renderApp('/deployments/1')

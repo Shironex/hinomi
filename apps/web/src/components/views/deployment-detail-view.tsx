@@ -1,4 +1,5 @@
 import type { DeploymentDetail } from '@hinomi/shared'
+import { Fragment } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   IconArrowRight,
@@ -15,6 +16,7 @@ import {
 import { FindingRow } from '@/components/findings/finding-row'
 import { DeploymentGuardsPanel } from '@/components/guards/deployment-guards-panel'
 import { SeverityBadge } from '@/components/findings/severity-badge'
+import { RepoLink } from '@/components/ui/repo-link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
@@ -123,7 +125,14 @@ function Join({ d }: { d: DeploymentDetail }) {
             { label: 'Image', value: d.image ?? 'None', mono: true },
             {
               label: 'Repo',
-              value: d.repos.map((r) => r.fullName).join(', ') || 'None',
+              value: d.repos.length
+                ? d.repos.map((r, i) => (
+                    <Fragment key={r.id}>
+                      {i > 0 ? ', ' : null}
+                      <RepoLink repo={r} />
+                    </Fragment>
+                  ))
+                : 'None',
               mono: true,
             },
             { label: 'Branch', value: d.gitBranch ?? 'None', mono: true },
@@ -291,7 +300,7 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
         {d.repos.map((r) => (
           <span key={r.id} className="inline-flex items-center gap-1.5">
             <IconBrandGithub aria-hidden="true" className="size-[15px]" stroke={1.75} />
-            <span className="font-mono text-sm">{r.fullName}</span>
+            <RepoLink repo={r} className="font-mono text-sm" />
           </span>
         ))}
         {d.gitBranch ? (

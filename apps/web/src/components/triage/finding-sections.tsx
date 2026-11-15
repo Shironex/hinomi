@@ -16,6 +16,7 @@ import {
   IconServer2,
   IconWorld,
 } from '@tabler/icons-react'
+import { RepoLink } from '@/components/ui/repo-link'
 import { eventIcon, eventTone } from '@/components/findings/event-icon'
 import { StatusText } from '@/components/findings/finding-state'
 import { GuardEvidenceView } from '@/components/guards/guard-evidence-view'
@@ -776,9 +777,8 @@ export function AffectedApps({ f }: { f: FindingDetail }) {
     return (
       <PaneSection title="Affected apps" aside="None">
         <p className="text-sm text-muted-foreground">
-          No deployment runs{' '}
-          {f.repo ? <span className="font-mono">{f.repo.fullName}</span> : 'this'}, so it ranks
-          last. Map the repo to a deployment if it does run somewhere.
+          No deployment runs {f.repo ? <RepoLink repo={f.repo} className="font-mono" /> : 'this'},
+          so it ranks last. Map the repo to a deployment if it does run somewhere.
         </p>
       </PaneSection>
     )

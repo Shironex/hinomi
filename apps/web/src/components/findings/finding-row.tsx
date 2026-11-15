@@ -1,6 +1,7 @@
 import type { FindingListItem } from '@hinomi/shared'
 import { Link } from '@tanstack/react-router'
 import { IconClock, IconLock, IconServer2, IconWorld } from '@tabler/icons-react'
+import { RepoLink } from '@/components/ui/repo-link'
 import { GuardKindChip, GuardLevelBadge } from '@/components/guards/guard-badges'
 import { evidenceSummary, guardSubject } from '@/lib/guard-meta'
 import { FixedOnMainBadge } from './fixed-on-main-badge'
@@ -48,7 +49,7 @@ function Where({ item }: { item: FindingListItem }) {
         </span>
       )}
       {item.kind === 'advisory' && item.repo ? (
-        <span className="font-mono">{item.repo.fullName}</span>
+        <RepoLink repo={item.repo} className="relative z-10 font-mono" />
       ) : null}
       <span className="inline-flex items-center gap-1.5">
         <IconClock aria-hidden="true" className="size-3.5" stroke={1.75} />

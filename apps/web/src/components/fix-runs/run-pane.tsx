@@ -11,6 +11,7 @@ import {
   IconGitPullRequestClosed,
   IconRobot,
 } from '@tabler/icons-react'
+import { RepoLink } from '@/components/ui/repo-link'
 import { StatusText } from '@/components/findings/finding-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -342,7 +343,7 @@ export function RunPane({
           <RunStateText run={run} />
         </div>
         <h1 className={focused ? 'text-lg tab:text-xl' : 'text-lg'}>
-          {info.label} on <span className="font-mono">{repo.fullName}</span>
+          {info.label} on <RepoLink repo={repo} className="font-mono" />
         </h1>
         <p className="max-w-[68ch] text-foreground-2">{runNext(run)}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
