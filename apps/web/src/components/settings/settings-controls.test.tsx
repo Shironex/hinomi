@@ -31,7 +31,7 @@ describe('image scan setting', () => {
     const select = await screen.findByLabelText('Scan images')
     expect(select).toHaveValue('off')
     expect(screen.getByText(/Needs Coolify/)).toHaveTextContent('4.7.0')
-    expect(screen.getByText(/SBOM attestation of their public registry images/)).toBeInTheDocument()
+    expect(screen.getByText(/SBOM attestation of their registry images/)).toBeInTheDocument()
     await user.selectOptions(select, 'sbom')
     await waitFor(() =>
       expect(api.called('PATCH', '/settings')[0]?.body).toEqual({ imageScan: 'sbom' }),

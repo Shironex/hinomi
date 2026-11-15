@@ -20,6 +20,7 @@ import {
   detailFor,
 } from './dataset'
 import { MANUAL_DEPLOYMENTS, MANUAL_SOURCE } from './manual'
+import { REGISTRY_CREDENTIALS } from './registry-credentials'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
 import { PLAN_REFS, RUNS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
@@ -298,6 +299,8 @@ export function fixtureRoute(
         rustBehindReleases: 4,
         bunBehindReleases: 4,
       })
+    case '/settings/registry-credentials':
+      return ok(setup ? { items: [], canStoreSecrets: true } : REGISTRY_CREDENTIALS)
     case '/settings/github-webhook':
       return ok(webhookFor(scenario))
     case '/settings/webhook-runner':
