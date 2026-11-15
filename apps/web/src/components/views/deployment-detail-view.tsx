@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { JoinStrip, ReachBadge, RunStatus } from '@/components/views/deployment-bits'
 import { DeploysPanel } from '@/components/views/deploys-panel'
+import { ImageScanCoverage } from '@/components/views/image-scan-coverage'
 import { ImageSecurityPanel } from '@/components/views/image-security-panel'
 import { KeyValues, Panel, PanelBody, PanelHeader, Section } from '@/components/views/panel'
 import { RepoMappingPanel } from '@/components/views/repo-mapping-panel'
@@ -99,7 +100,9 @@ function Coverage({ d }: { d: DeploymentDetail }) {
                       ? 'Lockfile unreadable'
                       : 'On',
             },
-            ...(d.coverage.imageOnly ? [{ label: 'Image scan', value: 'Phase 2 (not yet)' }] : []),
+            ...(d.coverage.imageOnly
+              ? [{ label: 'Image scan', value: <ImageScanCoverage d={d} /> }]
+              : []),
             {
               label: 'Blind spots',
               value: d.coverage.blindSpots.length
