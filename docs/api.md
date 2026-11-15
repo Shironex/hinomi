@@ -67,7 +67,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 | Phase | Does | Units |
 |---|---|---|
-| `deployments` | Reads every Coolify instance, and the account repo list when that setting is on. Skipped with neither. For each Coolify resource it also stores deployment facts (user, mounts, networks, privileged, image, build pack, inline Dockerfile reading, destination, project, auto deploy) for the guards; settings and storages are read again only when the resource's `updated_at` moved or the stored facts are a day old. Only parsed values are kept, never environment variables, raw compose files, run options or storage contents | Coolify instances plus the repo list |
+| `deployments` | Reads every enabled deployment source (Coolify today, see [sources.md](sources.md)), and the account repo list when that setting is on. Skipped with neither. A source that fails keeps the deployments it reported last; the others go on. For each Coolify resource it also stores deployment facts (user, mounts, networks, privileged, image, build pack, inline Dockerfile reading, destination, project, auto deploy) for the guards; settings and storages are read again only when the resource's `updated_at` moved or the stored facts are a day old. Only parsed values are kept, never environment variables, raw compose files, run options or storage contents | Deployment sources plus the repo list |
 | `alerts` | Fetches GitHub repo health and Dependabot alerts per repo. Skipped without GitHub | Repos |
 | `lockfiles` | Reads lockfiles and checks them against OSV.dev per repo. Skipped while OSV is off | Repos |
 | `matching` | Joins advisories to deployments and saves the findings | Repos |
@@ -130,7 +130,7 @@ A guard is a configuration or support check that writes a finding of kind `guard
 
 | Method and path | Does |
 |---|---|
-| `GET /api/guards` | The check registry, every check in `GUARD_CHECKS` order: `{ items: [{ check, title, reads, levels, capabilities, counts, overrides }] }`. `capabilities` maps each connected source kind to `full`, `partial` or `unknown` as the registered check declares it (`{}` for a check no scan runs yet); `counts` has findings not fixed per level; `overrides` counts active overrides |
+| `GET /api/guards` | The check registry, every check in `GUARD_CHECKS` order: `{ items: [{ check, title, reads, levels, capabilities, counts, overrides }] }`. `capabilities` maps each connected source kind to `full`, `partial` or `unknown` as the registered check declares it (`{}` for a check no scan runs yet); for the container checks (`root_user`, `docker_socket`, `shared_network`, `watch_paths_skip`) that is what each deployment source declares it can answer (see [sources.md](sources.md#what-each-source-can-tell)); `counts` has findings not fixed per level; `overrides` counts active overrides |
 | `GET /api/overrides?check=&deployment=&repo=` | Checks turned off: `{ items: [{ id, check, deployment, repo, reason, createdAt, updatedAt }] }`, exactly one of `deployment` and `repo` set |
 | `POST /api/overrides` | `{ check, deploymentId \| repoId, reason }`: turns a check off for one deployment or one repo, 201 with the override. `check` is a guard check or a blind spot type (so `archived_deployed` can be turned off too); `reason` 1 to 500 characters. 404 for an unknown subject, 409 when the check is already off for it |
 | `PATCH /api/overrides/:id` | `{ reason }`, returns the override; turned off findings take the new reason |
@@ -290,13 +290,13 @@ The run detail adds:
 |---|---|
 | `GET /api/deployments` | Every deployment joined with its source, repos, mapping (`auto`, `override`, `none`), coverage (alerts state, open blind spots, covered, `imageOnly`), open advisory findings by severity, `exposed` (exposed advisories on it) and `openBlindSpots` |
 | `GET /api/deployments/:id` | The same plus watch paths, manual overrides, the open findings that reach it, and `guards`: one entry per guard check (`{ check, result, evidence, findingId, override }`, from findings on the deployment or on a repo it runs; `result` is the open level, `pass` for a registered check with nothing open, null for a check no scan runs yet), then `archived_deployed` and any other blind spot type open on it or turned off for it (`result` `fail` when open) |
-| `GET /api/deployments/:id/deploys?limit=` | Recent deploys read live from Coolify (`limit` 1 to 50, default 10): `{ available, reason, items: [{ id, status, commit, commitMessage, startedAt, finishedAt, webhook, rollback }] }`. Applications only; for services, databases or a source that cannot answer, `available` is false and `reason` says why |
+| `GET /api/deployments/:id/deploys?limit=` | Recent deploys read live from the deployment's source (`limit` 1 to 50, default 10): `{ available, reason, items: [{ id, status, commit, commitMessage, startedAt, finishedAt, webhook, rollback }] }`. Coolify keeps them for applications only; for services, databases, a source that keeps no deploy history, a switched off source or one that cannot answer, `available` is false and `reason` says why |
 | `GET /api/deployments/:id/overrides` | Manual repo mappings |
 | `POST /api/deployments/:id/overrides` | `{ repo: "owner/name", note? }`. Overrides replace the automatic repo; blind spots follow on the next scan |
 | `DELETE /api/deployments/:id/overrides/:repoId` | Removes one |
 | `GET /api/repos` | Every known repo |
 | `GET /api/repos/:id` | The repo with `source: { current, mode, overrideId, seenBy }`: the GitHub source that reads and fixes it (`{ id, name, auth, enabled }`, null when none can), how it was chosen (`override`: picked by hand, `auto`: the scan's rule, `fallback`: not placed yet and only one GitHub source is connected, `none`), the source picked by hand (also while switched off) and every GitHub source that saw it on the last scan (`alertsReadable`, `lastSeenAt`), lowest id first. See [design/github-sources.md](design/github-sources.md). Also `runtimePins` and `supportLines`, see [Runtime pins on the repo](#runtime-pins-on-the-repo) |
-| `PATCH /api/repos/:id` | `{ sourceId }` picks the repo's GitHub source by hand (404 when it is not a GitHub source, 409 when it is switched off or has no credential); `{ sourceId: null }` goes back to the scan's choice. Answers like `GET` |
+| `PATCH /api/repos/:id` | `{ sourceId }` picks the repo's GitHub source by hand (404 when it is not a GitHub source, 409 when it is switched off, has no credential or is not in `seenBy`: a source no scan saw the repo through cannot read it; sending the source already picked is accepted); `{ sourceId: null }` goes back to the scan's choice. Answers like `GET` |
 | `PUT /api/repos/:id/release-tier` | `{ tier: "auto" \| "on" \| "off" }`, the repo's desktop release tier mode (see below). Clears the release check time so the next scan asks GitHub again. Answers like `GET` |
 
 `GET /api/repos/:id` also carries `release: { tier, status, latestTag, latestAt, installers, installerAssets, checkedAt, openFindings, fixedOnDefaultBranch, lockfileMissing }`, described in [Desktop release tier](#desktop-release-tier).
@@ -319,7 +319,7 @@ A repo that ships GitHub releases but has no deployment (a desktop app, still in
 
 | Method and path | Does |
 |---|---|
-| `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens), `hasToken` (the token or the app's private key is stored), `repoCount` (GitHub: the repos it reads, a source picked by hand included) and `deploymentCount` (Coolify: the deployments it reports) |
+| `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens), `hasToken` (the token or the app's private key is stored), `repoCount` (GitHub: the repos it reads, a source picked by hand included) and `deploymentCount` (deployment sources: the deployments it reports) |
 | `GET /api/sources/:id` | One source |
 | `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, GitHub a token (URL only for Enterprise), OSV neither. A GitHub App instead sends `auth: "github_app"`, `appId`, `installationId` and `privateKey` (PEM) |
 | `PATCH /api/sources/:id` | Any of `name`, `baseUrl`, `token` (replaces the stored one), `enabled`; for a GitHub App `appId`, `installationId`, `privateKey`. Changing `auth` also needs the new token or private key |
