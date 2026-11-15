@@ -36,6 +36,7 @@ import { Callout } from '@/components/ui/callout'
 import { ActivityPanel } from '@/components/views/activity-panel'
 import { Term } from '@/components/views/panel'
 import { SourceHealthPanel } from '@/components/views/source-health-panel'
+import { SupportWindows, SupportWindowsLine } from '@/components/views/support-windows'
 import { useDeferRequests } from '@/hooks/use-defer-requests'
 import type { ExposureTab } from '@/lib/exposure-search'
 import { isDecided, SEVERITY_LABEL, TIER_INFO } from '@/lib/finding-meta'
@@ -223,6 +224,7 @@ function QuietDetail({ overview }: { overview: OverviewResponse }) {
           <IconChevronRight aria-hidden="true" className="ml-auto size-4 shrink-0 self-center" />
         </Link>
       </section>
+      <SupportWindows windows={overview.windows} />
       <div className="grid items-start gap-4 desk:grid-cols-2">
         <GuardsCard counts={overview.guardCounts} />
         <SourceHealthPanel sources={overview.sources} />
@@ -317,6 +319,7 @@ export function OverviewPage() {
       <SegmentTabs tabs={tabs} current={tab} param="tab" label="Exposure views" />
       {data ? <SourceProblems overview={data} /> : null}
       {data ? <GuardsLine overview={data} /> : null}
+      {data ? <SupportWindowsLine windows={data.windows} /> : null}
     </SplitListHeader>
   )
 

@@ -19,6 +19,7 @@ import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 import { FIXTURE_VERSION, versionFor } from './version'
 import { repoDetailFor, setReleaseTier } from './repo-sources'
+import { windowsFor } from './repo-runtime'
 import {
   RUNNER_SECRET,
   isRunnerScenario,
@@ -245,7 +246,7 @@ export function fixtureRoute(
           : { state: 'idle', lastScanAt: LAST_SCAN.finishedAt, nextScanAt: OVERVIEW.nextScanAt },
       )
     case '/overview':
-      return ok(OVERVIEW)
+      return ok({ ...OVERVIEW, windows: windowsFor() })
     case '/findings':
       return ok(filterFindings(url.searchParams))
     case '/fixes': {
