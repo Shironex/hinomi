@@ -197,6 +197,19 @@ describe('exposure', () => {
     expect(await screen.findByRole('heading', { name: 'What it clears' })).toBeInTheDocument()
   })
 
+  it('counts the Needs action tab from the list, which also holds guard findings', async () => {
+    mockViews({
+      ...routes(),
+      'GET /overview': overview({
+        funnel: { ...overview().funnel, exposed: 0, needsAction: 0 },
+        blindSpots: { total: 0, deployed: 0, public: 0, needsAction: 0 },
+      }),
+    })
+    await renderApp('/')
+    const tabs = await screen.findByRole('navigation', { name: 'Exposure views' })
+    expect(await within(tabs).findByRole('link', { name: 'Needs action 2' })).toBeInTheDocument()
+  })
+
   it('says nothing needs action and shows what ranks below, sources and activity', async () => {
     mockViews({
       ...routes(),
