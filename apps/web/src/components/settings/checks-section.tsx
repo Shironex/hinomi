@@ -18,7 +18,9 @@ import {
   SOURCE_KIND_LABEL,
 } from '@/lib/guard-meta'
 import { guardsQuery, overridesQuery } from '@/lib/guards-api'
+import { settingsQuery } from '@/lib/settings-api'
 import { SetBox, SetRow, SubHeading } from './settings-section'
+import { SupportThresholds } from './support-thresholds'
 
 function capabilitiesText(info: GuardInfo): string {
   const entries = Object.entries(info.capabilities) as [SourceKind, keyof typeof CAPABILITY_LABEL][]
@@ -61,11 +63,28 @@ function Rows({ count }: { count: number }) {
 export function ChecksSection() {
   const guards = useQuery(guardsQuery)
   const overrides = useQuery(overridesQuery)
+  const settings = useQuery(settingsQuery)
   const [target, setTarget] = useState<TurnOffTarget | null>(null)
   const [notice, setNotice] = useState('')
 
   return (
     <>
+      <SubHeading title="Support thresholds" />
+      <p className="max-w-[70ch] text-sm text-foreground-2">
+        How early the support checks warn. They apply on the next scan.
+      </p>
+      {settings.error ? (
+        <ErrorState
+          title="Thresholds did not load"
+          error={settings.error}
+          onRetry={() => void settings.refetch()}
+        />
+      ) : !settings.data ? (
+        <Rows count={1} />
+      ) : (
+        <SupportThresholds settings={settings.data} />
+      )}
+      <SubHeading title="Every check" />
       {guards.error ? (
         <ErrorState
           title="Checks did not load"

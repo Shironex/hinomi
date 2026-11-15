@@ -124,6 +124,8 @@ Per runtime, the pin that says what runs in production decides (precedence: the 
 | Rust | `behind_latest` | never | the pin is more than `rustBehindReleases` (default 4) stable releases behind the latest | within that, or a channel (`stable`, `beta`, `nightly`, `rust:1`) |
 | Bun | `behind_latest` | never | the pin is more than `bunBehindReleases` (default 4) minor releases behind the latest | within that, `latest`, or a major only pin (`bun@1`) |
 
+The window and both allowances are set under Settings, Checks (or with `PATCH /api/settings`) and apply on the next scan.
+
 A floating Node pin (`lts/*`, `node:lts`, `current`) passes and `resolvedTo` says which line it follows today. A pin Hinomi cannot read (`node:${NODE_VERSION}`, a digest) or a line the support data does not have yet is `unknown`. Rust and Bun use the "behind latest" rule because endoflife.date marks every Rust line but the newest as ended and publishes no end dates for Bun (Q12a); `releasesBehind` and `maxBehind` show the count.
 
 While the entry is not passing, `fixHints` lists every file that pins the runtime to an older line, with the edit: `{ path, line, from, to }`, for example `apps/api/Dockerfile:1 node:18-alpine -> node:26-alpine`. CI steps and build stages are listed too; floating pins and minimums are not. The target is the newest Node LTS line that is not ending soon, or the latest Rust or Bun release, written with as many parts as the pin has.

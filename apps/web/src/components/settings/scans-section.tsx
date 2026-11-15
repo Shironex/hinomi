@@ -12,7 +12,8 @@ import { describeError } from '@/lib/errors'
 import { formatClock, formatRelative } from '@/lib/format'
 import { describeScanning } from '@/lib/scan-phases'
 import { settingsKeys, settingsQuery, updateSettings } from '@/lib/settings-api'
-import { Panel, SaveStatus } from './settings-section'
+import { ImageScanSetting } from './image-scan-setting'
+import { Panel, SaveStatus, SubHeading } from './settings-section'
 
 const INTERVALS: { minutes: number; label: string }[] = [
   { minutes: 15, label: '15 minutes' },
@@ -75,71 +76,75 @@ export function ScansSection() {
       )
 
   return (
-    <Panel>
-      <div className="grid gap-5 tab:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Field label="Scan every" help="Changing it replans the next scan.">
-            {(control) => (
-              <NativeSelect
-                {...control}
-                value={interval}
-                disabled={mutation.isPending}
-                onChange={(e) => mutation.mutate({ scanIntervalMinutes: Number(e.target.value) })}
-              >
-                {options.map((o) => (
-                  <option key={o.minutes} value={o.minutes}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-          <SaveStatus
-            pending={mutation.isPending}
-            saved={mutation.isSuccess}
-            error={mutation.isError ? describeError(mutation.error) : null}
-          />
-        </div>
-        <div className="flex items-start gap-3">
-          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span id="account-repos-label" className="text-sm font-medium text-foreground">
-              Include repos with no deployment
+    <>
+      <Panel>
+        <div className="grid gap-5 tab:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <Field label="Scan every" help="Changing it replans the next scan.">
+              {(control) => (
+                <NativeSelect
+                  {...control}
+                  value={interval}
+                  disabled={mutation.isPending}
+                  onChange={(e) => mutation.mutate({ scanIntervalMinutes: Number(e.target.value) })}
+                >
+                  {options.map((o) => (
+                    <option key={o.minutes} value={o.minutes}>
+                      {o.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+            </Field>
+            <SaveStatus
+              pending={mutation.isPending}
+              saved={mutation.isSuccess}
+              error={mutation.isError ? describeError(mutation.error) : null}
+            />
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <span id="account-repos-label" className="text-sm font-medium text-foreground">
+                Include repos with no deployment
+              </span>
+              <span className="text-xs text-pretty text-muted-foreground">
+                Reads every repo the GitHub token can see. They rank last, below everything
+                deployed. A release with installers is checked either way.
+              </span>
             </span>
-            <span className="text-xs text-pretty text-muted-foreground">
-              Reads every repo the GitHub token can see. They rank last, below everything deployed.
-              A release with installers is checked either way.
-            </span>
-          </span>
-          <Switch
-            aria-labelledby="account-repos-label"
-            checked={accountRepos}
-            disabled={mutation.isPending}
-            onCheckedChange={(next) => mutation.mutate({ includeAccountRepos: next })}
-            className="mt-0.5"
-          />
+            <Switch
+              aria-labelledby="account-repos-label"
+              checked={accountRepos}
+              disabled={mutation.isPending}
+              onCheckedChange={(next) => mutation.mutate({ includeAccountRepos: next })}
+              className="mt-0.5"
+            />
+          </div>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border pt-3.5">
-        <dl className="grid flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-sm">
-          <ScanFacts scan={scan} />
-        </dl>
-        {scan.state === 'unconfigured' ? null : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={startScan}
-            disabled={!startScan || scan.state === 'scanning'}
-          >
-            {scan.state === 'scanning' ? (
-              <IconLoader2 aria-hidden="true" className="animate-spin" />
-            ) : (
-              <IconRefresh aria-hidden="true" />
-            )}
-            {scan.state === 'scanning' ? 'Scanning' : 'Scan now'}
-          </Button>
-        )}
-      </div>
-    </Panel>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border pt-3.5">
+          <dl className="grid flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-sm">
+            <ScanFacts scan={scan} />
+          </dl>
+          {scan.state === 'unconfigured' ? null : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={startScan}
+              disabled={!startScan || scan.state === 'scanning'}
+            >
+              {scan.state === 'scanning' ? (
+                <IconLoader2 aria-hidden="true" className="animate-spin" />
+              ) : (
+                <IconRefresh aria-hidden="true" />
+              )}
+              {scan.state === 'scanning' ? 'Scanning' : 'Scan now'}
+            </Button>
+          )}
+        </div>
+      </Panel>
+      <SubHeading title="Image scan" note="Deployments that run an image with no git source" />
+      <ImageScanSetting value={settings.data.imageScan} />
+    </>
   )
 }
 

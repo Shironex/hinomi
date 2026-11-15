@@ -254,7 +254,7 @@ Scans run every 6 hours by default and on demand. Change the interval (15 minute
 
 ### Image scan
 
-Deployments that run an image with no git source (a service from a template, an app deployed from a registry image) have no lockfile to read, so they carry an "image only" coverage note. The image scan covers them. It is off by default; turn it on with the `imageScan` setting (`PATCH /api/settings` with `{ "imageScan": "coolify" }` or `{ "imageScan": "sbom" }`, see [api.md](api.md#settings-and-scans)). `coolify` reads Coolify's own results; `sbom` does the same and, for the deployments Coolify does not cover, reads the SBOM the image carries in its registry.
+Deployments that run an image with no git source (a service from a template, an app deployed from a registry image) have no lockfile to read, so they carry an "image only" coverage note. The image scan covers them. It is off by default; turn it on under Settings, Scans, Image scan, or with the `imageScan` setting (`PATCH /api/settings` with `{ "imageScan": "coolify" }` or `{ "imageScan": "sbom" }`, see [api.md](api.md#settings-and-scans)). `coolify` reads Coolify's own results; `sbom` does the same and, for the deployments Coolify does not cover, reads the SBOM the image carries in its registry.
 
 `coolify` reads the scan results Coolify already computed for the image that actually runs: Hinomi asks `GET /api/v1/vulnerabilities` once per instance and scan, then `GET /api/v1/{applications,services,databases}/{uuid}/vulnerabilities` for each image only deployment. Nothing is installed and no image is pulled. What you need:
 
