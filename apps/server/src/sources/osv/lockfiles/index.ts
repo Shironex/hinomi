@@ -10,6 +10,8 @@ export {
   isLockfileName,
   LOCKFILE_NAMES,
   parseLockfile,
+  parseLockfileDetailed,
+  type ParsedLockfile,
   UnsupportedLockfileError,
   type LockfileName,
   type ParseLockfileOptions,
