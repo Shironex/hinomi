@@ -1,9 +1,9 @@
 import type * as React from 'react'
 import { useState } from 'react'
-import type { SourceDto, SourceTestResult } from '@hinomi/shared'
+import type { SourceDto } from '@hinomi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  IconAlertTriangle,
+  IconBrandDocker,
   IconCheck,
   IconDatabase,
   IconBrandGithub,
@@ -21,6 +21,7 @@ import { SegmentedChoice, type SegmentedOption } from '@/components/form/segment
 import { GithubTokenHelp } from '@/components/onboarding/github-token-help'
 import { ManualSourceRows } from './manual-source-rows'
 import { SecretKeyCallout } from '@/components/sources/secret-key-callout'
+import { DockerSourceForm } from '@/components/sources/docker-source-form'
 import { SourceConnectForm, type ConnectableKind } from '@/components/sources/source-connect-form'
 import { ErrorState } from '@/components/states/error-state'
 import { Badge } from '@/components/ui/badge'
@@ -40,8 +41,10 @@ import {
   testSavedSource,
   updateSource,
 } from '@/lib/settings-api'
-import { cn } from '@/lib/utils'
+import { DockerSourceRow } from './docker-source-row'
 import { Panel, SaveStatus, SetBox, SetRow } from './settings-section'
+import { healthOf } from '@/lib/source-health'
+import { Fact, HealthPill, TestOutcome } from './source-row-bits'
 
 const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: string }> = {
   coolify: {
@@ -61,10 +64,14 @@ const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: str
   },
 }
 
-const KIND_OPTIONS: readonly SegmentedOption<ConnectableKind>[] = [
+/** Kinds the Add source panel offers: the token kinds, plus kinds with their own form. */
+type AddableKind = ConnectableKind | 'docker'
+
+const KIND_OPTIONS: readonly SegmentedOption<AddableKind>[] = [
   { value: 'github', label: KIND_META.github.label, icon: KIND_META.github.icon },
   { value: 'coolify', label: KIND_META.coolify.label, icon: KIND_META.coolify.icon },
   { value: 'dokploy', label: KIND_META.dokploy.label, icon: KIND_META.dokploy.icon },
+  { value: 'docker', label: 'Docker host', icon: IconBrandDocker },
 ]
 
 /** Kinds listed even before one is connected; the others appear once added. */
@@ -113,6 +120,11 @@ export function SourcesSection() {
           ))
         })}
         <ManualSourceRows sources={sources.data.sources.filter((s) => s.kind === 'manual')} />
+        {sources.data.sources
+          .filter((s) => s.kind === 'docker')
+          .map((source) => (
+            <DockerSourceRow key={source.id} source={source} canStoreTokens={canStoreTokens} />
+          ))}
         <OsvRow />
       </SetBox>
       {adding ? (
@@ -156,7 +168,7 @@ function AddSource({
   onCancel: () => void
   onAdded: (message: string) => void
 }) {
-  const [kind, setKind] = useState<ConnectableKind>('github')
+  const [kind, setKind] = useState<AddableKind>('github')
   const [name, setName] = useState('')
   return (
     <Panel role="group" aria-labelledby="add-source-title">
@@ -169,7 +181,9 @@ function AddSource({
         help={
           kind === 'github'
             ? 'Optional. Tells GitHub sources apart, for example by the organization it reads. Defaults to the account or GitHub.'
-            : 'Optional. Defaults to the host of the instance URL.'
+            : kind === 'docker'
+              ? 'Optional. Shown as the server of its deployments. Defaults to the endpoint host, or Docker.'
+              : 'Optional. Defaults to the host of the instance URL.'
         }
         className="max-w-[360px]"
       >
@@ -184,49 +198,28 @@ function AddSource({
           />
         )}
       </Field>
-      <SourceConnectForm
-        key={kind}
-        kind={kind}
-        name={name}
-        guide={<GithubTokenHelp />}
-        onCancel={onCancel}
-        onConnected={({ source, test }) => onAdded(`${source.name} added. ${test.message}.`)}
-      />
+      {kind === 'docker' ? (
+        <DockerSourceForm
+          name={name}
+          onCancel={onCancel}
+          onConnected={({ source, test }) =>
+            onAdded(
+              `${source.name} added. ${test.message}.${test.warning ? ` ${test.warning}` : ''}`,
+            )
+          }
+        />
+      ) : (
+        <SourceConnectForm
+          key={kind}
+          kind={kind}
+          name={name}
+          guide={<GithubTokenHelp />}
+          onCancel={onCancel}
+          onConnected={({ source, test }) => onAdded(`${source.name} added. ${test.message}.`)}
+        />
+      )}
     </Panel>
   )
-}
-
-type Health = { label: string; tone: 'ok' | 'error' | 'neutral' | 'missing' }
-
-function healthOf(source: SourceDto): Health {
-  if (!source.enabled) return { label: 'Paused', tone: 'neutral' }
-  if (!source.hasToken) return { label: 'No token', tone: 'missing' }
-  const ok = source.lastOkAt ? Date.parse(source.lastOkAt) : 0
-  const failed = source.lastErrorAt ? Date.parse(source.lastErrorAt) : 0
-  if (failed > ok) return { label: 'Sync failed', tone: 'error' }
-  if (source.lastOkAt) return { label: `Synced ${formatRelative(source.lastOkAt)}`, tone: 'ok' }
-  return { label: 'Not synced yet', tone: 'neutral' }
-}
-
-/** A failed sync is a connection problem, not a severity, so it is amber rather than red. */
-function HealthPill({ health }: { health: Health }) {
-  if (health.tone === 'ok') {
-    return (
-      <Badge variant="success">
-        <IconCheck aria-hidden="true" />
-        {health.label}
-      </Badge>
-    )
-  }
-  if (health.tone === 'error' || health.tone === 'missing') {
-    return (
-      <Badge variant="outline" className="border-transparent bg-wait-soft text-wait">
-        <IconAlertTriangle aria-hidden="true" />
-        {health.label}
-      </Badge>
-    )
-  }
-  return <Badge variant="outline">{health.label}</Badge>
 }
 
 function SourceRow({
@@ -434,49 +427,6 @@ function removeNote(source: SourceDto, kind: ConnectableKind): string {
   return n > 0
     ? `Hinomi forgets ${secret}. Its ${plural(n, 'repo')} ${n === 1 ? 'moves' : 'move'} to another GitHub source that sees ${n === 1 ? 'it' : 'them'}, or ${n === 1 ? 'stops' : 'stop'} being read; ${n === 1 ? 'its' : 'their'} findings and fix runs stay.`
     : `Hinomi forgets ${secret}. It reads no repos right now.`
-}
-
-/** One term and value of a source, inline so the row stays short. */
-function Fact({ term, children }: { term: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <dt className="shrink-0 text-muted-foreground">{term}</dt>
-      <dd className="flex min-w-0 items-center">{children}</dd>
-    </div>
-  )
-}
-
-function TestOutcome({
-  pending,
-  result,
-  error,
-  note,
-}: {
-  pending: boolean
-  result: SourceTestResult | undefined
-  error: unknown
-  note: string | null
-}) {
-  let content: React.ReactNode = null
-  if (!pending && note) {
-    content = <span className="text-success">{note}</span>
-  } else if (!pending && error) {
-    content = <span className="text-sev-critical">{describeError(error)}</span>
-  } else if (!pending && result) {
-    content = result.ok ? (
-      <span className="text-success">
-        {result.message}
-        {result.scopes?.length ? `. Scopes: ${result.scopes.join(', ')}` : ''}.
-      </span>
-    ) : (
-      <span className="text-sev-critical">{result.message}</span>
-    )
-  }
-  return (
-    <p aria-live="polite" className={cn('text-sm', !content && 'sr-only')}>
-      {content}
-    </p>
-  )
 }
 
 function MissingSource({

@@ -1,4 +1,9 @@
-import { testTokenRequestSchema, type SourceDto, type SourceTestResult } from '@hinomi/shared'
+import {
+  testTokenRequestSchema,
+  type SourceDto,
+  type SourceKind,
+  type SourceTestResult,
+} from '@hinomi/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queries'
 import { settingsKeys, sourcesQuery } from '@/lib/settings-api'
@@ -49,7 +54,7 @@ export function sentence(message: string): string {
  */
 export function newSourceName(
   queryClient: QueryClient,
-  kind: ConnectableKind,
+  kind: SourceKind,
   typed: string | undefined,
   fallback: string,
 ): string {

@@ -969,6 +969,22 @@ export const SOURCES: SourceDto[] = [
     createdAt: ago(24),
     updatedAt: ago(24),
   }),
+  // A Docker host read through a GET only socket proxy (Settings, Sources).
+  source({
+    id: 5,
+    kind: 'docker',
+    name: 'edge-2',
+    baseUrl: null,
+    auth: 'token',
+    hasToken: false,
+    docker: {
+      transport: 'socket',
+      socketPath: '/run/docker-proxy/docker.sock',
+      ca: null,
+      cert: null,
+      optIn: true,
+    },
+  }),
 ]
 
 export const CHANNELS: NotifyChannel[] = [
