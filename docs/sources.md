@@ -1,6 +1,6 @@
 # Deployment sources
 
-A deployment source tells Hinomi what runs where: each deployment's name, the repo it was built from, its domains, its status and, where the platform says so, how its container is configured. Hinomi joins those deployments with advisories and guard checks; nothing in the join, the ranking or the guards depends on which source reported a deployment. Coolify is the only deployment source today. A manual list, Docker labels and Dokploy are planned for v0.3 ([design/phase-2.md](design/phase-2.md) section 9). Every source is read only: Hinomi never deploys, stops or changes anything on a platform.
+A deployment source tells Hinomi what runs where: each deployment's name, the repo it was built from, its domains, its status and, where the platform says so, how its container is configured. Hinomi joins those deployments with advisories and guard checks; nothing in the join, the ranking or the guards depends on which source reported a deployment. Coolify and a manual list are the deployment sources today. Docker labels and Dokploy are planned for v0.3 ([design/phase-2.md](design/phase-2.md) section 9). Every source is read only: Hinomi never deploys, stops or changes anything on a platform.
 
 GitHub and OSV are sources too (under Settings, Sources), but they read repos and advisories, not deployments. See [github.md](github.md) and [self-hosting.md](self-hosting.md#tokens).
 
@@ -8,23 +8,42 @@ GitHub and OSV are sources too (under Settings, Sources), but they read repos an
 
 Each kind of source declares once what it can report (`SourceCapabilities` in `packages/shared/src/sources/deployment.ts`). A guard whose signal the source cannot give says `unknown`, never pass, so a deployment a source knows little about never looks safe.
 
-| | Coolify |
-|---|---|
-| Repo and branch | yes (`git_repository`, `git_branch`) |
-| Domains, so reach | yes (`fqdn`) |
-| Run status | yes |
-| Container user | partial: run options, compose `user:`, the Dockerfile's final stage; nixpacks, static and image apps say unknown |
-| Mounts | partial: run options, compose volumes, file storages (`host_path` of persistent storages is not in Coolify's API spec) |
-| Networks | partial: grouped by destination and project, plus external networks named in run options and compose |
-| Watch paths and auto deploy | yes |
-| Deploy history | applications only |
-| Image scan results | yes, on Coolify v4.7.0 and newer (see [self-hosting.md](self-hosting.md#image-scan)) |
+| | Coolify | Manual list |
+|---|---|---|
+| Repo and branch | yes (`git_repository`, `git_branch`) | yes, as typed |
+| Domains, so reach | yes (`fqdn`) | yes, as typed; the reach is picked by hand |
+| Run status | yes | no: `unknown`, which ranks as running |
+| Container user | partial: run options, compose `user:`, the Dockerfile's final stage; nixpacks, static and image apps say unknown | unknown |
+| Mounts | partial: run options, compose volumes, file storages (`host_path` of persistent storages is not in Coolify's API spec) | unknown |
+| Networks | partial: grouped by destination and project, plus external networks named in run options and compose | unknown |
+| Watch paths and auto deploy | yes | unknown |
+| Deploy history | applications only | no |
+| Image scan results | yes, on Coolify v4.7.0 and newer (see [self-hosting.md](self-hosting.md#image-scan)) | no |
 
 `GET /api/guards` shows, per check, what each connected source kind can answer (`full`, `partial` or `unknown`), taken from these declarations.
 
+## The manual list
+
+For platforms Hinomi cannot read (a hand run host, a partner's box) there is a manual list: Settings, Sources, Manual list. It needs no token. Each entry has a name, and optionally the repo (`owner/name`), branch, image, domains, reach and server; an entry with no repo is an image only deployment. Add entries in the form, through the API ([api.md](api.md#deployments-and-repo-mapping)) or import a YAML file:
+
+```yaml
+deployments:
+  - name: billing-api
+    repo: example-org/billing
+    branch: main
+    image: registry.example.com/billing:1.4.2
+    domains: [https://billing.example.com]
+    reach: public # public, internal or unknown
+    server: edge-1
+```
+
+Entries are matched by name on import; unknown keys, aliases and anchors are refused and the file is capped at 48 KiB. When `reach` is left out it is `public` with an http(s) domain, otherwise `unknown`; `unknown` ranks like public, so a guess never hides a finding.
+
+A manual entry says what runs where and nothing about its container, so the container checks (root user, Docker socket, shared network, watch paths) say `unknown` with the reason "a manual entry lists no container details", never pass. Framework and runtime support still come from the repo. Its status is `unknown`, which ranks as running. The entries are stored as deployments of the manual source, and its inventory hands them back to each scan.
+
 ## How a scan reads them
 
-The `deployments` phase reads every enabled deployment source, one after the other (a source that needs a token is read only once one is stored). Each source returns its deployments as normalised records; Hinomi maps each repo to a repo row, stores the deployment under its source, and removes the deployments that source no longer reports. A deployment is keyed by its source and its id inside that source, so two sources can report the same id without clashing.
+The `deployments` phase reads every enabled deployment source, one after the other (a source that needs a token is read only once one is stored; a manual list needs none). Each source returns its deployments as normalised records; Hinomi maps each repo to a repo row, stores the deployment under its source, and removes the deployments that source no longer reports. A deployment is keyed by its source and its id inside that source, so two sources can report the same id without clashing.
 
 A source that fails (unreachable, a rejected token) is marked with its error and keeps the deployments it reported last; the other sources go on, and the scan ends as `partial`. The scan run's per source results count units per kind (`attempted`, `failed`, `deployments`, `removed`).
 
