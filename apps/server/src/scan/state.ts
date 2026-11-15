@@ -170,6 +170,12 @@ export function markFixed(
   )
 }
 
+/** The data of the latest `details` event of a finding as JSON, null when it has none. */
+export function lastDetails(findings: FindingsRepository, findingId: number): string | null {
+  const event = findings.listEvents(findingId).find((e) => e.type === 'details')
+  return event ? JSON.stringify(event.data ?? null) : null
+}
+
 /** Scan: a fixed finding was reported again. No-op unless it is fixed. */
 export function reopenIfFixed(
   findings: FindingsRepository,

@@ -1,12 +1,17 @@
 import type { BlindSpotType, ImageScanMode } from '@hinomi/shared'
 import type { Repositories } from '../repository/index.js'
-import { blindSpotFindingKey, coverageNoteFindingKey } from '../repository/index.js'
+import {
+  blindSpotFindingKey,
+  coverageNoteFindingKey,
+  coverageNoteTypeOf,
+  repoCoverageNoteFindingKey,
+} from '../repository/index.js'
 import type { FindingChange } from './apply.js'
 import type { RepoScan } from './collect.js'
 import { isImageOnly, needsRepoMapping, type DeploymentIndex } from './deployments.js'
 import { coveredByImageScan, type ImageCoverage } from './image-scan.js'
 import { loadOverrideIndex, reconcileOverride, type OverrideIndex } from './overrides.js'
-import { markFixed, reopenIfFixed } from './state.js'
+import { lastDetails, markFixed, reopenIfFixed } from './state.js'
 
 /** Blind spots about a repo, as opposed to `no_repo_mapping`, which is about a deployment. */
 export const REPO_BLIND_SPOTS = [
@@ -135,6 +140,71 @@ export function applyCoverageNotes(
   return changes
 }
 
+/** Most requirements files listed in the evidence of one note. */
+const MAX_UNPINNED_FILES = 20
+
+/**
+ * Opens, updates and resolves the `requirements_unpinned` note of each repo: one note per repo,
+ * its `details` event `{ files: [{ path, count }], total }` (written again when it changes).
+ * A repo that is not deployed or whose OSV check is off resolves it; a scan that could not read
+ * the lockfiles leaves it alone.
+ */
+export function applyRequirementsNotes(
+  repositories: Repositories,
+  index: DeploymentIndex,
+  scans: ReadonlyMap<number, RepoScan>,
+  now: Date,
+): FindingChange[] {
+  const { findings } = repositories
+  const repoIds = new Set(scans.keys())
+  for (const note of findings.list({ kind: 'coverage_note' })) {
+    if (note.repoId !== null && coverageNoteTypeOf(note) === 'requirements_unpinned') {
+      repoIds.add(note.repoId)
+    }
+  }
+  const changes: FindingChange[] = []
+  for (const repoId of repoIds) {
+    const scan = scans.get(repoId)
+    const existing = findings.getByKey(repoCoverageNoteFindingKey('requirements_unpinned', repoId))
+    const resolve = (data: Record<string, unknown>) => {
+      if (existing && markFixed(findings, existing, now, data)) {
+        changes.push({ findingId: existing.id, change: 'fixed' })
+      }
+    }
+    if (!index.byRepo.has(repoId)) {
+      resolve({ reason: 'not_deployed' })
+      continue
+    }
+    if (!scan) continue
+    if (scan.osv.status === 'skipped') {
+      resolve(NOT_CHECKED)
+      continue
+    }
+    if (scan.osv.status !== 'ok') continue
+    const files = scan.osv.value.unpinned ?? []
+    if (files.length === 0) {
+      resolve({ reason: 'pinned' })
+      continue
+    }
+    const { finding, created } = findings.observe(
+      { kind: 'coverage_note', coverageNoteType: 'requirements_unpinned', repoId },
+      now,
+    )
+    const data = {
+      files: files.slice(0, MAX_UNPINNED_FILES),
+      total: files.reduce((sum, f) => sum + f.count, 0),
+    }
+    if (created || lastDetails(findings, finding.id) !== JSON.stringify(data)) {
+      findings.addEvent({ findingId: finding.id, type: 'details', actor: 'system', data, at: now })
+    }
+    if (created) changes.push({ findingId: finding.id, change: 'opened' })
+    else if (reopenIfFixed(findings, finding, now)) {
+      changes.push({ findingId: finding.id, change: 'reopened' })
+    }
+  }
+  return changes
+}
+
 function applyCheck(
   repositories: Repositories,
   check: BlindSpotCheck,
@@ -204,6 +274,7 @@ export function applyBlindSpots(
     const overrides = loadOverrideIndex(repositories, index)
     for (const check of checks) applyCheck(repositories, check, overrides, now, changes)
     changes.push(...applyCoverageNotes(repositories, index, now, imageScan))
+    changes.push(...applyRequirementsNotes(repositories, index, scans, now))
     return changes
   })
 }
