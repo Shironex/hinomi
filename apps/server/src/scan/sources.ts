@@ -26,6 +26,7 @@ import {
   type FetchedLockfile,
 } from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
+import { manualEntriesOf } from '../sources/manual/index.js'
 import { createImageSbomReader, type ImageSbomReader } from '../sources/registry/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
 
@@ -200,6 +201,7 @@ export function buildScanSources(
           getToken: (id) => repositories.sources.getToken(id),
           // Facts are read again only for resources that changed since the last scan.
           cachedFacts: (id) => cachedFactsOf(repositories.deployments.listBySource(id)),
+          manualEntries: (id) => manualEntriesOf(repositories.deployments.listBySource(id)),
         },
         { ...(options.fetch && { fetch: options.fetch }) },
       )

@@ -4,6 +4,7 @@ import type {
   DeploymentRecord,
   DeploymentSourceKind,
   DeployRecord,
+  ManualEntry,
   SourceCapabilities,
 } from '@hinomi/shared'
 import type { ImageScanProbe, ResourceScanResult } from './image-scan.js'
@@ -66,9 +67,16 @@ export interface DeploymentSourceConfig {
   token: () => string
   /** Facts stored from earlier reads by external id, read when the inventory starts. */
   cachedFacts?: () => ReadonlyMap<string, CachedFacts>
+  /** The entries typed in for this source, for a source whose list is kept by Hinomi (manual). */
+  manualEntries?: () => StoredManualEntry[]
   /** Per request timeout, for interactive reads (the deploy history). */
   timeoutMs?: number
   fetch?: typeof fetch
+}
+
+/** An entry of a manual list as stored, with its id inside the source. */
+export interface StoredManualEntry extends ManualEntry {
+  externalId: string
 }
 
 /** One kind of deployment source: its declared capabilities and how to open an instance. */

@@ -32,6 +32,7 @@ import { readDeployHistory } from '../deploy-history.js'
 import type { ApiDeps } from '../deps.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import { deploymentGuards } from './guards.js'
+import { manualDeploymentsRoutes } from './manual-deployments.js'
 import {
   toDeploymentRef,
   toFindingListItem,
@@ -177,6 +178,12 @@ export function deploymentsRoutes(deps: ApiDeps) {
     })
     return send(c, deploymentDeploysResponseSchema, history)
   })
+
+  // Entries of a manual list: create, edit, delete and the YAML import.
+  app.route(
+    '/',
+    manualDeploymentsRoutes(deps, (row) => toItem(joinContext(repositories), row)),
+  )
 
   app.get('/:id/overrides', (c) => {
     const { id } = readParams(c, idParamSchema)

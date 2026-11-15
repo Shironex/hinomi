@@ -39,7 +39,7 @@ export function deploymentInputFromRecord(
     kind: record.kind,
     name: record.name,
     domains: record.domains,
-    reach: record.isPublic ? 'public' : 'internal',
+    reach: record.reach ?? (record.isPublic ? 'public' : 'internal'),
     server: record.server,
     status: record.status,
     image: record.image,
@@ -133,6 +133,11 @@ export function createDeploymentsRepository(db: Db) {
               notInArray(deployments.externalId, keepExternalIds),
             )
       return db.delete(deployments).where(where).run().changes
+    },
+
+    /** Deletes one deployment (a manual entry), with what hangs on it. True when it existed. */
+    remove(id: number): boolean {
+      return db.delete(deployments).where(eq(deployments.id, id)).run().changes > 0
     },
 
     /** Sets the automatically mapped repo (from the git repository field). */

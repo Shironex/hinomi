@@ -1,4 +1,9 @@
-export { DEPLOYMENT_SOURCES, isScannedDeploymentSource, openDeploymentSource } from './registry.js'
+export {
+  DEPLOYMENT_SOURCES,
+  isScannedDeploymentSource,
+  openDeploymentSource,
+  sourceNeedsToken,
+} from './registry.js'
 export type {
   DeploymentSourceRow,
   DeploymentSourceStore,
@@ -11,6 +16,7 @@ export type {
   DeploymentSourceFactory,
   DeployHistoryRead,
   ImageScanReader,
+  StoredManualEntry,
 } from './types.js'
 export type {
   ImageFinding,
