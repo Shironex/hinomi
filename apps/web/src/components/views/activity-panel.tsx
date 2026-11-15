@@ -1,4 +1,4 @@
-import type { ActivityItem, BlindSpotType } from '@hinomi/shared'
+import type { ActivityItem, BlindSpotType, CoverageNoteType } from '@hinomi/shared'
 import { Link } from '@tanstack/react-router'
 import { eventIcon, eventTone } from '@/components/findings/event-icon'
 import { BLIND_SPOT_INFO, COVERAGE_NOTE_INFO, eventSentence } from '@/lib/finding-meta'
@@ -8,8 +8,10 @@ import { Feed, Panel, PanelBody, PanelHeader } from './panel'
 /** Blind spots and coverage notes arrive titled by their type ("alerts disabled"); show the plain label instead. */
 function activityTitle(finding: { kind: string; title: string }): string {
   if (finding.kind === 'advisory') return finding.title
-  if (finding.kind === 'coverage_note') return COVERAGE_NOTE_INFO.image_only.short
   const type = finding.title.replace(/ /g, '_')
+  if (finding.kind === 'coverage_note') {
+    return (COVERAGE_NOTE_INFO[type as CoverageNoteType] ?? COVERAGE_NOTE_INFO.image_only).short
+  }
   return type in BLIND_SPOT_INFO ? BLIND_SPOT_INFO[type as BlindSpotType].short : finding.title
 }
 
