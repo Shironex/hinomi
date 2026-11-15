@@ -287,6 +287,8 @@ export interface ReleaseScanInput {
   repos: readonly RepoRow[]
   /** The default branch scans of this run, by repo id (for the reading source and "fixed on main"). */
   scans: ReadonlyMap<number, RepoScan>
+  /** The GitHub source of candidates this run did not scan (release-candidates.ts), by repo id. */
+  readers?: ReadonlyMap<number, number>
   now: Date
   concurrency: number
 }
@@ -333,7 +335,7 @@ export async function scanReleases(input: ReleaseScanInput): Promise<ReleaseScan
   const github = new Map(sources.github.map((g) => [g.sourceId, g]))
   await mapLimit(candidates, input.concurrency, async (candidate) => {
     const scan = scans.get(candidate.id)
-    const sourceId = scan?.sourceId ?? null
+    const sourceId = scan?.sourceId ?? input.readers?.get(candidate.id) ?? null
     const source = sourceId === null ? undefined : github.get(sourceId)
     if (candidate.releaseTier !== 'off' && source && isReleaseCheckDue(candidate, now)) {
       try {

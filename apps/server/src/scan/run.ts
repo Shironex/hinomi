@@ -26,6 +26,7 @@ import { GUARDS, runGuards, type Guard } from './guards/index.js'
 import { createRepoFileReader } from './guards/repo-files.js'
 import { runImageScan, type ImageScanResult } from './image-scan.js'
 import { saveScanPlans } from './plans.js'
+import { releaseCandidates } from './release-candidates.js'
 import { scanReleases } from './releases.js'
 import type { ScanSources } from './sources.js'
 import { expireDeferred } from './state.js'
@@ -393,7 +394,8 @@ async function scanRepos(
 
 /**
  * The desktop release tier (releases.ts): daily latest release checks and tag scans of the repos
- * nothing deploys. Failures count against the source that failed, like a repo's.
+ * nothing deploys, plus the repos the GitHub sources list while account repos are not scanned
+ * (release-candidates.ts). Failures count against the source that failed, like a repo's.
  */
 async function checkReleases(
   ctx: ScanContext,
@@ -402,15 +404,19 @@ async function checkReleases(
   scans: Map<number, RepoScan>,
   concurrency: number,
 ): Promise<FindingChange[]> {
+  const extra = await releaseCandidates(ctx.repositories, ctx.sources, repos, ctx.now())
   const result = await scanReleases({
     repositories: ctx.repositories,
     sources: ctx.sources,
     index,
-    repos,
+    repos: [...repos, ...extra.repos],
     scans,
+    readers: extra.readers,
     now: ctx.now(),
     concurrency,
   })
+  result.errors.push(...extra.errors)
+  if (extra.listed > 0) bump(tally(ctx.tallies, 'github'), 'releaseRepoLists', extra.listed)
   if (result.checked > 0) bump(tally(ctx.tallies, 'github'), 'releases', result.checked)
   if (result.scanned > 0) bump(tally(ctx.tallies, 'osv'), 'releaseTags', result.scanned)
   for (const error of result.errors) {

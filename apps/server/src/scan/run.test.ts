@@ -145,6 +145,8 @@ function alertNode(ghsa: string, index: number, blankRange = false) {
 
 function githubResponse(world: World, url: URL, init: RequestInit | undefined): Response {
   const path = url.pathname
+  // The token's repo list (read once a day for the desktop release tier): none beyond the deployed.
+  if (path === '/user/repos') return json([])
   if (path === '/graphql') {
     const body = JSON.parse(bodyText(init)) as { query: string; variables: { name: string } }
     const repo = body.variables.name
