@@ -18,7 +18,7 @@ Each kind of source declares once what it can report (`SourceCapabilities` in `p
 | Networks | partial: grouped by destination and project, plus external networks named in run options and compose |
 | Watch paths and auto deploy | yes |
 | Deploy history | applications only |
-| Image scan results | yes, on Coolify builds that have the vulnerabilities endpoints (see [self-hosting.md](self-hosting.md#image-scan)) |
+| Image scan results | yes, on Coolify v4.7.0 and newer (see [self-hosting.md](self-hosting.md#image-scan)) |
 
 `GET /api/guards` shows, per check, what each connected source kind can answer (`full`, `partial` or `unknown`), taken from these declarations.
 
