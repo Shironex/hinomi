@@ -54,7 +54,7 @@ afterEach(() => handle.close())
 function sources(read: (input: ScanPinsInput) => Promise<RuntimePinRecord[]>) {
   const calls: ScanPinsInput[] = []
   const scanSources: ScanSources = {
-    coolify: [],
+    deployments: [],
     github: [],
     osv: null,
     settings: { osvEnabled: false, includeAccountRepos: false, imageScan: 'off' },

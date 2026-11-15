@@ -1,5 +1,6 @@
 import {
   SCAN_PHASES,
+  SOURCE_KINDS,
   type ScanPhase,
   type ScanRunStatus,
   type ScanTrigger,
@@ -55,7 +56,7 @@ export interface RunScanOptions {
 export interface ScanProgress {
   /** The step the scan is on. */
   phase: ScanPhase
-  /** Units done in this phase: Coolify instances and the account repo list, or repos. */
+  /** Units done in this phase: deployment sources and the account repo list, or repos. */
   done: number
   /** Units in this phase; 0 when it has none (ranking). */
   total: number
@@ -132,7 +133,7 @@ function listsAccountRepos(sources: ScanSources): boolean {
 /** Phases with nothing to do for these sources. Matching and ranking always run. */
 export function skippedPhases(sources: ScanSources): ScanPhase[] {
   const skipped: ScanPhase[] = []
-  if (sources.coolify.length === 0 && !listsAccountRepos(sources)) skipped.push('deployments')
+  if (sources.deployments.length === 0 && !listsAccountRepos(sources)) skipped.push('deployments')
   if (sources.github.length === 0) skipped.push('alerts')
   if (!sources.osv) skipped.push('lockfiles')
   return skipped
@@ -171,12 +172,16 @@ function recordError(ctx: ScanContext, error: ScanError): void {
   })
 }
 
-async function syncCoolify(ctx: ScanContext, step: () => void): Promise<void> {
-  for (const source of ctx.sources.coolify) {
-    const t = tally(ctx.tallies, 'coolify')
+/**
+ * Reads every deployment source's inventory, one after the other, through the same interface. A
+ * source that fails is recorded on its row and keeps its stored deployments; the others go on.
+ */
+async function syncDeploymentSources(ctx: ScanContext, step: () => void): Promise<void> {
+  for (const source of ctx.sources.deployments) {
+    const t = tally(ctx.tallies, source.kind)
     t.attempted++
     try {
-      const records = await source.fetchInventory()
+      const records = await source.inventory()
       const result = syncDeployments(ctx.repositories, source.sourceId, records, ctx.now())
       bump(t, 'deployments', result.deployments)
       bump(t, 'removed', result.removed)
@@ -185,7 +190,7 @@ async function syncCoolify(ctx: ScanContext, step: () => void): Promise<void> {
       t.failed++
       const message = errorMessage(error)
       ctx.repositories.sources.markError(source.sourceId, message, ctx.now())
-      recordError(ctx, { source: 'coolify', subject: source.name, error: message })
+      recordError(ctx, { source: source.kind, subject: source.name, error: message })
     }
     step()
   }
@@ -429,15 +434,17 @@ async function checkReleases(
 }
 
 /**
- * Records the image scan: Coolify counts on the Coolify tally, registry SBOM counts on the OSV
- * tally, and an error per instance (a 403 or an outage) or for OSV that failed. An instance
- * without the endpoint is not an error, only a count and a log.
+ * Records the image scan: a source's own results count on the tally of its kind, registry SBOM
+ * counts on the OSV tally, and an error per instance (a 403 or an outage) or for OSV that failed.
+ * An instance without the endpoint is not an error, only a count and a log.
  */
 function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
   if (ctx.sources.settings.imageScan === 'off') return
-  const t = tally(ctx.tallies, 'coolify')
-  bump(t, 'imagesScanned', result.scanned)
-  bump(t, 'imagesUnchanged', result.unchanged)
+  for (const read of result.reads) {
+    const t = tally(ctx.tallies, read.kind)
+    bump(t, 'imagesScanned', read.scanned)
+    bump(t, 'imagesUnchanged', read.unchanged)
+  }
   if (ctx.sources.settings.imageScan === 'sbom' && ctx.sources.osv) {
     const osv = tally(ctx.tallies, 'osv')
     // Matching the SBOMs on OSV is one unit of work: an OSV outage then shows on the run.
@@ -448,8 +455,8 @@ function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
     bump(osv, 'imageSbomsUnavailable', result.sbom.unavailable)
   }
   for (const entry of result.unavailable) {
-    bump(t, 'imageScanUnavailable')
-    ctx.log.info('scan: this Coolify has no image scan results', {
+    bump(tally(ctx.tallies, entry.kind), 'imageScanUnavailable')
+    ctx.log.info('scan: this source has no image scan results', {
       source: entry.subject,
       reason: entry.reason,
     })
@@ -469,7 +476,7 @@ function recordImageScan(ctx: ScanContext, result: ImageScanResult): void {
 
 function sourceResults(ctx: ScanContext): Partial<Record<SourceKind, ScanSourceResult>> {
   const out: Partial<Record<SourceKind, ScanSourceResult>> = {}
-  for (const kind of ['coolify', 'github', 'osv'] as const) {
+  for (const kind of SOURCE_KINDS) {
     const t = ctx.tallies[kind]
     if (!t) {
       out[kind] = { status: 'skipped', counts: {} }
@@ -487,7 +494,7 @@ function sourceResults(ctx: ScanContext): Partial<Record<SourceKind, ScanSourceR
   return out
 }
 
-/** Records the outcome on each GitHub source row and the OSV row (Coolify is marked per instance). */
+/** Records the outcome on each GitHub source row and the OSV row (deployment sources are marked per instance). */
 function markSources(ctx: ScanContext, results: Partial<Record<SourceKind, ScanSourceResult>>) {
   for (const [sourceId, t] of ctx.githubTallies) {
     if (t.first) {
@@ -535,7 +542,7 @@ function countChanges(changes: FindingChange[]) {
 }
 
 /**
- * One full scan: expire snoozes, sync Coolify deployments, scan every
+ * One full scan: expire snoozes, sync every deployment source, scan every
  * deployed repo (plus account repos when enabled) with GitHub and OSV, join
  * the results into findings and blind spots, run the guard checks, and record the run. Per source
  * and per repo failures are recorded and never abort the scan. Never throws:
@@ -583,9 +590,9 @@ export async function runScan(
       : startPhase(
           ctx,
           'deployments',
-          sources.coolify.length + (listsAccountRepos(sources) ? sources.github.length : 0),
+          sources.deployments.length + (listsAccountRepos(sources) ? sources.github.length : 0),
         )
-    await syncCoolify(ctx, step)
+    await syncDeploymentSources(ctx, step)
     const accountRepoIds = await syncAccountRepos(ctx, step)
     const index = indexDeployments(ctx.repositories)
     const repos = reposToScan(ctx, index, accountRepoIds)
@@ -595,7 +602,7 @@ export async function runScan(
       ...(await checkReleases(ctx, repos, index, result.scans, options.concurrency ?? 4)),
     )
     const mode = sources.settings.imageScan
-    const images = await runImageScan(ctx.repositories, sources.coolify, index, {
+    const images = await runImageScan(ctx.repositories, sources.deployments, index, {
       mode,
       now: now(),
       sbom: { reader: sources.imageSbom ?? null, osv: sources.osv },

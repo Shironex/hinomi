@@ -87,5 +87,6 @@ function openCoolify(config: DeploymentSourceConfig): DeploymentSource {
 export const coolifyDeploymentSource: DeploymentSourceFactory = {
   kind: 'coolify',
   capabilities: COOLIFY_CAPABILITIES,
+  needsToken: true,
   open: openCoolify,
 }

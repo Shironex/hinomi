@@ -15,6 +15,7 @@ import {
   type FakeRegistry,
   urlOf,
 } from '../sources/registry/testing.js'
+import { fakeDeploymentSource } from '../sources/deployments/testing.js'
 import { imageRefsOf } from './image-sbom.js'
 import { imageFindingOf, matchImagePackages } from './image-sbom-match.js'
 import { runScan } from './run.js'
@@ -171,13 +172,13 @@ interface SourcesOptions {
 
 function sources(mode: 'off' | 'coolify' | 'sbom', options: SourcesOptions = {}): ScanSources {
   return {
-    coolify: [
-      {
+    deployments: [
+      fakeDeploymentSource({
         sourceId,
         name: 'main',
-        fetchInventory: () => Promise.resolve(records),
+        records: () => Promise.resolve(records),
         ...(options.coolifyReader && { imageScan: options.coolifyReader }),
-      },
+      }),
     ],
     github: [],
     osv:
@@ -542,7 +543,9 @@ describe('image scan from registry SBOMs', () => {
       { repositories: repos },
       {
         ...built,
-        coolify: [{ sourceId, name: 'main', fetchInventory: () => Promise.resolve(records) }],
+        deployments: [
+          fakeDeploymentSource({ sourceId, name: 'main', records: () => Promise.resolve(records) }),
+        ],
       },
       { now: () => clock },
     )

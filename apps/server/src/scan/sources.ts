@@ -1,7 +1,5 @@
 import type {
   AccountRepo,
-  DeploymentKind,
-  DeploymentRecord,
   DependabotAlertsResult,
   RepoHealth,
   RuntimePinRecord,
@@ -9,13 +7,11 @@ import type {
 import { scanRuntimePins } from '../pins/index.js'
 import { cachedFactsOf, type Repositories, type Source } from '../repository/index.js'
 import {
-  createCoolifyClient,
-  fetchCoolifyInventory,
-  fetchResourceScan,
-  probeImageScan,
-  type CoolifyClient,
-} from '../sources/coolify/index.js'
-import type { ImageScanProbe, ResourceScanResult } from '../sources/deployments/index.js'
+  isScannedDeploymentSource,
+  openDeploymentSource,
+  type DeploymentSource,
+  type ImageScanReader,
+} from '../sources/deployments/index.js'
 import {
   createGithubSourceFromConfig,
   readRepoFile,
@@ -33,23 +29,7 @@ import type { OsvClient } from '../sources/osv/index.js'
 import { createImageSbomReader, type ImageSbomReader } from '../sources/registry/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
 
-export type { ImageSbomReader }
-
-/** Reads a deployment source's own image scan results (see image-scan.ts). */
-export interface ImageScanReader {
-  /** Once per instance and scan: whether it has results at all. */
-  probe(): Promise<ImageScanProbe>
-  /** One resource's images and findings, by its id in the source. */
-  resource(kind: DeploymentKind, externalId: string): Promise<ResourceScanResult>
-}
-
-export interface CoolifyScanSource {
-  sourceId: number
-  name: string
-  fetchInventory(): Promise<DeploymentRecord[]>
-  /** Coolify's image scan results; left out by sources that cannot read them. */
-  imageScan?: ImageScanReader
-}
+export type { DeploymentSource, ImageSbomReader, ImageScanReader }
 
 export interface GithubScanSource {
   sourceId: number
@@ -76,7 +56,11 @@ export interface OsvScanSource {
  * makes it from storage; tests can hand-build it.
  */
 export interface ScanSources {
-  coolify: CoolifyScanSource[]
+  /**
+   * Every enabled deployment source (Coolify today), lowest id first. The deployments phase reads
+   * each one's inventory through the same interface; see docs/sources.md.
+   */
+  deployments: DeploymentSource[]
   /**
    * Every enabled GitHub source with a credential, lowest id first. Each repo is read through
    * one of them (see ownership.ts). Empty: no health or alerts, lockfiles only for public repos.
@@ -161,44 +145,6 @@ function readToken(repositories: Repositories, source: Source): () => string {
   }
 }
 
-function coolifySource(
-  repositories: Repositories,
-  source: Source,
-  options: BuildScanSourcesOptions,
-): CoolifyScanSource {
-  const token = readToken(repositories, source)
-  let client: CoolifyClient | null = null
-  const imageClient = (): CoolifyClient => {
-    if (!source.baseUrl) throw new Error(`Coolify source "${source.name}" has no URL`)
-    client ??= createCoolifyClient({
-      baseUrl: source.baseUrl,
-      token: token(),
-      ...(options.fetch && { fetch: options.fetch }),
-    })
-    return client
-  }
-  return {
-    sourceId: source.id,
-    name: source.name,
-    imageScan: {
-      probe: async () => probeImageScan(imageClient()),
-      resource: async (kind, externalId) => fetchResourceScan(imageClient(), kind, externalId),
-    },
-    fetchInventory: async () => {
-      if (!source.baseUrl) throw new Error(`Coolify source "${source.name}" has no URL`)
-      // Facts are read again only for resources that changed since the last scan.
-      const cached = cachedFactsOf(repositories.deployments.listBySource(source.id))
-      return fetchCoolifyInventory({
-        name: source.name,
-        baseUrl: source.baseUrl,
-        token: token(),
-        ...(options.fetch && { fetch: options.fetch }),
-        facts: { cached: (externalId) => cached.get(externalId) },
-      })
-    },
-  }
-}
-
 function githubSource(
   repositories: Repositories,
   source: Source,
@@ -244,9 +190,21 @@ export function buildScanSources(
   const enabled = (kind: Source['kind']) =>
     repositories.sources.listByKind(kind).filter((s) => s.enabled)
 
-  const coolify = enabled('coolify')
-    .filter((s) => s.hasToken)
-    .map((s) => coolifySource(repositories, s, options))
+  const deployments = repositories.sources
+    .list()
+    .filter(isScannedDeploymentSource)
+    .flatMap((row) => {
+      const source = openDeploymentSource(
+        row,
+        {
+          getToken: (id) => repositories.sources.getToken(id),
+          // Facts are read again only for resources that changed since the last scan.
+          cachedFacts: (id) => cachedFactsOf(repositories.deployments.listBySource(id)),
+        },
+        { ...(options.fetch && { fetch: options.fetch }) },
+      )
+      return source ? [source] : []
+    })
 
   const github = new Map(
     enabled('github')
@@ -268,7 +226,7 @@ export function buildScanSources(
     : null
 
   return {
-    coolify,
+    deployments,
     github: [...github.values()].map((g) => g.github),
     osv,
     settings,

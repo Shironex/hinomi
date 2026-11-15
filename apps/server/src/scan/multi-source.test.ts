@@ -132,7 +132,7 @@ function source(name: string, sees: Record<string, Sight>): FakeSource {
 
 function scanSources(...github: FakeSource[]): ScanSources {
   return {
-    coolify: [],
+    deployments: [],
     github: github.map((g) => g.github),
     osv: null,
     settings: { osvEnabled: false, includeAccountRepos: true, imageScan: 'off' },

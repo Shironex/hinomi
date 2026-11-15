@@ -21,7 +21,7 @@ import { currentTime } from '@hinomi/shared'
 // Test helpers for the API and scheduler. Every name and domain is fictional.
 
 export const EMPTY_SOURCES: ScanSources = {
-  coolify: [],
+  deployments: [],
   github: [],
   osv: null,
   fetchLockfiles: () => Promise.resolve([]),
