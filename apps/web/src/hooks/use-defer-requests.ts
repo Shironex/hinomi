@@ -12,8 +12,9 @@ export interface DeferRequest {
 }
 
 /** f on an advisory with a repo: the dispatch dialog for that repo's plan. */
-function fixFinding(item: Pick<FindingListItem, 'id' | 'kind' | 'repo'>) {
-  if (item.kind !== 'advisory' || !item.repo) return
+function fixFinding(item: Pick<FindingListItem, 'id' | 'kind' | 'repo' | 'releaseTag'>) {
+  // A release finding is fixed by a new release, not by a change to the default branch.
+  if (item.kind !== 'advisory' || !item.repo || item.releaseTag) return
   requestFix({ repos: [{ id: item.repo.id, fullName: item.repo.fullName }], findingId: item.id })
 }
 
