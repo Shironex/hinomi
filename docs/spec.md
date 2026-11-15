@@ -50,7 +50,7 @@ Repo to deployment mapping comes from the Coolify git repository field, with man
 
 ### Phase 2: guard it
 - Drift checks: container running as root, app on a shared network, framework behind its latest security release, deploy watch paths that skip Dockerfile-only changes.
-- Desktop tier: repos with GitHub releases but no deployment (shipped apps still in users' hands).
+- Desktop tier: repos with GitHub releases but no deployment (shipped apps still in users' hands). Releases with installers are scanned at their tag even when repos with no deployment are not scanned otherwise.
 - Built-in auth (until then, run it behind Tailscale or Cloudflare Access; the UI says so).
 
 ## Stack

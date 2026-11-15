@@ -482,7 +482,7 @@ Fictional `static-docs` image only app on `edge-1` with a vulnerabilities fixtur
 
 ### 7.1 Detecting "released, not deployed"
 
-- Candidate: a repo in the inventory with no deployment joined (no `deployments.repoId` match, stopped ones included: a stopped deployment means "deployed somewhere", not "released").
+- Candidate: a repo in the inventory with no deployment joined (no `deployments.repoId` match, stopped ones included: a stopped deployment means "deployed somewhere", not "released"). With "include account repos" off, the repos each GitHub source lists (read once a day) are candidates too; see decision Q16a.
 - `GET /repos/{owner}/{repo}/releases/latest` (excludes drafts and prereleases; 404 means no release). Once a day per candidate, not every scan; result stored on `repos` (migration 0015): `release_tier` (`auto`, `on`, `off`), `latest_release_tag`, `latest_release_at`, `release_installers` (bool), `release_checked_at`.
 - `auto` treats the repo as released when the latest release has installer like assets: `.dmg`, `.pkg`, `.exe`, `.msi`, `.msix`, `.AppImage`, `.deb`, `.rpm`, `.flatpak`, `.apk`, `.aab`, or `.zip`/`.tar.gz` whose name contains a platform word (`mac`, `darwin`, `win`, `linux`, `x64`, `arm64`, `universal`). A release with only source archives is a library release, not something in users' hands (Q16). `on` and `off` override per repo.
 
@@ -692,6 +692,7 @@ These win over the options in section 13 and over anything earlier in this docum
 - **Q16.** "Released" means the latest release has installer like assets, with a per repo override.
 - **Q17.** Only the latest release counts as in users' hands.
 - **Q18.** Desktop findings weigh like internal, tier between internal and public_low, digest only except critical.
+- **Q16a (2026-11-07, after slice 20). The desktop tier does not need "include account repos".** With that setting off a scan reads only deployed repos, so the tier never fired on a default install. Now, with the setting off, each GitHub source's own repo list (`/user/repos` for a token, `/installation/repositories` for an app, one request per 100 repos) is read once a day and kept in `http_cache` (`github:release:candidates:{sourceId}`); every repo on it that nothing deploys gets the daily latest release check, and its latest tag is scanned when that release is released (installer like assets, or `release_tier` `on`). Its default branch stays unread, so other undeployed repos stay unscanned and "fixed on the default branch, not released" is never shown for these repos. A repo with `release_tier` `off` is never asked. A failed list keeps the last stored one. With the setting on nothing changes: the scan reads every account repo already. Built in `apps/server/src/scan/release-candidates.ts` (slice 20b).
 - **Q19.** Unpinned `requirements.txt` lines are skipped with a coverage note.
 - **Q20.** Go versions from `go.mod`; `go.sum` only for presence.
 - **Q21.** Docker: socket proxy with GET only endpoints recommended, raw socket allowed with a warning, TCP only with TLS.

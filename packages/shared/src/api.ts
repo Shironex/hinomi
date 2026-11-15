@@ -1211,8 +1211,8 @@ export type RepoSourceView = z.infer<typeof repoSourceViewSchema>
  * users' hands and is scanned. deployed: a deployment exists (stopped ones too), so it keeps its
  * deploy tiers. turned_off: the repo's mode is `off`. no_release: GitHub has no final release.
  * no_installers: the latest release has no installer like asset (mode `auto`). not_checked: the
- * daily release check has not run for it yet (Hinomi scans it only when nothing deploys it and
- * account repos are scanned).
+ * daily release check has not run for it yet (Hinomi checks a repo nothing deploys that the scan
+ * reads or, with account repos not scanned, that a GitHub source lists).
  */
 export const REPO_RELEASE_STATUSES = [
   'released',
