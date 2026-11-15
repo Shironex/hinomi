@@ -13,15 +13,33 @@ export type RepoFileRead =
   /** The read failed (rate limit, network, a file too large). Try again next scan. */
   | { status: 'error'; reason: string }
 
+/** What listing a repo folder said. */
+export type RepoDirRead =
+  | { status: 'ok'; paths: string[] }
+  /** The folder does not exist at that ref. */
+  | { status: 'missing' }
+  | { status: 'no_source' }
+  | { status: 'error'; reason: string }
+
+export interface ReadFileOptions {
+  /**
+   * Keep a read at a branch or tag for this long (a sha is kept for good anyway). Without it a
+   * branch is read once per scan.
+   */
+  maxAgeMs?: number
+}
+
 /** Reads files of the repos in a scan (a Dockerfile at a commit), cached where that is safe. */
 export interface RepoFileReader {
-  read(repo: RepoRow, path: string, ref: string): Promise<RepoFileRead>
+  read(repo: RepoRow, path: string, ref: string, options?: ReadFileOptions): Promise<RepoFileRead>
+  /** The file paths directly inside a folder of the repo (`.github/workflows`). Never cached. */
+  list(repo: RepoRow, dir: string, ref: string): Promise<RepoDirRead>
 }
 
 const FULL_SHA = /^[0-9a-f]{40}$/
 
 export interface RepoFileReaderOptions {
-  sources: Pick<ScanSources, 'github' | 'readRepoFile'>
+  sources: Pick<ScanSources, 'github' | 'readRepoFile' | 'listRepoDir'>
   httpCache: HttpCacheRepository
   /** This scan's results, for the GitHub source that read each repo. */
   scans: ReadonlyMap<number, RepoScan>
@@ -32,28 +50,36 @@ export interface RepoFileReaderOptions {
  * Reads through the repo's own GitHub source: the one this scan used for it, else the one
  * stored on the repo (`repos.source_id`, a manual pick wins). A file at a full commit sha never
  * changes, so its text (or its absence) is kept in the http cache and a deploy that did not
- * change costs no GitHub call. A branch is read every scan. Within one scan the same read is
- * made once.
+ * change costs no GitHub call. A branch is read every scan unless the caller gives `maxAgeMs`
+ * (an action tag). Within one scan the same read is made once.
  */
 export function createRepoFileReader(options: RepoFileReaderOptions): RepoFileReader {
   const { sources, httpCache, scans, now } = options
   const inFlight = new Map<string, Promise<RepoFileRead>>()
 
-  async function fetchFile(repo: RepoRow, path: string, ref: string): Promise<RepoFileRead> {
+  function sourceOf(repo: RepoRow): number | null {
     const sourceId = scans.get(repo.id)?.sourceId ?? repo.sourceOverrideId ?? repo.sourceId
-    if (
-      sourceId === null ||
-      sourceId === undefined ||
-      !sources.readRepoFile ||
-      !sources.github.some((g) => g.sourceId === sourceId)
-    ) {
-      return { status: 'no_source' }
-    }
+    return sourceId !== null &&
+      sourceId !== undefined &&
+      sources.github.some((g) => g.sourceId === sourceId)
+      ? sourceId
+      : null
+  }
+
+  async function fetchFile(
+    repo: RepoRow,
+    path: string,
+    ref: string,
+    maxAgeMs: number | undefined,
+  ): Promise<RepoFileRead> {
+    const sourceId = sourceOf(repo)
+    if (sourceId === null || !sources.readRepoFile) return { status: 'no_source' }
     const pinned = FULL_SHA.test(ref)
+    const cacheable = pinned || maxAgeMs !== undefined
     const key = `repo-file:${repo.owner}/${repo.name}@${ref}:${path}`
-    if (pinned) {
+    if (cacheable) {
       const hit = httpCache.get(key)
-      if (hit) {
+      if (hit && (pinned || now().getTime() - hit.fetchedAt.getTime() < (maxAgeMs ?? 0))) {
         return hit.status === 404
           ? { status: 'missing' }
           : { status: 'ok', text: hit.body.toString('utf8') }
@@ -61,7 +87,7 @@ export function createRepoFileReader(options: RepoFileReaderOptions): RepoFileRe
     }
     try {
       const text = await sources.readRepoFile(repo.owner, repo.name, path, ref, sourceId)
-      if (pinned) {
+      if (cacheable) {
         httpCache.put({
           key,
           etag: null,
@@ -78,14 +104,25 @@ export function createRepoFileReader(options: RepoFileReaderOptions): RepoFileRe
   }
 
   return {
-    read(repo, path, ref) {
-      const key = `${repo.id}@${ref}:${path}`
+    read(repo, path, ref, readOptions = {}) {
+      // The repo's name, not its id: a guard may read another repo through this repo's source.
+      const key = `${repo.owner}/${repo.name}@${ref}:${path}`
       let pending = inFlight.get(key)
       if (!pending) {
-        pending = fetchFile(repo, path, ref)
+        pending = fetchFile(repo, path, ref, readOptions.maxAgeMs)
         inFlight.set(key, pending)
       }
       return pending
+    },
+    async list(repo, dir, ref) {
+      const sourceId = sourceOf(repo)
+      if (sourceId === null || !sources.listRepoDir) return { status: 'no_source' }
+      try {
+        const paths = await sources.listRepoDir(repo.owner, repo.name, dir, ref, sourceId)
+        return paths === null ? { status: 'missing' } : { status: 'ok', paths }
+      } catch (error) {
+        return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
+      }
     },
   }
 }
