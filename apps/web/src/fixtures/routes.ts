@@ -14,6 +14,7 @@ import {
   deploysFor,
   detailFor,
 } from './dataset'
+import { MANUAL_DEPLOYMENTS, MANUAL_SOURCE } from './manual'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
 import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
@@ -31,17 +32,20 @@ import {
 /**
  * `default`: a configured instance after a scan. `setup`: first run with Coolify connected
  * and GitHub not yet, so setup opens on its second step. `update` is the default instance with
- * a newer release available (see ./version). The `webhook-*` scenarios are the
+ * a newer release available (see ./version). `manual` is the default instance with a manual
+ * deployment list (see ./manual). The `webhook-*` scenarios are the
  * default instance with the GitHub webhook in one state (see ./webhook). The `runner-*` and
  * `local-off` scenarios are the default instance with the webhook runner in one state, or a
  * host without the local runner (see ./webhook-runner).
  */
-export type FixtureScenario = 'default' | 'setup' | 'update' | WebhookScenario | RunnerScenario
+export type FixtureScenario =
+  'default' | 'setup' | 'update' | 'manual' | WebhookScenario | RunnerScenario
 
 export const isFixtureScenario = (value: string | null): value is FixtureScenario =>
   value === 'default' ||
   value === 'setup' ||
   value === 'update' ||
+  value === 'manual' ||
   isWebhookScenario(value) ||
   isRunnerScenario(value)
 
@@ -260,7 +264,9 @@ export function fixtureRoute(
       })
     }
     case '/deployments':
-      return ok({ items: DEPLOYMENTS })
+      return ok({
+        items: scenario === 'manual' ? [...DEPLOYMENTS, ...MANUAL_DEPLOYMENTS] : DEPLOYMENTS,
+      })
     case '/guards':
       return ok(guardsResponseOf(setup ? [] : FINDINGS))
     case '/overrides':
@@ -268,7 +274,14 @@ export function fixtureRoute(
     case '/repos':
       return ok({ items: Object.values(REPOS) })
     case '/sources':
-      return ok({ sources: setup ? SOURCES.slice(0, 1) : SOURCES, canStoreTokens: true })
+      return ok({
+        sources: setup
+          ? SOURCES.slice(0, 1)
+          : scenario === 'manual'
+            ? [...SOURCES, MANUAL_SOURCE]
+            : SOURCES,
+        canStoreTokens: true,
+      })
     case '/settings':
       return ok({
         scanIntervalMinutes: 360,

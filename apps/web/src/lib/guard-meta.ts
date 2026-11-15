@@ -69,6 +69,7 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   coolify: 'Coolify',
   github: 'GitHub',
   osv: 'OSV.dev',
+  manual: 'Manual list',
 }
 
 const CONTAINER_SOURCE: Record<ContainerSignalSource, string> = {

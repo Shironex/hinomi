@@ -6,6 +6,7 @@ import {
   IconCheck,
   IconDatabase,
   IconKey,
+  IconListDetails,
   IconServer2,
   type Icon,
 } from '@tabler/icons-react'
@@ -18,6 +19,7 @@ const KIND: Record<SourceHealth['kind'], { icon: Icon; label: string }> = {
   coolify: { icon: IconServer2, label: 'Coolify' },
   github: { icon: IconBrandGithub, label: 'GitHub alerts' },
   osv: { icon: IconDatabase, label: 'OSV.dev lockfile scan' },
+  manual: { icon: IconListDetails, label: 'Manual list' },
 }
 
 function statusBadge(source: SourceHealth) {
