@@ -6049,7 +6049,9 @@ const deploymentFactsSchema = object({
 	gaps: partialRecord(factKeySchema, string().max(300))
 });
 
-// ../../packages/shared/src/sources/coolify.ts
+// ../../packages/shared/src/sources/deployment.ts
+const DEPLOYMENT_SOURCE_KINDS = ["coolify"];
+const deploymentSourceKindSchema = _enum(DEPLOYMENT_SOURCE_KINDS);
 const deploymentKindSchema = _enum([
 	"application",
 	"service",
@@ -6073,30 +6075,6 @@ const deploymentRecordSchema = object({
 	facts: deploymentFactsSchema.nullable().optional(),
 	factsVersion: string().nullable().optional()
 });
-const coolifyConnectionConfigSchema = object({
-	name: string().min(1),
-	baseUrl: string().min(1),
-	token: string().min(1)
-});
-const coolifyErrorCodeSchema = _enum([
-	"invalid_config",
-	"unauthorized",
-	"forbidden",
-	"not_found",
-	"server_error",
-	"http_error",
-	"network",
-	"timeout",
-	"invalid_response"
-]);
-const coolifyConnectionTestResultSchema = discriminatedUnion("ok", [object({
-	ok: literal(true),
-	version: string().nullable()
-}), object({
-	ok: literal(false),
-	code: coolifyErrorCodeSchema,
-	message: string()
-})]);
 
 // ../../packages/shared/src/sources/github.ts
 const severitySchema = _enum([
@@ -14224,6 +14202,32 @@ const rotateWebhookRunnerSecretResponseSchema = object({
 	secret: string(),
 	settings: webhookRunnerSettingsSchema
 });
+
+// ../../packages/shared/src/sources/coolify.ts
+const coolifyConnectionConfigSchema = object({
+	name: string().min(1),
+	baseUrl: string().min(1),
+	token: string().min(1)
+});
+const coolifyErrorCodeSchema = _enum([
+	"invalid_config",
+	"unauthorized",
+	"forbidden",
+	"not_found",
+	"server_error",
+	"http_error",
+	"network",
+	"timeout",
+	"invalid_response"
+]);
+const coolifyConnectionTestResultSchema = discriminatedUnion("ok", [object({
+	ok: literal(true),
+	version: string().nullable()
+}), object({
+	ok: literal(false),
+	code: coolifyErrorCodeSchema,
+	message: string()
+})]);
 
 // src/actions-io.ts
 function getInput(env, name) {
