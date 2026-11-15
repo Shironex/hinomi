@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMatches } from '@tanstack/react-router'
 import type { NavKey, NavPath } from '@/components/shell/nav'
 import { gapInfo } from './finding-meta'
+import { repoQuery } from './settings-api'
 import { deploymentQuery, findingQuery } from './view-api'
 
 declare module '@tanstack/react-router' {
@@ -43,7 +44,7 @@ const positiveId = (raw: string | undefined) => {
 
 /**
  * Reads the deepest matched route's static data for the sidebar and breadcrumbs. Detail routes
- * name the finding or deployment from the page's own query (same cache entry, no extra call)
+ * name the finding, deployment or repo from the page's own query (same cache entry, no extra call)
  * and fall back to "Finding 3" while it loads or when it does not exist.
  */
 export function useRouteMeta(): RouteMeta {
@@ -59,6 +60,10 @@ export function useRouteMeta(): RouteMeta {
     ...deploymentQuery(id),
     enabled: id > 0 && match?.routeId === '/deployments/$id',
   })
+  const repo = useQuery({
+    ...repoQuery(id),
+    enabled: id > 0 && match?.routeId === '/repos/$id',
+  })
   if (!match) return { nav: undefined, layout: 'page', crumbs: [] }
   const { nav, crumb = '', parent, layout = 'page' } = match.staticData
   const name =
@@ -66,7 +71,9 @@ export function useRouteMeta(): RouteMeta {
       ? findingCrumb(finding.data)
       : match.routeId === '/deployments/$id' && deployment.data
         ? deployment.data.name
-        : null
+        : match.routeId === '/repos/$id' && repo.data
+          ? repo.data.fullName
+          : null
   const label = name ?? (params.id ? `${crumb} ${params.id}` : crumb)
   return { nav, layout, crumbs: parent ? [parent, { label }] : [{ label }] }
 }
