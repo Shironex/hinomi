@@ -75,5 +75,7 @@ export interface DeploymentSourceConfig {
 export interface DeploymentSourceFactory {
   kind: DeploymentSourceKind
   capabilities: SourceCapabilities
+  /** A source of this kind is read only once a token is stored (a manual list needs none). */
+  needsToken: boolean
   open(config: DeploymentSourceConfig): DeploymentSource
 }

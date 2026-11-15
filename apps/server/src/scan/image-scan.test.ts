@@ -11,6 +11,7 @@ import {
 } from '../repository/index.js'
 import { createCoolifyClient, fetchResourceScan } from '../sources/coolify/index.js'
 import type { ImageScanProbe, ResourceScanResult } from '../sources/deployments/index.js'
+import { fakeDeploymentSource } from '../sources/deployments/testing.js'
 import { applyCoverageNotes } from './blind-spots.js'
 import { indexDeployments } from './deployments.js'
 import { runImageScan } from './image-scan.js'
@@ -108,13 +109,13 @@ const RECORDS = [
 
 function sources(mode: 'off' | 'coolify', reader?: ImageScanReader): ScanSources {
   return {
-    coolify: [
-      {
+    deployments: [
+      fakeDeploymentSource({
         sourceId,
         name: 'main',
-        fetchInventory: () => Promise.resolve(RECORDS),
+        records: RECORDS,
         ...(reader && { imageScan: reader }),
-      },
+      }),
     ],
     github: [],
     osv: null,
@@ -406,7 +407,7 @@ describe('runImageScan', () => {
     const reader = fakeReader(available(), () => scanOf(FIXTURE))
     const result = await runImageScan(
       repos,
-      sources('off', reader).coolify,
+      sources('off', reader).deployments,
       indexDeployments(repos),
       { mode: 'off', now: clock },
     )

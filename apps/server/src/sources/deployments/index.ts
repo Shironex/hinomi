@@ -1,4 +1,4 @@
-export { DEPLOYMENT_SOURCES, openDeploymentSource } from './registry.js'
+export { DEPLOYMENT_SOURCES, isScannedDeploymentSource, openDeploymentSource } from './registry.js'
 export type {
   DeploymentSourceRow,
   DeploymentSourceStore,

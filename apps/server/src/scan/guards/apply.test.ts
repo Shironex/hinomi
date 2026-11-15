@@ -15,7 +15,7 @@ import { fakeGuard, rootUserEvidence } from './testing.js'
 // kestrel-co/lantern runs as lantern-api, which is stopped.
 
 const NO_SOURCES: ScanSources = {
-  coolify: [],
+  deployments: [],
   github: [],
   osv: null,
   fetchLockfiles: () => Promise.resolve([]),

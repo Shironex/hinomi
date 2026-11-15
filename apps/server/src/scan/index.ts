@@ -19,7 +19,7 @@ export {
 export { buildScanSources } from './sources.js'
 export type {
   BuildScanSourcesOptions,
-  CoolifyScanSource,
+  DeploymentSource,
   GithubScanSource,
   OsvScanSource,
   ScanSources,

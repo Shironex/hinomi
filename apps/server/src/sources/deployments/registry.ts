@@ -28,6 +28,17 @@ export interface DeploymentSourceStore {
   cachedFacts?(sourceId: number): ReadonlyMap<string, CachedFacts>
 }
 
+/**
+ * True when a scan reads this stored source: a deployment source kind, switched on, and holding
+ * a token when its kind needs one.
+ */
+export function isScannedDeploymentSource(
+  row: Pick<DeploymentSourceRow, 'kind'> & { enabled: boolean; hasToken: boolean },
+): boolean {
+  if (!isDeploymentSourceKind(row.kind) || !row.enabled) return false
+  return row.hasToken || !DEPLOYMENT_SOURCES[row.kind].needsToken
+}
+
 export type OpenDeploymentSourceOptions = Pick<DeploymentSourceConfig, 'timeoutMs' | 'fetch'>
 
 /**

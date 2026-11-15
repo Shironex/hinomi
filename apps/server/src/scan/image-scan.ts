@@ -1,4 +1,5 @@
 import type {
+  DeploymentSourceKind,
   ImageFixState,
   ImageScanEvidence,
   ImageScanMode,
@@ -23,7 +24,7 @@ import {
   type SbomOutcome,
 } from './image-sbom.js'
 import type {
-  CoolifyScanSource,
+  DeploymentSource,
   ImageScanReader,
   ImageSbomReader,
   OsvScanSource,
@@ -48,11 +49,11 @@ export function coveredByImageScan(source: ImageScanSource): Record<string, unkn
 }
 
 export interface ImageScanError {
-  /** `coolify` for an instance's failure, `osv` when matching SBOM packages failed. */
-  source: 'coolify' | 'osv'
+  /** The deployment source kind for an instance's failure, `osv` when matching SBOM packages failed. */
+  source: DeploymentSourceKind | 'osv'
   /** The source row to mark, null when there is none (OSV has no row until configured). */
   sourceId: number | null
-  /** The Coolify source name, or `OSV`. */
+  /** The deployment source name, or `OSV`. */
   subject: string
   error: string
 }
@@ -63,11 +64,14 @@ export interface ImageScanResult {
   /** At most one per instance: the first failure (403, timeouts, odd responses). */
   errors: ImageScanError[]
   /** Instances without image scan results (older Coolify, or scanning off on the instance). */
-  unavailable: { sourceId: number; subject: string; reason: 'no_endpoint' | 'disabled' }[]
-  /** Deployments whose results were read and written this scan. */
-  scanned: number
-  /** Deployments skipped because Coolify reported nothing new since the last read. */
-  unchanged: number
+  unavailable: {
+    sourceId: number
+    kind: DeploymentSourceKind
+    subject: string
+    reason: 'no_endpoint' | 'disabled'
+  }[]
+  /** Per deployment source whose own results were asked for: what was read. */
+  reads: ImageSourceRead[]
   /** The registry SBOM half (`sbom` mode). */
   sbom: {
     /** Deployments whose SBOM results were written this scan. */
@@ -78,6 +82,15 @@ export interface ImageScanResult {
     /** Images without an SBOM (each has a reason in an `image_sbom_unavailable` note). */
     unavailable: number
   }
+}
+
+export interface ImageSourceRead {
+  sourceId: number
+  kind: DeploymentSourceKind
+  /** Deployments whose results were read and written this scan. */
+  scanned: number
+  /** Deployments skipped because the source reported nothing new since the last read. */
+  unchanged: number
 }
 
 /** What the registry SBOM half needs: the reader and OSV. Absent: `sbom` acts like `coolify`. */
@@ -367,20 +380,23 @@ interface SourceRun {
   repositories: Repositories
   reader: ImageScanReader
   sourceId: number
+  kind: DeploymentSourceKind
   name: string
   targets: DeploymentRow[]
   options: ImageScanOptions
   result: MutableResult
+  /** This source's counts, also listed in `result.reads`. */
+  counts: ImageSourceRead
 }
 
 function recordError(run: SourceRun, error: string): void {
   // One error per instance: a token gap or an outage would otherwise repeat per resource.
   if (run.result.errors.some((e) => e.sourceId === run.sourceId)) return
-  run.result.errors.push({ source: 'coolify', sourceId: run.sourceId, subject: run.name, error })
+  run.result.errors.push({ source: run.kind, sourceId: run.sourceId, subject: run.name, error })
 }
 
 async function scanSource(run: SourceRun): Promise<void> {
-  const { repositories, reader, targets, result, options } = run
+  const { repositories, reader, targets, result, options, counts } = run
   const leaveAlone = () => targets.forEach((d) => result.coverage.set(d.id, null))
   let probe
   try {
@@ -390,7 +406,12 @@ async function scanSource(run: SourceRun): Promise<void> {
     return leaveAlone()
   }
   if (probe.status === 'unavailable') {
-    result.unavailable.push({ sourceId: run.sourceId, subject: run.name, reason: probe.reason })
+    result.unavailable.push({
+      sourceId: run.sourceId,
+      kind: run.kind,
+      subject: run.name,
+      reason: probe.reason,
+    })
     return
   }
   if (probe.status === 'forbidden') {
@@ -401,7 +422,7 @@ async function scanSource(run: SourceRun): Promise<void> {
   await mapLimit(targets, options.concurrency ?? 4, async (deployment) => {
     if (unchanged(deployment, checkedAt.get(deployment.externalId))) {
       result.coverage.set(deployment.id, 'coolify')
-      result.unchanged++
+      counts.unchanged++
       return
     }
     let read
@@ -434,7 +455,7 @@ async function scanSource(run: SourceRun): Promise<void> {
       result.changes.push(...applyResourceScan(repositories, deployment, read.scan, options.now))
       repositories.deployments.setImageScannedAt(deployment.id, newestScan(read.scan))
       result.coverage.set(deployment.id, 'coolify')
-      result.scanned++
+      counts.scanned++
     } catch (error) {
       recordError(run, `image scan of ${deployment.name}: could not save: ${errorMessage(error)}`)
       result.coverage.set(deployment.id, null)
@@ -524,16 +545,16 @@ async function scanSboms(
 }
 
 /**
- * Reads the image scan of every image only deployment: Coolify's results when the mode is
- * `coolify` or `sbom`, then in `sbom` mode the registry SBOM of the deployments Coolify does not
- * cover. Never throws: a failure leaves that instance's (or deployment's) notes and findings as
+ * Reads the image scan of every image only deployment: the source's own results (Coolify's, from
+ * every deployment source that offers `imageScan`) when the mode is `coolify` or `sbom`, then in
+ * `sbom` mode the registry SBOM of the deployments the sources do not cover. Never throws: a failure leaves that instance's (or deployment's) notes and findings as
  * they are and is returned in `errors`. A Coolify without the endpoint (404) is not an error: its
  * deployments keep their `image_only` note (or go to the SBOM half) and the instance is listed in
  * `unavailable`.
  */
 export async function runImageScan(
   repositories: Repositories,
-  coolify: readonly CoolifyScanSource[],
+  deploymentSources: readonly DeploymentSource[],
   index: DeploymentIndex,
   options: ImageScanOptions,
 ): Promise<ImageScanResult> {
@@ -543,21 +564,24 @@ export async function runImageScan(
     coverage: new Map(),
     errors: [],
     unavailable: [],
-    scanned: 0,
-    unchanged: 0,
+    reads: [],
     sbom: { scanned: 0, read: 0, cached: 0, unavailable: 0 },
   }
-  for (const source of coolify) {
+  for (const source of deploymentSources) {
     const own = targets.filter((d) => d.sourceId === source.sourceId)
     if (own.length === 0 || !source.imageScan) continue
+    const counts = { sourceId: source.sourceId, kind: source.kind, scanned: 0, unchanged: 0 }
+    result.reads.push(counts)
     await scanSource({
       repositories,
       reader: source.imageScan,
       sourceId: source.sourceId,
+      kind: source.kind,
       name: source.name,
       targets: own,
       options,
       result,
+      counts,
     })
   }
   if (options.mode === 'sbom') await scanSboms(repositories, targets, options, result)

@@ -201,7 +201,7 @@ function osvClient(): OsvClient {
 
 function sources(osvOn = true, includeAccountRepos = true): ScanSources {
   return {
-    coolify: [],
+    deployments: [],
     github: [github()],
     osv: osvOn ? { sourceId: null, client: osvClient() } : null,
     settings: { osvEnabled: osvOn, includeAccountRepos, imageScan: 'off' },
