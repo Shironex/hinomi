@@ -4,6 +4,8 @@ import { deploymentReachSchema, type SourceKind } from '../model.js'
 import {
   COOLIFY_FACTS,
   COOLIFY_GUARD_CAPABILITIES,
+  DOCKER_FACTS,
+  DOCKER_GUARD_CAPABILITIES,
   deploymentFactsSchema,
   type FactKey,
 } from './deployment-facts.js'
@@ -21,6 +23,7 @@ export const DEPLOYMENT_SOURCE_KINDS = [
   'coolify',
   'manual',
   'dokploy',
+  'docker',
 ] as const satisfies readonly SourceKind[]
 export const deploymentSourceKindSchema = z.enum(DEPLOYMENT_SOURCE_KINDS)
 export type DeploymentSourceKind = z.infer<typeof deploymentSourceKindSchema>
@@ -122,11 +125,23 @@ export const DOKPLOY_CAPABILITIES: SourceCapabilities = {
   status: false,
 }
 
+/**
+ * A Docker host read through its Engine API: container inspect gives the running user, mounts
+ * and networks, so the container checks are answered in full. Domains come from labels only.
+ */
+export const DOCKER_CAPABILITIES: SourceCapabilities = {
+  facts: DOCKER_FACTS,
+  guards: DOCKER_GUARD_CAPABILITIES,
+  domains: true,
+  status: true,
+}
+
 /** The capabilities of every deployment source kind. */
 export const DEPLOYMENT_SOURCE_CAPABILITIES: Record<DeploymentSourceKind, SourceCapabilities> = {
   coolify: COOLIFY_CAPABILITIES,
   manual: MANUAL_CAPABILITIES,
   dokploy: DOKPLOY_CAPABILITIES,
+  docker: DOCKER_CAPABILITIES,
 }
 
 /** What each deployment source kind answers for one container check (for a guard's registry entry). */

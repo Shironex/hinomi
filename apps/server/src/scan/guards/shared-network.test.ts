@@ -133,4 +133,46 @@ describe('shared_network', () => {
     const stray = deployment(2, 'stray', { facts: facts({ project: null }) })
     expect(resultFor(evaluateSharedNetwork(context([shop, stray])), 1).level).toBe('pass')
   })
+
+  it('groups Docker host containers by the networks inspect lists', () => {
+    const docker = (project: string, networks: string[]) =>
+      facts({
+        buildPack: null,
+        destination: null,
+        attachedToDestination: false,
+        project: { key: project, name: project, environment: null },
+        networks: networks.map((name) => ({
+          origin: 'docker_inspect' as const,
+          name,
+          service: null,
+        })),
+      })
+    const shop = deployment(1, 'kestrel-shop/web', {
+      kind: 'service',
+      facts: docker('kestrel-shop', ['edge', 'kestrel-shop_default']),
+    })
+    const blog = deployment(2, 'kestrel-blog', { facts: docker('kestrel-blog', ['edge']) })
+    const alone = deployment(3, 'kestrel-wiki', {
+      facts: docker('kestrel-wiki', ['kestrel-wiki_default']),
+    })
+    const results = evaluateSharedNetwork(context([shop, blog, alone]))
+    const result = resultFor(results, 2)
+    expect(result.level).toBe('warn')
+    expect(result.level !== null && result.evidence).toMatchObject({
+      basis: 'docker_network',
+      network: 'edge',
+      project: 'kestrel-blog',
+      peers: [{ deploymentId: 1, name: 'kestrel-shop/web', project: 'kestrel-shop' }],
+    })
+    expect(resultFor(results, 3).level).toBe('pass')
+  })
+
+  it('gives a Docker host container on the host network the host text', () => {
+    const host = deployment(1, 'kestrel-blog', {
+      facts: facts({ destination: null, attachedToDestination: false, hostNetwork: true }),
+    })
+    const result = resultFor(evaluateSharedNetwork(context([host])), 1)
+    expect(result.level).toBe('warn')
+    expect(result.level !== null && result.evidence).toMatchObject({ basis: 'host_network' })
+  })
 })

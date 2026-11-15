@@ -23,6 +23,20 @@ async function check(d: ReturnType<typeof deployment>) {
 const withMounts = (mounts: FactMount[], over = {}) => deployment(baseFacts({ mounts, ...over }))
 
 describe('docker_socket', () => {
+  it('fails for a Docker inspect bind of /var/run and passes a clean container', async () => {
+    const inspected = { mountsChecked: ['docker_inspect' as const] }
+    const { level, evidence } = await check(
+      withMounts([bind('/var/run', { origin: 'docker_inspect', target: '/host-run' })], inspected),
+    )
+    expect(level).toBe('fail')
+    expect(evidence.mounts[0]).toMatchObject({ source: 'docker_inspect', hostPath: '/var/run' })
+    const clean = await check(
+      withMounts([bind('/srv/app', { origin: 'docker_inspect' })], inspected),
+    )
+    expect(clean.level).toBe('pass')
+    expect(clean.evidence.checked).toEqual(['docker_inspect'])
+  })
+
   it('fails for a run option mount, read only too', async () => {
     const { level, evidence } = await check(
       withMounts([

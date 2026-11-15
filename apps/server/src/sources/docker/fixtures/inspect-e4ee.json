@@ -1,0 +1,31 @@
+{
+  "Id": "e4eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "Name": "/hinomi",
+  "Created": "2026-11-01T09:59:00.000000000Z",
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "StartedAt": "2026-11-01T10:00:00.000000000Z"
+  },
+  "Config": {
+    "User": "node",
+    "Image": "ghcr.io/example/hinomi:0.3.0",
+    "Labels": {
+      "hinomi.enable": "true"
+    },
+    "Env": ["KESTREL_FIXTURE_ENV=env-must-not-leak", "PATH=/usr/local/bin"],
+    "Cmd": ["node", "server.js"]
+  },
+  "HostConfig": {
+    "Binds": null,
+    "Privileged": false,
+    "NetworkMode": "bridge"
+  },
+  "Mounts": [],
+  "NetworkSettings": {
+    "Networks": {
+      "bridge": {}
+    },
+    "Ports": {}
+  }
+}

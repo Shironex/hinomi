@@ -16,6 +16,7 @@ import { z } from 'zod'
 import type { Repositories, Source } from '../../repository/index.js'
 import { isGithubError, readAppPrivateKey } from '../../sources/github/index.js'
 import type { ApiDeps } from '../deps.js'
+import { dockerConfigOf, dockerFields } from '../docker-source.js'
 import { HttpError, notFound, readJson, readParams, send } from '../http.js'
 import { toSourceDto } from '../serialize.js'
 
@@ -59,6 +60,8 @@ interface SourceShape {
  * list neither.
  */
 function checkShape({ kind, baseUrl, hasToken }: SourceShape): void {
+  // Docker: checked by dockerFields (a socket or an https endpoint; the key is optional).
+  if (kind === 'docker') return
   if (kind === 'osv' || kind === 'manual') {
     if (baseUrl || hasToken) {
       const what = kind === 'osv' ? 'OSV' : 'A manual list'
@@ -103,6 +106,9 @@ interface AppFields {
  * the token for token auth, the private key for a GitHub App.
  */
 function secretFor(kind: SourceKind, auth: SourceAuth, body: AppFields): string | undefined {
+  if (kind === 'docker' && body.token !== undefined) {
+    throw invalid('A Docker source takes no token: send the client key in docker.key')
+  }
   if (auth === 'github_app') {
     if (kind !== 'github') throw invalid('Only GitHub sources can sign in as a GitHub App')
     if (body.token !== undefined) {
@@ -135,6 +141,7 @@ async function runTest(
     return deps.testers.githubApp({ baseUrl, appId, installationId, privateKey })
   }
   const { token } = credentials
+  if (kind === 'docker') throw new HttpError(400, 'validation_failed', 'Send the Docker settings')
   if (kind === 'coolify') {
     if (!baseUrl) throw new HttpError(400, 'validation_failed', 'A Coolify source needs its URL')
     return deps.testers.coolify({ baseUrl, token })
@@ -199,12 +206,21 @@ export function sourcesRoutes(deps: ApiDeps) {
       }
     }
     checkShape({ kind: body.kind, baseUrl, hasToken: secret !== undefined })
-    if (secret !== undefined) requireTokenStorage(repositories)
+    if (body.kind !== 'docker' && body.docker !== undefined) {
+      throw invalid('Docker settings only apply to a Docker source')
+    }
+    if (body.kind === 'docker' && body.docker === undefined) {
+      throw invalid('A Docker source needs its connection settings')
+    }
+    const docker = body.docker ? dockerFields(body.docker, baseUrl) : null
+    if (secret !== undefined || docker?.key) requireTokenStorage(repositories)
     requireUniqueName(repositories, body.kind, body.name)
     const source = repositories.sources.create({
       kind: body.kind,
       name: body.name,
-      baseUrl,
+      baseUrl: docker ? docker.baseUrl : baseUrl,
+      ...(docker && { config: docker.config }),
+      ...(docker?.key && { token: docker.key }),
       ...(body.enabled !== undefined && { enabled: body.enabled }),
       ...(secret !== undefined && { token: secret }),
       ...(auth === 'github_app' && {
@@ -244,7 +260,19 @@ export function sourcesRoutes(deps: ApiDeps) {
       baseUrl,
       hasToken: secret !== undefined || current.hasToken,
     })
-    if (secret !== undefined) requireTokenStorage(repositories)
+    if (current.kind !== 'docker' && body.docker !== undefined) {
+      throw invalid('Docker settings only apply to a Docker source')
+    }
+    if (current.kind === 'docker' && body.baseUrl !== undefined && body.docker === undefined) {
+      throw invalid('Send the Docker settings with a new URL')
+    }
+    const docker = body.docker
+      ? dockerFields(body.docker, baseUrl, {
+          config: dockerConfigOf(current),
+          hasKey: current.hasToken,
+        })
+      : null
+    if (secret !== undefined || docker?.key) requireTokenStorage(repositories)
     if (body.name !== undefined) requireUniqueName(repositories, current.kind, body.name, id)
     repositories.db.transaction(() => {
       const fields = {
@@ -257,8 +285,11 @@ export function sourcesRoutes(deps: ApiDeps) {
           installationId,
         }),
       }
+      if (docker) Object.assign(fields, { baseUrl: docker.baseUrl, config: docker.config })
       if (Object.keys(fields).length > 0) repositories.sources.update(id, fields)
       if (secret !== undefined) repositories.sources.setToken(id, secret)
+      if (docker?.key) repositories.sources.setToken(id, docker.key)
+      else if (docker?.key === null) repositories.sources.clearToken(id)
     })
     scheduler.reschedule()
     return send(c, sourceSchema, sourceDto(repositories, requireSource(repositories, id)))
@@ -275,6 +306,11 @@ export function sourcesRoutes(deps: ApiDeps) {
   /** Tests credentials that are not saved yet (onboarding). Nothing is stored. */
   app.post('/test', async (c) => {
     const body = await readJson(c, testSourceRequestSchema)
+    if (body.kind === 'docker') {
+      const { config, baseUrl, key } = dockerFields(body.docker, body.baseUrl ?? null)
+      const result = await deps.testers.docker({ config, baseUrl, key: key ?? null })
+      return send(c, sourceTestResultSchema, result)
+    }
     const credentials: TestCredentials =
       body.auth === 'github_app'
         ? {
@@ -299,6 +335,13 @@ export function sourcesRoutes(deps: ApiDeps) {
         'not_supported',
         `${noTestReason(source.kind)} needs no connection test`,
       )
+    }
+    if (source.kind === 'docker') {
+      const config = dockerConfigOf(source)
+      if (!config) throw new HttpError(400, 'bad_request', 'This source has no Docker settings')
+      const key = config.cert ? repositories.sources.getToken(id) : null
+      const result = await deps.testers.docker({ config, baseUrl: source.baseUrl, key })
+      return send(c, sourceTestResultSchema, result)
     }
     if (!source.hasToken) throw new HttpError(400, 'bad_request', 'This source has no token')
     const secret = repositories.sources.getToken(id)

@@ -16,6 +16,31 @@ async function check(d: ReturnType<typeof deployment>, ctx: GuardContext = conte
 }
 
 describe('root_user', () => {
+  describe('docker inspect', () => {
+    it('fails for an empty Config.User, which is root', async () => {
+      const d = deployment(
+        baseFacts({
+          buildPack: null,
+          user: '',
+          userOrigin: 'docker_inspect',
+          mountsChecked: ['docker_inspect'],
+        }),
+      )
+      const { level, evidence } = await check(d)
+      expect(level).toBe('fail')
+      expect(evidence).toMatchObject({ source: 'docker_inspect', user: '' })
+    })
+
+    it('passes for a running non root user', async () => {
+      const d = deployment(
+        baseFacts({ buildPack: null, user: 'node', userOrigin: 'docker_inspect' }),
+      )
+      const { level, evidence } = await check(d)
+      expect(level).toBe('pass')
+      expect(evidence).toMatchObject({ source: 'docker_inspect', user: 'node' })
+    })
+  })
+
   describe('run options', () => {
     it('fails for --user 0 even when the Dockerfile has USER node', async () => {
       const d = deployment(

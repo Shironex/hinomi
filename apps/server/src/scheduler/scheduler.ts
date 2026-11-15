@@ -13,6 +13,7 @@ import { readOnboarding, type Repositories, type SettingsRepository } from '../r
 import {
   buildScanSources,
   errorMessage,
+  isScannedDeploymentSource,
   runRepoScan,
   runScan,
   type RepoScanSummary,
@@ -133,19 +134,13 @@ function defaultClearTimer(handle: unknown): void {
 }
 
 /**
- * True when there is something to scan: an enabled Coolify, Dokploy or GitHub
- * source with a token, or an enabled manual list (it needs none). Without one,
- * scheduled scans are skipped.
+ * True when there is something to scan: an enabled GitHub source with a token, or a deployment
+ * source a scan reads (a token where its kind needs one). Without one, scheduled scans are skipped.
  */
 export function isConfigured(repositories: Repositories): boolean {
   return repositories.sources
     .list()
-    .some(
-      (s) =>
-        s.enabled &&
-        (s.kind === 'manual' ||
-          (s.hasToken && (s.kind === 'coolify' || s.kind === 'github' || s.kind === 'dokploy'))),
-    )
+    .some((s) => (s.kind === 'github' && s.enabled && s.hasToken) || isScannedDeploymentSource(s))
 }
 
 /**

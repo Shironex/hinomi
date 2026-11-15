@@ -10,8 +10,8 @@ import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
 
 // shared_network (docs/design/phase-2.md section 4.3): can this container reach containers of
 // an unrelated project over a shared Docker network? Pure over the deployment facts: resources
-// group by the Coolify destination they are attached to, or by an external network they name,
-// and the project of each comes from the facts.
+// group by the Coolify destination they are attached to, by an external network they name, or
+// (Docker hosts) by the networks inspect lists, and the project of each comes from the facts.
 
 /** A network the resources can share: its key groups them, the rest is for the evidence. */
 interface NetworkGroup {
@@ -43,9 +43,11 @@ function groupsOf({ row, facts }: Member): NetworkGroup[] {
     })
   }
   for (const network of facts.networks) {
+    // Docker inspect lists the networks the container is really on; the others are named ones.
+    const inspected = network.origin === 'docker_inspect'
     groups.push({
-      key: `external:${row.sourceId}:${row.server ?? ''}:${network.name}`,
-      basis: 'external_network',
+      key: `${inspected ? 'docker' : 'external'}:${row.sourceId}:${row.server ?? ''}:${network.name}`,
+      basis: inspected ? 'docker_network' : 'external_network',
       network: network.name,
       destination: null,
     })

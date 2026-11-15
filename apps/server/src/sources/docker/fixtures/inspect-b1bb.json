@@ -1,0 +1,45 @@
+{
+  "Id": "b1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "Name": "/kestrel-shop-web-1",
+  "Created": "2026-11-01T09:59:00.000000000Z",
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "StartedAt": "2026-11-01T10:00:00.000000000Z"
+  },
+  "Config": {
+    "User": "",
+    "Image": "kestrel-shop-web",
+    "Labels": {
+      "hinomi.enable": "true",
+      "com.docker.compose.project": "kestrel-shop",
+      "com.docker.compose.service": "web",
+      "hinomi.repo": "kestrel-co/kestrel-shop",
+      "org.opencontainers.image.source": "https://github.com/library/node",
+      "caddy": "shop.example.com, http://shop-legacy.example.com",
+      "caddy.reverse_proxy": "{{upstreams 3000}}"
+    },
+    "Env": ["KESTREL_FIXTURE_ENV=env-must-not-leak", "PATH=/usr/local/bin"],
+    "Cmd": ["node", "server.js"]
+  },
+  "HostConfig": {
+    "Binds": ["/var/run/docker.sock:/var/run/docker.sock:ro"],
+    "Privileged": false,
+    "NetworkMode": "bridge"
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/var/run/docker.sock",
+      "Destination": "/var/run/docker.sock",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "edge": {},
+      "kestrel-shop_default": {}
+    },
+    "Ports": {}
+  }
+}

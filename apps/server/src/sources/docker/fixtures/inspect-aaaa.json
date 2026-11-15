@@ -1,0 +1,57 @@
+{
+  "Id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "Name": "/kestrel-api",
+  "Created": "2026-11-01T09:59:00.000000000Z",
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "StartedAt": "2026-11-01T10:00:00.000000000Z",
+    "Health": {
+      "Status": "healthy",
+      "Log": [
+        {
+          "Output": "ok"
+        }
+      ]
+    }
+  },
+  "Config": {
+    "User": "node",
+    "Image": "ghcr.io/kestrel-co/kestrel-api:1.4.2",
+    "Labels": {
+      "hinomi.enable": "true",
+      "org.opencontainers.image.source": "https://github.com/kestrel-co/kestrel-api",
+      "org.opencontainers.image.revision": "0123456789abcdef0123456789abcdef01234567",
+      "hinomi.branch": "main",
+      "traefik.enable": "true",
+      "traefik.http.routers.api.rule": "Host(`api.example.com`) || Host(`www.api.example.com`)",
+      "traefik.http.routers.api.entrypoints": "websecure",
+      "traefik.http.routers.api.tls.certresolver": "le"
+    },
+    "Env": ["KESTREL_FIXTURE_ENV=env-must-not-leak", "PATH=/usr/local/bin"],
+    "Cmd": ["node", "server.js"]
+  },
+  "HostConfig": {
+    "Binds": null,
+    "Privileged": false,
+    "NetworkMode": "bridge"
+  },
+  "Mounts": [
+    {
+      "Type": "volume",
+      "Name": "kestrel-api-data",
+      "Source": "/var/lib/docker/volumes/kestrel-api-data/_data",
+      "Destination": "/data",
+      "RW": true
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "edge": {
+        "IPAddress": "192.0.2.10"
+      },
+      "kestrel-api_default": {}
+    },
+    "Ports": {}
+  }
+}

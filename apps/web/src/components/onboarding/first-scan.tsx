@@ -26,6 +26,7 @@ const SOURCE_LABEL: Record<SourceKind, string> = {
   osv: 'OSV.dev lockfiles',
   manual: 'Manual list',
   dokploy: 'Dokploy',
+  docker: 'Docker hosts',
 }
 
 const plural = (n: number, one: string, many = `${one}s`) =>

@@ -43,6 +43,7 @@ import {
   type StartScanResult,
 } from '../../scheduler/index.js'
 import type { ApiDeps } from '../deps.js'
+import { dockerConfigOf } from '../docker-source.js'
 import { HttpError, notFound, readJson, readParams, readQuery, send } from '../http.js'
 import {
   BEHIND_RELEASES_KEYS,
@@ -71,10 +72,16 @@ function behindSettings(repositories: Repositories) {
   return { rustBehindReleases: behind.rust, bunBehindReleases: behind.bun }
 }
 
+/** OSV and a Docker socket connect without a secret; a Docker client certificate needs its key. */
+function needsToken(source: Source): boolean {
+  if (source.kind === 'docker') return Boolean(dockerConfigOf(source)?.cert)
+  return sourceNeedsToken(source.kind)
+}
+
 function sourceHealth(source: Source): SourceHealth {
   const status: SourceHealth['status'] = !source.enabled
     ? 'disabled'
-    : sourceNeedsToken(source.kind) && !source.hasToken
+    : needsToken(source) && !source.hasToken
       ? 'missing_token'
       : source.lastError !== null
         ? 'error'

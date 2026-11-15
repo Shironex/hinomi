@@ -63,6 +63,8 @@ export interface DeploymentSourceConfig {
   sourceId: number
   name: string
   baseUrl: string | null
+  /** Kind specific settings that are not secrets (`sources.config`), null when none. */
+  config?: Record<string, unknown> | null
   /** The stored token; throws when it is missing or cannot be read. */
   token: () => string
   /** Facts stored from earlier reads by external id, read when the inventory starts. */
