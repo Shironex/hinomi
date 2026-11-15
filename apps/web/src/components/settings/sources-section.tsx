@@ -11,6 +11,7 @@ import {
   IconPlugConnected,
   IconPlus,
   IconServer2,
+  IconServerBolt,
   IconTrash,
   type Icon,
 } from '@tabler/icons-react'
@@ -53,12 +54,21 @@ const KIND_META: Record<ConnectableKind, { label: string; icon: Icon; empty: str
     icon: IconBrandGithub,
     empty: 'Repos and their Dependabot alerts, with a token or a GitHub App.',
   },
+  dokploy: {
+    label: 'Dokploy',
+    icon: IconServerBolt,
+    empty: 'Applications and compose services, with their repos and domains.',
+  },
 }
 
 const KIND_OPTIONS: readonly SegmentedOption<ConnectableKind>[] = [
   { value: 'github', label: KIND_META.github.label, icon: KIND_META.github.icon },
   { value: 'coolify', label: KIND_META.coolify.label, icon: KIND_META.coolify.icon },
+  { value: 'dokploy', label: KIND_META.dokploy.label, icon: KIND_META.dokploy.icon },
 ]
+
+/** Kinds listed even before one is connected; the others appear once added. */
+const ALWAYS_LISTED: readonly ConnectableKind[] = ['coolify', 'github']
 
 export function SourcesSection() {
   const queryClient = useQueryClient()
@@ -87,9 +97,10 @@ export function SourcesSection() {
         />
       )}
       <SetBox as="ul" aria-label="Sources">
-        {(['coolify', 'github'] as const).map((kind) => {
+        {(['coolify', 'github', 'dokploy'] as const).map((kind) => {
           const list = sources.data.sources.filter((s) => s.kind === kind)
           if (list.length === 0) {
+            if (!ALWAYS_LISTED.includes(kind)) return null
             return <MissingSource key={kind} kind={kind} canStoreTokens={canStoreTokens} />
           }
           return list.map((source) => (
@@ -263,7 +274,9 @@ function SourceRow({
     ? 'GitHub App'
     : kind === 'coolify'
       ? 'read only API token'
-      : 'personal access token'
+      : kind === 'dokploy'
+        ? 'API key, full access'
+        : 'personal access token'
 
   return (
     <SetRow
@@ -294,12 +307,12 @@ function SourceRow({
             </span>
           </Fact>
         ) : null}
-        <Fact term={kind === 'coolify' ? 'Reports' : 'Reads'}>
-          {kind === 'coolify'
+        <Fact term={kind === 'github' ? 'Reads' : 'Reports'}>
+          {kind !== 'github'
             ? plural(source.deploymentCount, 'deployment')
             : plural(source.repoCount, 'repo')}
         </Fact>
-        <Fact term={isApp ? 'Private key' : 'Token'}>
+        <Fact term={isApp ? 'Private key' : kind === 'dokploy' ? 'API key' : 'Token'}>
           {source.hasToken ? (
             <Badge variant="outline">
               <IconCheck aria-hidden="true" />
@@ -322,7 +335,12 @@ function SourceRow({
             onCancel={() => setReplacing(false)}
             onConnected={({ source: saved, test: result }) => {
               setReplacing(false)
-              const what = saved.auth === 'github_app' ? 'GitHub App saved' : 'Token replaced'
+              const what =
+                saved.auth === 'github_app'
+                  ? 'GitHub App saved'
+                  : kind === 'dokploy'
+                    ? 'Key replaced'
+                    : 'Token replaced'
               setReplacedMessage(`${what}. ${result.message}.`)
             }}
           />
@@ -356,7 +374,7 @@ function SourceRow({
               }}
               disabled={!canStoreTokens}
             >
-              {isApp ? 'Replace credentials' : 'Replace token'}
+              {isApp ? 'Replace credentials' : kind === 'dokploy' ? 'Replace key' : 'Replace token'}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
               <IconTrash aria-hidden="true" />
@@ -401,8 +419,13 @@ function SourceRow({
 
 /** What removing a source does to what it brought in. */
 function removeNote(source: SourceDto, kind: ConnectableKind): string {
-  const secret = source.auth === 'github_app' ? 'its private key' : 'its token'
-  if (kind === 'coolify') {
+  const secret =
+    source.auth === 'github_app'
+      ? 'its private key'
+      : kind === 'dokploy'
+        ? 'its API key'
+        : 'its token'
+  if (kind !== 'github') {
     return source.deploymentCount > 0
       ? `Hinomi forgets ${secret} and its ${plural(source.deploymentCount, 'deployment')} ${source.deploymentCount === 1 ? 'is' : 'are'} removed. Findings lose their deployment context until you connect it again.`
       : `Hinomi forgets ${secret}. It reports no deployments right now.`

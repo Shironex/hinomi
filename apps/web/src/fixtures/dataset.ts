@@ -960,6 +960,15 @@ export const SOURCES: SourceDto[] = [
     createdAt: ago(24 * 9),
     updatedAt: ago(24 * 9),
   }),
+  // A Dokploy instance connected yesterday that reports nothing Hinomi joins yet.
+  source({
+    id: 4,
+    kind: 'dokploy',
+    name: 'apps',
+    baseUrl: 'https://dokploy.example.dev',
+    createdAt: ago(24),
+    updatedAt: ago(24),
+  }),
 ]
 
 export const CHANNELS: NotifyChannel[] = [
