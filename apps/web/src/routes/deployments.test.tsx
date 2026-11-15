@@ -226,6 +226,18 @@ describe('deployment detail', () => {
     )
   })
 
+  it('gives each cell of the join strip a tooltip with its full text', async () => {
+    mockViews({ 'GET /deployments/1': deploymentDetail() })
+    await renderApp('/deployments/1')
+    await screen.findByRole('heading', { level: 1, name: 'storefront-web' })
+    const strip = screen.getByRole('list', {
+      name: 'How this deployment joins its repo and alerts',
+    })
+    for (const cell of strip.querySelectorAll('b, small')) {
+      expect(cell).toHaveAttribute('title', cell.textContent)
+    }
+  })
+
   it('links every repo name to the repo page', async () => {
     mockViews({ 'GET /deployments/1': deploymentDetail() })
     await renderApp('/deployments/1')
