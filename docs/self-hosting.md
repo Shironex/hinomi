@@ -183,7 +183,7 @@ When a new version is deployed, an open app shows "New version available" with a
 
 ## Tokens
 
-All tokens are entered in the UI (onboarding or Settings, Sources) and stored encrypted under `HINOMI_SECRET_KEY`. Hinomi only reads.
+All tokens are entered in the UI (onboarding or Settings, Sources) and stored encrypted under `HINOMI_SECRET_KEY`. Hinomi only reads. Registry credentials for the image scan are under Settings, Scans; see [Registry credentials](#registry-credentials) for the scopes (a GHCR personal access token needs `read:packages`).
 
 ### Coolify
 
@@ -242,7 +242,7 @@ docker run --rm -v hinomi-data:/data -v "$PWD":/backup alpine \
 
 ### Rotating the secret key
 
-Do this only when you must (the key leaked, say). Stored tokens, GitHub App private keys and notification URLs are encrypted with the key, and Hinomi cannot decrypt them with a new one. After changing `HINOMI_SECRET_KEY`, open every source and channel and enter the token, private key or URL again. Until then those sources fail. Keep a backup of the old key and database until everything works again.
+Do this only when you must (the key leaked, say). Stored tokens, GitHub App private keys, registry credentials and notification URLs are encrypted with the key, and Hinomi cannot decrypt them with a new one. After changing `HINOMI_SECRET_KEY`, open every source, registry credential and channel and enter the token, private key, secret or URL again. Until then those sources fail. Keep a backup of the old key and database until everything works again.
 
 ### Shutdown grace
 
@@ -277,14 +277,31 @@ How it behaves:
 With `sbom`, Coolify's results are read first, exactly as above, and win whenever they exist for a deployment. Every other image only deployment (an instance without the endpoint, scanning off for it, a token without access) is looked up in its registry: Hinomi reads the SBOM attestation published with the image and matches its packages on OSV. Nothing is installed and no image layer is pulled.
 
 - It works for images built with an SBOM attestation, the way BuildKit stores one: `docker buildx build --sbom=true`, or `sbom: true` in `docker/build-push-action`. Docker Official Images carry one. Most images do not (many publish provenance only), and each of those says why in a "No image SBOM" note.
-- Public images only, on Docker Hub, ghcr.io and other registries that hand out anonymous pull tokens. A private image is reported as `unauthorized`; Hinomi stores no registry credentials. For private images use Coolify's own results.
+- Public images work with no setup, on Docker Hub, ghcr.io and other registries that hand out anonymous pull tokens. A private image is reported as `unauthorized` until its registry has a credential (see [Registry credentials](#registry-credentials) below).
 - Matching needs OSV. With OSV switched off, every image says `osv_off` and no registry is asked.
 - Per image: one HEAD for the digest the tag points at (Docker Hub does not count HEAD requests against its pull limit). Only when that digest changed are the image index, the attestation manifest and the SBOM read again; what an SBOM said (or that there is none) is kept per image in the database. The packages are matched on OSV every scan, so new advisories show up without a new image.
 - The platform read is `linux/amd64`, else `linux/arm64`, else the first image in the index.
-- Requests go only to the registry host the image names. Its token service must be on that host or a sibling under its parent domain (Docker Hub: `registry-1.docker.io` and `auth.docker.io`), over https. Redirects (blob storage on a CDN) are followed by hand, at most three, https only, never with the token, and only to hosts that resolve to public addresses. Manifests are capped at 4 MiB and checked against their digest, the SBOM at 32 MiB, every request times out after 20 s. Registries on plain http are not read.
+- Requests go only to the registry host the image names. Its token service must be on that host or a sibling under its parent domain (Docker Hub: `registry-1.docker.io` and `auth.docker.io`), over https, and resolve to public addresses when it is another host. Redirects (blob storage on a CDN) are followed by hand, at most three, https only, never with the token, and only to hosts that resolve to public addresses. Manifests are capped at 4 MiB and checked against their digest, the SBOM at 32 MiB, every request times out after 20 s. Registries on plain http are not read.
 - Distribution packages are matched under their source package (`glibc`, not `libc6`), which OSV indexes. Syft (BuildKit's default SBOM generator) records it; Docker Scout SBOMs (Docker Official Images) do not, so binary packages whose name differs from their source package are missed there. Language packages (Go modules in a binary, `node_modules`) get the same version check as lockfile findings; distribution versions are left to OSV. Supported: Debian, Ubuntu, Alpine, Wolfi, Chainguard, Rocky Linux and AlmaLinux packages, and npm, PyPI, Go, crates.io, RubyGems, Packagist, Maven, NuGet, Pub and Hex packages. Others are skipped.
 - Bounds: at most 10 images per deployment, 5000 packages per image, 500 vulnerable packages asked for full records and 2000 findings per image. Past a bound, or when an SBOM entry does not parse, the result is partial: the "partial image scan" note opens and nothing is marked fixed. An image of a service that has no SBOM this time leaves the advisories already stored for that deployment alone.
 - A failed read (network, timeout, rate limit) leaves the findings and the "image only" note as they are, says `error` in the note and is tried again next scan. An OSV outage shows on the scan run once.
+
+#### Registry credentials
+
+For private images, add a login per registry under Settings, Scans, Registry credentials (or with the [API](api.md#registry-credentials)). The secret is stored encrypted under `HINOMI_SECRET_KEY` like source tokens, so the key must be set; it is never shown again, logged or returned by the API.
+
+| Registry | Host | User name | Secret |
+|---|---|---|---|
+| GitHub Container Registry | `ghcr.io` | your GitHub user name | a personal access token (classic) with the `read:packages` scope only. Fine-grained tokens cannot read packages yet. For an organization with SAML SSO, authorize the token for it |
+| Docker Hub | `docker.io` (stored as `registry-1.docker.io`) | your Docker Hub user name | a personal access token with the **Read-only** access permission |
+| Any other OCI registry | its host, with the port if it has one (`registry.example.com:5000`) | the registry user | its password, or an access token that can pull |
+
+How a credential is used:
+
+- It is matched on the exact host the image names, port included; there are no wildcards. `docker.io`, `index.docker.io` and `registry-1.docker.io` are one host, and `:443` is dropped. An image on another host never gets it.
+- It is read only when the registry answers 401. For a registry that names a token service (the OCI token flow: `WWW-Authenticate: Bearer realm, service`), Hinomi asks that service for a pull token scoped to the one repository (`repository:<name>:pull`), sending the login as Basic auth, and uses the token for the reads. For a registry that answers a `Basic` challenge, the login goes to the registry itself.
+- The login goes to the token service only when it is on the registry host itself, or a known auth host of it: `auth.docker.io` for Docker Hub and `gitlab.com` for `registry.gitlab.com`. A token service on any other host (even a sibling the anonymous rule allows) is asked without the login, and the image says so in its note. Token requests follow no redirects; redirects of the registry (blob storage on a CDN) never carry the token or the login.
+- Wrong credentials or a token without pull access show as `unauthorized` in the image's note, with what was refused. A credential that cannot be decrypted (the key changed) shows the same way: enter it again.
 
 Only image only deployments are scanned; apps built from a repo are covered by their lockfiles and alerts. A scanner sidecar (Trivy or Grype as a second container that pulls and scans every image) is documented only, and Hinomi does not ship it: it needs a vulnerability database of hundreds of MB, registry credentials and image pulls, and on Coolify it would duplicate what Coolify already does.
 

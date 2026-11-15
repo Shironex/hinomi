@@ -343,6 +343,17 @@ A test answers `{ ok: true, message, version?, login?, scopes?, account?, reposi
 | `GET /api/scans/:id` | One run with per source results |
 | `POST /api/scans` | Starts a scan: 202 `{ started: true, run }`, or 200 `{ started: false, run }` with the scan already running |
 
+### Registry credentials
+
+Logins for private images in the `sbom` [image scan](self-hosting.md#registry-credentials), one per registry host. The secret is write only: no route returns it, and validation errors never echo it.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/settings/registry-credentials` | `{ items: [{ id, host, username, secretSet, createdAt, updatedAt }], canStoreSecrets }`, sorted by host. `canStoreSecrets` is false while `HINOMI_SECRET_KEY` is not set |
+| `POST /api/settings/registry-credentials` | `{ host, username, secret }`: 201 with the credential. `host` is a plain host with an optional port (`ghcr.io`, `registry.example.com:5000`); it is lower cased, a pasted `https://` and trailing slash are dropped, `:443` too, and `docker.io` and `index.docker.io` are stored as `registry-1.docker.io`. No wildcards, paths or user info. A host that has one already is a 409; without `HINOMI_SECRET_KEY` it is a 400 `secret_key_missing` |
+| `PATCH /api/settings/registry-credentials/:id` | Any of `username`, `secret` (a new secret replaces the stored one). The host cannot change: a secret stays bound to the registry it was entered for; remove the credential and add it again instead |
+| `DELETE /api/settings/registry-credentials/:id` | 204 |
+
 ### GitHub webhook
 
 Optional, off by default; see [github-webhook.md](github-webhook.md) for the setup and how to expose only the receiver.
