@@ -8,6 +8,7 @@ import type {
 } from '@hinomi/shared'
 import { REPOS, SOURCES, ago } from './dataset'
 import { PLANS } from './fix-runs'
+import { runtimeFor } from './repo-runtime'
 
 // Which GitHub source reads each fixture repo. The kestrel-co GitHub App (source 2) reads most;
 // the mara-kestrel token (source 3) reads kestrel-cli, which the app is not installed on, and
@@ -144,8 +145,6 @@ export function repoDetailFor(id: number): RepoDetail | null {
       seenBy: placement.seenBy,
     },
     release: releaseFor(id),
-    // The runtime panel (phase 2 slice 13) fills these in its own fixtures.
-    runtimePins: [],
-    supportLines: { available: false, runtimes: [] },
+    ...runtimeFor(id),
   }
 }

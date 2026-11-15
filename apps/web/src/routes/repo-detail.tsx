@@ -3,6 +3,7 @@ import { getRouteApi, Link } from '@tanstack/react-router'
 import { IconArrowLeft, IconBrandGithub, IconGitBranchDeleted } from '@tabler/icons-react'
 import { PageHeader } from '@/components/page-header'
 import { ReleasePanel } from '@/components/repos/release-panel'
+import { RuntimePanel } from '@/components/repos/runtime-panel'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
 import { LoadingState } from '@/components/states/loading-state'
@@ -14,7 +15,7 @@ import { repoQuery } from '@/lib/settings-api'
 
 const route = getRouteApi('/repos/$id')
 
-/** One repo: what Hinomi knows about it beyond its findings. Today the desktop release tier. */
+/** One repo: what Hinomi knows about it beyond its findings. Its runtime pins and support lines, and the desktop release tier. */
 export function RepoDetailPage() {
   const { id: raw } = route.useParams()
   const id = Number(raw)
@@ -82,7 +83,10 @@ export function RepoDetailPage() {
           ? `Last scanned ${formatRelative(repo.lastScannedAt)}.`
           : 'Not scanned yet.'}
       </PageHeader>
-      <ReleasePanel repo={repo} />
+      <div className="flex flex-col gap-4">
+        <RuntimePanel repo={repo} />
+        <ReleasePanel repo={repo} />
+      </div>
     </div>
   )
 }
