@@ -20,7 +20,8 @@ export type ImageScanSource = z.infer<typeof imageScanSourceSchema>
  * Why the registry SBOM scan has no SBOM for an image (the `image_sbom_unavailable` note):
  * - `unparsable_ref`: the image reference cannot be read (a variable left in it, say).
  * - `not_found`: the registry does not know the image or tag.
- * - `unauthorized`: the registry wants credentials (a private image).
+ * - `unauthorized`: the registry wants credentials (a private image) and no stored registry
+ *   credential for its host works.
  * - `no_index`: the image has a single manifest; BuildKit stores attestations only in an index.
  * - `no_platform`: the index has no image for a platform Hinomi reads.
  * - `no_attestation`: the index has no attestation for the platform's image.
