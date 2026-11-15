@@ -57,6 +57,7 @@ export function deployment(
     factsVersion: null,
     factsUpdatedAt: null,
     imageScannedAt: null,
+    imageSecurity: null,
     firstSeenAt: AT,
     lastSeenAt: AT,
     createdAt: AT,

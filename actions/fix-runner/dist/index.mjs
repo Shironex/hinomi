@@ -5942,7 +5942,35 @@ const imageScanEvidenceSchema = object({
 	epss: number$1().nullable(),
 	risk: number$1().nullable(),
 	fixState: imageFixStateSchema,
-	packageType: string().max(100)
+	packageType: string().max(100),
+	ownerUuids: array(string().max(500)).max(50).default([])
+});
+const IMAGE_SECURITY_STATUSES = [
+	"update_now",
+	"update_available",
+	"no_fix",
+	"check_needed",
+	"ok",
+	"not_checked"
+];
+const imageSecurityStatusSchema = _enum(IMAGE_SECURITY_STATUSES);
+const imageSecurityActionSchema = object({
+	type: string().max(100),
+	sentence: string().max(2e3),
+	target: string().max(500).nullable(),
+	image: string().max(1e3).nullable()
+});
+const imageSecuritySchema = object({
+	status: imageSecurityStatusSchema,
+	anyExploited: boolean(),
+	exploitedCount: number$1().int().nonnegative(),
+	actions: array(imageSecurityActionSchema).max(20),
+	eol: object({
+		name: string().max(200),
+		version: string().max(200),
+		fixed: boolean()
+	}).nullable(),
+	checkedAt: string().nullable()
 });
 
 // ../../packages/shared/src/releases.ts
@@ -7004,6 +7032,7 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 		covered: boolean(),
 		imageOnly: boolean()
 	}),
+	imageSecurity: imageSecuritySchema.nullable(),
 	openFindings: severityCountsSchema,
 	exposed: number$1().int(),
 	openBlindSpots: number$1().int()
@@ -14226,6 +14255,7 @@ const coolifyErrorCodeSchema = _enum([
 	"not_found",
 	"server_error",
 	"http_error",
+	"rate_limited",
 	"network",
 	"timeout",
 	"invalid_response"

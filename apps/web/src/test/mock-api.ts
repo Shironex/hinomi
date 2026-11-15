@@ -144,6 +144,7 @@ export const deployment = (over: Record<string, unknown> = {}) => ({
   mapping: 'auto',
   repos: [repo(21, 'kestrel-co/storefront')],
   coverage: { alerts: 'enabled', blindSpots: [], covered: true, imageOnly: false },
+  imageSecurity: null,
   openFindings: { critical: 0, high: 0, moderate: 0, low: 0 },
   exposed: 0,
   openBlindSpots: 0,

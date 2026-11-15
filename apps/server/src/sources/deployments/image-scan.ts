@@ -1,4 +1,4 @@
-import type { AdvisorySeverity, ImageFixState } from '@hinomi/shared'
+import type { AdvisorySeverity, ImageFixState, ImageSecurity } from '@hinomi/shared'
 
 // Image scan results a deployment source computed itself (Coolify's own scan, see
 // docs/design/phase-2.md section 6), in the source neutral shape the scan writes. The registry
@@ -48,10 +48,16 @@ export interface ImageFinding {
   /** Only http and https links are kept. */
   advisoryUrl: string | null
   imageRef: string | null
+  /** The sub resource that runs the image (Coolify: the service application or database uuid). */
+  ownerUuid: string | null
 }
 
 export interface ScannedImage {
   imageRef: string
+  /** The sub resource that runs the image (Coolify `owner_uuid`), null when not said. */
+  ownerUuid: string | null
+  /** Why a failed scan failed, as the scanner names it (Coolify `error_code`). */
+  errorCode: string | null
   /** `completed` when the scan finished; queued, running and failed scans have no findings. */
   status: string | null
   scannedAt: Date | null
@@ -61,10 +67,12 @@ export interface ScannedImage {
 
 export interface ResourceScan {
   /**
-   * Why the source does not scan the resource (Coolify: `instance`, `server`, `application`);
-   * null when it does.
+   * Why the source does not scan the resource (Coolify: `server` or `application`); null when it
+   * does.
    */
   offReason: string | null
+  /** The source's verdict on the whole resource, null when it gave none. */
+  security: ImageSecurity | null
   images: ScannedImage[]
   findings: ImageFinding[]
   /** Images whose finding list the scanner capped. */
@@ -80,3 +88,5 @@ export type ResourceScanResult =
   /** The resource is gone (deleted since the inventory was read). */
   | { status: 'not_found' }
   | { status: 'forbidden'; message: string }
+  /** The source asks to slow down (429): nothing more is read from it in this scan. */
+  | { status: 'rate_limited'; message: string; retryAfterSeconds: number | null }

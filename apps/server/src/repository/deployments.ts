@@ -1,4 +1,4 @@
-import type { DeploymentRecord } from '@hinomi/shared'
+import type { DeploymentRecord, ImageSecurity } from '@hinomi/shared'
 import { and, asc, eq, exists, notExists, notInArray, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import {
@@ -13,7 +13,13 @@ import { currentTime } from '@hinomi/shared'
 /** What a deployment source reports for one deployment on each sync. */
 export type UpsertDeploymentInput = Omit<
   NewDeploymentRow,
-  'id' | 'firstSeenAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt' | 'imageScannedAt'
+  | 'id'
+  | 'firstSeenAt'
+  | 'lastSeenAt'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'imageScannedAt'
+  | 'imageSecurity'
 >
 
 /**
@@ -82,6 +88,11 @@ export function createDeploymentsRepository(db: Db) {
     /** Records when the scanner last scanned the deployment's image (null: unknown, read again). */
     setImageScannedAt(id: number, at: Date | null): void {
       db.update(deployments).set({ imageScannedAt: at }).where(eq(deployments.id, id)).run()
+    },
+
+    /** Records the source's verdict on the deployment's images (null: none, or not scanned). */
+    setImageSecurity(id: number, security: ImageSecurity | null): void {
+      db.update(deployments).set({ imageSecurity: security }).where(eq(deployments.id, id)).run()
     },
 
     listBySource(sourceId: number): DeploymentRow[] {

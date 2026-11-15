@@ -15,6 +15,7 @@ export const coolifyErrorCodeSchema = z.enum([
   'not_found',
   'server_error',
   'http_error',
+  'rate_limited',
   'network',
   'timeout',
   'invalid_response',

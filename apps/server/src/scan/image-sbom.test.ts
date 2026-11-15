@@ -355,7 +355,17 @@ describe('image scan from registry SBOMs', () => {
       status: 'ok',
       scan: {
         offReason: null,
-        images: [{ imageRef: EDGE, status: 'completed', scannedAt: clock, truncated: false }],
+        security: null,
+        images: [
+          {
+            imageRef: EDGE,
+            ownerUuid: null,
+            errorCode: null,
+            status: 'completed',
+            scannedAt: clock,
+            truncated: false,
+          },
+        ],
         findings: [],
         truncatedImages: [],
         capped: false,
@@ -424,7 +434,17 @@ describe('image scan from registry SBOMs', () => {
           status: 'ok',
           scan: {
             offReason: null,
-            images: [{ imageRef: EDGE, status: 'completed', scannedAt: clock, truncated: false }],
+            security: null,
+            images: [
+              {
+                imageRef: EDGE,
+                ownerUuid: null,
+                errorCode: null,
+                status: 'completed',
+                scannedAt: clock,
+                truncated: false,
+              },
+            ],
             findings: [],
             truncatedImages: [],
             capped: false,

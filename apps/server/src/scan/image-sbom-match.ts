@@ -99,6 +99,7 @@ export function imageFindingOf(
     cvssScore: cvss?.score ?? null,
     advisoryUrl: `https://osv.dev/vulnerability/${encodeURIComponent(vuln.id)}`,
     imageRef,
+    ownerUuid: null,
   }
 }
 

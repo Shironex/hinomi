@@ -1,0 +1,52 @@
+{
+  "resources": [
+    {
+      "uuid": "app-docs",
+      "name": "static-docs",
+      "type": "application",
+      "project_uuid": "proj-1",
+      "environment_uuid": "env-1",
+      "server_uuid": "srv-edge-1",
+      "images": { "update": 0, "total": 0 },
+      "security": {
+        "status": "not_checked",
+        "label": "Not checked",
+        "action": null,
+        "check_reason": "Image scanning is off for this server.",
+        "problem_count": 0,
+        "exploited_count": 0,
+        "any_exploited": false,
+        "critical_count": 0,
+        "high_count": 0,
+        "medium_count": 0,
+        "eol": null,
+        "checked_at": null,
+        "actions": []
+      }
+    },
+    {
+      "uuid": "svc-wiki",
+      "name": "team-wiki",
+      "type": "service",
+      "project_uuid": "proj-1",
+      "environment_uuid": "env-1",
+      "server_uuid": "srv-edge-1",
+      "images": { "update": 0, "total": 0 },
+      "security": {
+        "status": "not_checked",
+        "label": "Not checked",
+        "action": null,
+        "check_reason": null,
+        "problem_count": 0,
+        "exploited_count": 0,
+        "any_exploited": false,
+        "critical_count": 0,
+        "high_count": 0,
+        "medium_count": 0,
+        "eol": null,
+        "checked_at": null,
+        "actions": []
+      }
+    }
+  ]
+}

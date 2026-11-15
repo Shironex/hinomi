@@ -392,6 +392,7 @@ export function deploymentItem(over: Partial<DeploymentItem> = {}): DeploymentIt
     mapping: 'auto',
     repos: [repoRef()],
     coverage: { alerts: 'enabled', blindSpots: [], covered: true, imageOnly: false },
+    imageSecurity: null,
     openFindings: { critical: 1, high: 2, moderate: 9, low: 0 },
     exposed: 1,
     openBlindSpots: 0,

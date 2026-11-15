@@ -128,6 +128,7 @@ interface Bucket {
   epss: number | null
   risk: number | null
   packageType: string
+  ownerUuids: Set<string>
 }
 
 const maxOf = (a: number | null, b: number | null) =>
@@ -166,8 +167,20 @@ function isComplete(scan: ResourceScan): boolean {
   )
 }
 
+/** Images whose scan failed, with the scanner's error code: their findings are not in the result. */
+function failedImages(scan: ResourceScan): { imageRef: string; errorCode: string | null }[] {
+  return scan.images
+    .filter((i) => i.status === 'failed')
+    .map((i) => ({ imageRef: i.imageRef, errorCode: i.errorCode }))
+}
+
 function isPartial(scan: ResourceScan): boolean {
-  return scan.capped || scan.unreadable > 0 || scan.truncatedImages.length > 0
+  return (
+    scan.capped ||
+    scan.unreadable > 0 ||
+    scan.truncatedImages.length > 0 ||
+    failedImages(scan).length > 0
+  )
 }
 
 /** Image advisory findings of a deployment (dedupe key `...:image`). */
@@ -196,10 +209,12 @@ function bucketFindings(
         epss: null,
         risk: null,
         packageType: finding.packageType,
+        ownerUuids: new Set(),
       }
       buckets.set(advisory.id, bucket)
     }
     if (finding.imageRef) bucket.imageRefs.add(finding.imageRef)
+    if (finding.ownerUuid) bucket.ownerUuids.add(finding.ownerUuid)
     bucket.versions.add(finding.version)
     bucket.states.add(finding.state)
     bucket.ignoreReason ??= finding.ignoreReason
@@ -246,6 +261,7 @@ export function applyResourceScan(
         risk: bucket.risk,
         fixState,
         packageType: bucket.packageType,
+        ownerUuids: [...bucket.ownerUuids].slice(0, 50),
       }
       const { finding, created } = findings.observe(
         {
@@ -307,6 +323,7 @@ function applyPartialNote(
   )
   const data = {
     truncatedImages: scan.truncatedImages.slice(0, 50),
+    failedImages: failedImages(scan).slice(0, 50),
     capped: scan.capped,
     unreadable: scan.unreadable,
   }
@@ -387,6 +404,11 @@ interface SourceRun {
   result: MutableResult
   /** This source's counts, also listed in `result.reads`. */
   counts: ImageSourceRead
+  /**
+   * Set by the first 403 or 429 of this scan: the rest of the resources are not asked. Coolify
+   * answers 429 after 30 failed requests a minute, and a token gap fails every resource alike.
+   */
+  stopped: 'forbidden' | 'rate_limited' | null
 }
 
 function recordError(run: SourceRun, error: string): void {
@@ -425,6 +447,11 @@ async function scanSource(run: SourceRun): Promise<void> {
       counts.unchanged++
       return
     }
+    if (run.stopped) {
+      // After a 429 nothing is known about the rest: leave their notes and findings alone.
+      if (run.stopped === 'rate_limited') result.coverage.set(deployment.id, null)
+      return
+    }
     let read
     try {
       read = await reader.resource(deployment.kind, deployment.externalId)
@@ -439,7 +466,14 @@ async function scanSource(run: SourceRun): Promise<void> {
       return
     }
     if (read.status === 'forbidden') {
+      run.stopped = 'forbidden'
       recordError(run, read.message)
+      return
+    }
+    if (read.status === 'rate_limited') {
+      run.stopped = 'rate_limited'
+      recordError(run, `image scan of ${deployment.name}: ${read.message}`)
+      result.coverage.set(deployment.id, null)
       return
     }
     const covered = coverageOf(read.scan)
@@ -449,11 +483,13 @@ async function scanSource(run: SourceRun): Promise<void> {
     }
     if (!covered) {
       repositories.deployments.setImageScannedAt(deployment.id, null)
+      repositories.deployments.setImageSecurity(deployment.id, null)
       return
     }
     try {
       result.changes.push(...applyResourceScan(repositories, deployment, read.scan, options.now))
       repositories.deployments.setImageScannedAt(deployment.id, newestScan(read.scan))
+      repositories.deployments.setImageSecurity(deployment.id, read.scan.security)
       result.coverage.set(deployment.id, 'coolify')
       counts.scanned++
     } catch (error) {
@@ -509,6 +545,7 @@ function applySbomOutcome(
   // Coolify's change marker is compared with this column: an SBOM read must not make Coolify
   // skip its own results later.
   repositories.deployments.setImageScannedAt(deployment.id, null)
+  repositories.deployments.setImageSecurity(deployment.id, null)
   result.coverage.set(deployment.id, 'sbom')
   result.sbom.scanned++
   result.changes.push(
@@ -582,6 +619,7 @@ export async function runImageScan(
       options,
       result,
       counts,
+      stopped: null,
     })
   }
   if (options.mode === 'sbom') await scanSboms(repositories, targets, options, result)

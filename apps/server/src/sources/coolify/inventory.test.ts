@@ -105,6 +105,37 @@ describe('fetchCoolifyInventory', () => {
     })
   })
 
+  it('leaves the server column empty for a token that does not cover the team', async () => {
+    // Without a team wide token Coolify gives no server data: no `/servers`, none on resources.
+    const toArray = (body: unknown): Record<string, unknown>[] =>
+      Array.isArray(body)
+        ? (body as Record<string, unknown>[])
+        : ((body as { data?: Record<string, unknown>[] }).data ?? [])
+    const strip = (name: string) =>
+      toArray(JSON.parse(fixture(name))).map((r) => {
+        const { server, destination, server_id, server_name, ...rest } = r
+        void [server, destination, server_id, server_name]
+        return rest
+      })
+    const { impl } = fakeFetch({
+      ...okRoutes,
+      '/applications': JSON.stringify(strip('applications')),
+      '/services': JSON.stringify(strip('services')),
+      '/databases': JSON.stringify(strip('databases')),
+      '/servers': () => new Response('{}', { status: 403 }),
+    })
+    const records = await fetchCoolifyInventory({ ...config, fetch: impl })
+    expect(records).toHaveLength(7)
+    expect(records.every((r) => r.server === null)).toBe(true)
+  })
+
+  it('still fails the inventory when the token is rejected', async () => {
+    const { impl } = fakeFetch({ ...okRoutes, '/servers': () => new Response('', { status: 401 }) })
+    await expect(fetchCoolifyInventory({ ...config, fetch: impl })).rejects.toMatchObject({
+      code: 'unauthorized',
+    })
+  })
+
   it('treats a missing databases endpoint as empty', async () => {
     const { impl } = fakeFetch({
       '/applications': '[]',
@@ -118,6 +149,7 @@ describe('fetchCoolifyInventory', () => {
     [401, 'unauthorized'],
     [403, 'forbidden'],
     [404, 'not_found'],
+    [429, 'rate_limited'],
     [500, 'server_error'],
     [503, 'server_error'],
     [418, 'http_error'],
