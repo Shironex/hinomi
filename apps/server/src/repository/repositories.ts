@@ -8,6 +8,7 @@ import { createHttpCacheRepository } from './http-cache.js'
 import { createFixRunsRepository } from './fix-runs.js'
 import { createFixPlansRepository } from './plans.js'
 import { createRepoSourcesRepository } from './repo-sources.js'
+import { createRegistryCredentialsRepository } from './registry-credentials.js'
 import { createReposRepository } from './repos.js'
 import { createRuntimePinsRepository } from './runtime-pins.js'
 import { createScanRunsRepository } from './scan-runs.js'
@@ -26,6 +27,7 @@ export function createRepositories(db: Db, secretBox: SecretBox | null) {
   return {
     db,
     sources: createSourcesRepository(db, secretBox),
+    registryCredentials: createRegistryCredentialsRepository(db, secretBox),
     repos: createReposRepository(db),
     repoSources: createRepoSourcesRepository(db),
     deployments: createDeploymentsRepository(db),

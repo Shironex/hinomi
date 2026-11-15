@@ -96,6 +96,25 @@ export const sources = sqliteTable(
   (t) => [uniqueIndex('sources_kind_name_unique').on(t.kind, t.name)],
 )
 
+/**
+ * Credentials for a private OCI registry, read by the registry SBOM image scan. One per host;
+ * sent to that host (and its known token service) only.
+ */
+export const registryCredentials = sqliteTable(
+  'registry_credentials',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Normalized registry host with an optional port (`ghcr.io`, `registry-1.docker.io`). */
+    host: text('host').notNull(),
+    username: text('username').notNull(),
+    /** AES-256-GCM ciphertext (crypto/secret-box.ts) of the password or token. Never leaves the server. */
+    secretEncrypted: text('secret_encrypted').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('registry_credentials_host_unique').on(t.host)],
+)
+
 /** A GitHub repository, whether or not anything deploys it. */
 export const repos = sqliteTable(
   'repos',
@@ -600,6 +619,7 @@ export const httpCache = sqliteTable('http_cache', {
 })
 
 export type SourceRow = typeof sources.$inferSelect
+export type RegistryCredentialRow = typeof registryCredentials.$inferSelect
 export type RepoRow = typeof repos.$inferSelect
 export type NewRepoRow = typeof repos.$inferInsert
 export type RepoSourceRow = typeof repoSources.$inferSelect
