@@ -53,11 +53,28 @@ const KINDS: { value: FindingKind; label: string }[] = [
 ]
 
 /** The filters behind "more filters". */
-const MORE_FILTERS = ['tier', 'scope', 'source', 'state', 'kind', 'check', 'level'] as const
+const MORE_FILTERS = [
+  'tier',
+  'scope',
+  'source',
+  'state',
+  'kind',
+  'check',
+  'level',
+  'release',
+] as const
 
 /** How many of the filters behind "more filters" narrow the list. */
 function moreActive(search: AlertsSearch): number {
-  return MORE_FILTERS.filter((key) => search[key]?.length).length
+  return MORE_FILTERS.filter((key) => {
+    const value = search[key]
+    return Array.isArray(value) ? value.length > 0 : value !== undefined
+  }).length
+}
+
+/** The release select's value: only desktop release findings, none of them, or any. */
+function releaseValue(release: boolean | undefined): string {
+  return release === undefined ? 'all' : release ? 'only' : 'none'
 }
 
 /**
@@ -286,6 +303,21 @@ export function AlertsFilters({
                 {GUARD_LEVEL_LABEL[level]}
               </option>
             ))}
+          </select>
+
+          <select
+            aria-label="Release"
+            className={cn(SELECT, 'col-span-2')}
+            value={releaseValue(search.release)}
+            onChange={(e) =>
+              onChange({
+                release: e.target.value === 'all' ? undefined : e.target.value === 'only',
+              })
+            }
+          >
+            <option value="all">Any release status</option>
+            <option value="only">Desktop release findings</option>
+            <option value="none">Without release findings</option>
           </select>
 
           <select

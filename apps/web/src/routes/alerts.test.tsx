@@ -143,7 +143,7 @@ describe('all alerts', () => {
     const user = userEvent.setup()
     const { router } = await renderApp('/alerts')
     await screen.findByText('Tier 2: Deployed, internal only')
-    await user.click(screen.getByRole('button', { name: '7 more filters' }))
+    await user.click(screen.getByRole('button', { name: '8 more filters' }))
     await user.selectOptions(screen.getByLabelText('Source'), 'Reported by both')
     await waitFor(() => {
       const search = api.called('GET', '/findings').at(-1)?.search
@@ -167,7 +167,7 @@ describe('all alerts', () => {
     const user = userEvent.setup()
     const { router } = await renderApp('/alerts')
     await screen.findByText('Tier 2: Deployed, internal only')
-    await user.click(screen.getByRole('button', { name: '7 more filters' }))
+    await user.click(screen.getByRole('button', { name: '8 more filters' }))
 
     await user.selectOptions(screen.getByLabelText('Kind'), 'Guards')
     await user.selectOptions(screen.getByLabelText('Guard level'), 'Fail')
@@ -188,6 +188,31 @@ describe('all alerts', () => {
     await user.selectOptions(screen.getByLabelText('Deployment'), 'Released desktop apps')
     await waitFor(() =>
       expect(api.called('GET', '/findings').at(-1)?.search.get('tier')).toBe('released'),
+    )
+  })
+
+  it('filters on findings of a desktop release and on those without', async () => {
+    const api = mockViews({ 'GET /findings': grouped })
+    const user = userEvent.setup()
+    const { router } = await renderApp('/alerts')
+    await screen.findByText('Tier 2: Deployed, internal only')
+    await user.click(screen.getByRole('button', { name: '8 more filters' }))
+
+    await user.selectOptions(screen.getByLabelText('Release'), 'Desktop release findings')
+    await waitFor(() =>
+      expect(api.called('GET', '/findings').at(-1)?.search.get('release')).toBe('true'),
+    )
+    expect(router.state.location.search).toMatchObject({ release: true })
+    expect(screen.getByRole('button', { name: '1 more on' })).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Release'), 'Without release findings')
+    await waitFor(() =>
+      expect(api.called('GET', '/findings').at(-1)?.search.get('release')).toBe('false'),
+    )
+
+    await user.selectOptions(screen.getByLabelText('Release'), 'Any release status')
+    await waitFor(() =>
+      expect(api.called('GET', '/findings').at(-1)?.search.has('release')).toBe(false),
     )
   })
 

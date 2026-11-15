@@ -33,6 +33,8 @@ export const alertsSearchSchema = z.object({
   kind: list(findingKindSchema),
   check: list(guardCheckSchema),
   level: list(guardLevelSchema),
+  /** `true`: only findings of a desktop app's latest release; `false`: none of them. */
+  release: z.boolean().optional().catch(undefined),
   repo: ids,
   deployment: ids,
   q: z.string().max(200).optional().catch(undefined),
@@ -55,6 +57,7 @@ export function alertsParams(search: AlertsSearch, limit: number): FindingsParam
     kind: search.kind,
     check: search.check,
     level: search.level,
+    release: search.release,
     repo: search.repo,
     deployment: search.deployment,
     q: search.q,
@@ -74,6 +77,7 @@ export function hasFilters(search: AlertsSearch): boolean {
     search.kind?.length ||
     search.check?.length ||
     search.level?.length ||
+    search.release !== undefined ||
     search.repo?.length ||
     search.deployment?.length ||
     search.q?.trim(),
