@@ -167,6 +167,8 @@ All tokens are entered in the UI (onboarding or Settings, Sources) and stored en
 
 Create an API token in Coolify (Keys and Tokens, API tokens) with the **read** permission only. That is enough to list applications, services and servers, and to read Coolify's image scan results when the [image scan](#image-scan) is on. Use the panel URL reachable from the Hinomi container.
 
+Give the token access to the whole team if you want the server column. Coolify returns server data on applications, services and databases only to a token that covers the whole team; with a narrower token Hinomi still lists every deployment it can read, and the server stays empty.
+
 ### GitHub
 
 | Option | Covers | Permissions |
@@ -234,16 +236,18 @@ Deployments that run an image with no git source (a service from a template, an 
 
 `coolify` reads the scan results Coolify already computed for the image that actually runs: Hinomi asks `GET /api/v1/vulnerabilities` once per instance and scan, then `GET /api/v1/{applications,services,databases}/{uuid}/vulnerabilities` for each image only deployment. Nothing is installed and no image is pulled. What you need:
 
-- A Coolify version with those endpoints. They were added to Coolify's `next` branch on 2026-11-06 and are not in any tagged release yet: v4.6.0 (2026-11-02) and older do not have them, so expect them in the first release after v4.6.0. This is read from Coolify's source and OpenAPI file, not verified on a running release; check your instance's API reference for a Vulnerabilities section.
-- Image scanning turned on in Coolify for the instance and for each server (Coolify pulls its scanner onto the server and scans the images there).
+- Coolify v4.7.0 (2026-11-09) or newer. Older versions do not have those endpoints. The reader follows the v4.7.0 OpenAPI file; it has not yet been compared with a running instance.
+- Image scanning turned on in Coolify for each server (and for the applications you want scanned) (Coolify pulls its scanner onto the server and scans the images there).
 - The same read token as for the rest. A token that cannot read the results gets a 403: the scan run and the source show "The Coolify token may not read image scan results (403)", once per instance, and the coverage notes stay.
 
 How it behaves:
 
-- A Coolify without the endpoint (404) is not an error: its deployments keep their "image only" note, and the scan run's Coolify result counts `imageScanUnavailable`. The same holds when image scanning is switched off on the instance.
+- A Coolify without the endpoint (404) is not an error: its deployments keep their "image only" note, and the scan run's Coolify result counts `imageScanUnavailable`. The same holds when image scanning is switched off: Coolify 4.7.0 has no flag for it, so Hinomi treats an instance where no resource has a security status other than `not_checked` as switched off.
 - A deployment Coolify does not scan (off for its server or for the resource) keeps its note. While its first scan is still queued or running, the note is left as it is.
+- Coolify counts failed requests per token or IP (30 a minute) and then answers `429` with a `Retry-After` header. Hinomi stops asking an instance after the first `403` of a scan, and after the first `429` (error code `rate_limited`): the source shows how long Coolify asked to wait, and the next scan tries again. Nothing is retried in a loop.
 - Results are read again only when Coolify reports a newer scan than the one stored (`image_scanned_at` on the deployment, compared with Coolify's `checked_at`), so unchanged images cost one request per instance.
-- Advisories become findings reported by `image`, ranked like lockfile advisories on that deployment. A finding ignored in Coolify starts as accepted with the reason "ignored in Coolify". A capped result (Coolify truncated an image's list, or more than 2000 findings) gets a "partial image scan" note and never marks anything fixed.
+- Advisories become findings reported by `image`, ranked like lockfile advisories on that deployment. A finding ignored in Coolify starts as accepted with the reason "ignored in Coolify". A capped result (Coolify truncated an image's list, more than 2000 findings, or an image whose scan failed in Coolify) gets a "partial image scan" note and never marks anything fixed; the note names the failed images with Coolify's error code.
+- Coolify's verdict on the deployment is kept as well: its security status, how many findings are known exploited, its recommended version actions and the end of life OS an image runs on. `GET /api/deployments` returns them as `imageSecurity`.
 - Turning the setting off reopens the "image only" notes. Image findings already stored stay as they were until the setting is on again.
 
 #### Registry SBOMs (`sbom`)
