@@ -5,7 +5,7 @@ import { settingsKeys, sourcesQuery } from '@/lib/settings-api'
 
 /** Pieces shared by the token and the GitHub App connect forms. */
 
-export type ConnectableKind = 'coolify' | 'github'
+export type ConnectableKind = 'coolify' | 'github' | 'dokploy'
 
 export type SuccessfulTest = Extract<SourceTestResult, { ok: true }>
 
@@ -33,7 +33,7 @@ export class ConnectionTestFailed extends Error {
   }
 }
 
-/** Codes from the Coolify and GitHub testers that mean the credentials are the problem. */
+/** Codes from the source testers that mean the credentials are the problem. */
 export const TOKEN_CODES = new Set(['unauthorized', 'forbidden', 'auth', 'permission'])
 
 export const urlSchema = testTokenRequestSchema.shape.baseUrl.unwrap().unwrap()

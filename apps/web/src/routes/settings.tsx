@@ -113,7 +113,7 @@ function SectionDetail({
           id="settings-sources"
           title="Sources"
           note="Where Hinomi reads from"
-          intro="Deployments come from Coolify, advisories from GitHub and OSV.dev. Tokens are stored encrypted and never shown again."
+          intro="Deployments come from Coolify and Dokploy, advisories from GitHub and OSV.dev. Tokens are stored encrypted and never shown again."
         >
           <SourcesSection />
         </SettingsSection>

@@ -17,6 +17,7 @@ import {
   urlSchema,
   type ConnectFormProps,
 } from './connect-shared'
+import { DokployKeyWarning } from './dokploy-key-warning'
 import { GithubAppConnectForm, GithubAuthChoice } from './github-app-connect-form'
 import { SecretKeyCallout } from './secret-key-callout'
 
@@ -40,10 +41,19 @@ const COPY = {
       'Fine-grained: Metadata, Contents and Dependabot alerts (read) on the repos to watch. Classic: repo and security_events.',
     tokenEmpty: 'Paste a GitHub token.',
   },
+  dokploy: {
+    urlLabel: 'Instance URL',
+    urlHelp: 'The address you open Dokploy at. Hinomi adds /api itself.',
+    urlPlaceholder: 'https://dokploy.example.dev',
+    tokenLabel: 'API key',
+    newTokenLabel: 'New API key',
+    tokenHelp: 'In Dokploy: Settings, Profile, API/CLI. Generate it as a dedicated user.',
+    tokenEmpty: 'Paste the Dokploy API key.',
+  },
 } as const
 
 /**
- * Tests Coolify or GitHub credentials with the server, then saves them. Used
+ * Tests Coolify, Dokploy or GitHub credentials with the server, then saves them. Used
  * by onboarding (create) and settings (replace the credentials). GitHub can
  * connect with a token or as a GitHub App.
  */
@@ -54,6 +64,14 @@ export interface SourceConnectFormProps extends ConnectFormProps {
 
 export function SourceConnectForm({ guide, ...props }: SourceConnectFormProps) {
   const [auth, setAuth] = useState<SourceAuth>(props.source?.auth ?? 'token')
+  if (props.kind === 'dokploy') {
+    return (
+      <div className="flex flex-col gap-3.5">
+        <DokployKeyWarning />
+        <TokenConnectForm {...props} />
+      </div>
+    )
+  }
   if (props.kind !== 'github') return <TokenConnectForm {...props} />
   return (
     <div className="flex flex-col gap-3.5">
@@ -86,7 +104,8 @@ function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenCo
   const urlRef = useRef<HTMLInputElement>(null)
   const tokenRef = useRef<HTMLInputElement>(null)
 
-  const showUrl = kind === 'coolify' || enterprise
+  // Coolify and Dokploy always need their instance URL; GitHub only for Enterprise.
+  const showUrl = kind !== 'github' || enterprise
 
   const mutation = useMutation({
     mutationFn: async ({ baseUrl, token }: { baseUrl: string | null; token: string }) => {
@@ -107,7 +126,7 @@ function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenCo
               queryClient,
               kind,
               name,
-              kind === 'coolify' ? hostOf(baseUrl ?? '') : baseUrl ? hostOf(baseUrl) : 'GitHub',
+              kind !== 'github' ? hostOf(baseUrl ?? '') : baseUrl ? hostOf(baseUrl) : 'GitHub',
             ),
             baseUrl,
             token,
@@ -143,9 +162,9 @@ function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenCo
       ? checkField(
           urlSchema,
           url,
-          kind === 'coolify'
-            ? 'Enter the Coolify URL.'
-            : 'Enter the API URL, or switch back to github.com.',
+          kind === 'github'
+            ? 'Enter the API URL, or switch back to github.com.'
+            : `Enter the ${kind === 'coolify' ? 'Coolify' : 'Dokploy'} URL.`,
         )
       : null
     const nextTokenError = checkField(testTokenRequestSchema.shape.token, token, copy.tokenEmpty)
@@ -192,7 +211,13 @@ function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenCo
           </Field>
         ) : null}
         <Field
-          label={replacing ? `New ${copy.tokenLabel.toLowerCase()}` : copy.tokenLabel}
+          label={
+            replacing
+              ? 'newTokenLabel' in copy
+                ? copy.newTokenLabel
+                : `New ${copy.tokenLabel.toLowerCase()}`
+              : copy.tokenLabel
+          }
           help={copy.tokenHelp}
           error={tokenError}
         >
@@ -248,7 +273,7 @@ function TokenConnectForm({ kind, source, name, onConnected, onCancel }: TokenCo
               ? 'Testing connection'
               : 'Saving'
             : replacing
-              ? 'Test and save token'
+              ? `Test and save ${kind === 'dokploy' ? 'key' : 'token'}`
               : 'Test and connect'}
         </Button>
         {onCancel ? (
