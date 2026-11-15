@@ -26,7 +26,7 @@ import {
 import type { FindingChange } from './apply.js'
 import { errorMessage } from './collect.js'
 import { matchImagePackages, MAX_IMAGE_FINDINGS, type ImageMatch } from './image-sbom-match.js'
-import { markFixed, reopenIfFixed } from './state.js'
+import { lastDetails, markFixed, reopenIfFixed } from './state.js'
 
 // The registry SBOM half of the image scan (docs/design/phase-2.md section 6, option C plus D).
 // For an image only deployment Coolify does not cover, each image it runs is looked up in its
@@ -300,11 +300,6 @@ export function createSbomScanner(options: SbomScannerOptions): SbomScanner {
   return { scan, stats }
 }
 
-function lastDetails(repositories: Repositories, findingId: number): string | null {
-  const event = repositories.findings.listEvents(findingId).find((e) => e.type === 'details')
-  return event ? JSON.stringify(event.data ?? null) : null
-}
-
 /**
  * Opens (or reopens) the `image_sbom_unavailable` note of a deployment with the reason per image.
  * The reasons go into a `details` event whenever they change.
@@ -321,7 +316,7 @@ export function openUnavailableNote(
     now,
   )
   const data = { images: missing.slice(0, MAX_IMAGES_PER_DEPLOYMENT) }
-  if (created || lastDetails(repositories, finding.id) !== JSON.stringify(data)) {
+  if (created || lastDetails(findings, finding.id) !== JSON.stringify(data)) {
     findings.addEvent({ findingId: finding.id, type: 'details', actor: 'system', data, at: now })
   }
   if (created) return [{ findingId: finding.id, change: 'opened' }]
