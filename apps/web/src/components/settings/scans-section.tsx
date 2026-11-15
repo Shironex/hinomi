@@ -107,6 +107,7 @@ export function ScansSection() {
             </span>
             <span className="text-xs text-pretty text-muted-foreground">
               Reads every repo the GitHub token can see. They rank last, below everything deployed.
+              A release with installers is checked either way.
             </span>
           </span>
           <Switch
