@@ -1,4 +1,5 @@
 import type { DeploymentItem } from '@hinomi/shared'
+import { Fragment } from 'react'
 import {
   IconCircleCheck,
   IconCircleX,
@@ -9,6 +10,7 @@ import {
 } from '@tabler/icons-react'
 import { StatusText } from '@/components/findings/finding-state'
 import { Badge } from '@/components/ui/badge'
+import { RepoLink } from '@/components/ui/repo-link'
 import { deploymentStatus, repoLabel } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
 
@@ -108,10 +110,24 @@ export function JoinStrip({
   const repo = repoLabel(d)
   const open =
     d.openFindings.critical + d.openFindings.high + d.openFindings.moderate + d.openFindings.low
-  const nodes: { label: string; value: React.ReactNode; sub: React.ReactNode; hot?: boolean }[] = [
+  const gitSource = repo ? `${repo}${d.gitBranch ? `@${d.gitBranch}` : ''}` : 'None'
+  const matters = exposed
+    ? `${exposed} exposed or blind spot${exposed === 1 ? '' : 's'}`
+    : repo || d.kind === 'database'
+      ? 'Nothing exposed'
+      : 'Unknown'
+  const nodes: {
+    label: string
+    value: React.ReactNode
+    /** The value as text, for the tooltip when a long one is cut short. */
+    valueText: string
+    sub: string
+    hot?: boolean
+  }[] = [
     {
       label: `${d.source.kind === 'coolify' ? 'Coolify' : d.source.name} ${d.kind}`,
       value: d.name,
+      valueText: d.name,
       sub:
         [d.server, d.image ? `image ${d.image}` : null].filter(Boolean).join(', ') ||
         'No server reported',
@@ -120,9 +136,18 @@ export function JoinStrip({
       label: `Git source ${MAPPING_LABEL[d.mapping]}`,
       value: (
         <span className="font-mono">
-          {repo ? `${repo}${d.gitBranch ? `@${d.gitBranch}` : ''}` : 'None'}
+          {d.repos.length
+            ? d.repos.map((r, i) => (
+                <Fragment key={r.id}>
+                  {i > 0 ? ', ' : null}
+                  <RepoLink repo={r} />
+                </Fragment>
+              ))
+            : 'None'}
+          {d.repos.length && d.gitBranch ? `@${d.gitBranch}` : ''}
         </span>
       ),
+      valueText: gitSource,
       sub: repo
         ? d.coverage.alerts === 'disabled'
           ? 'GitHub alerts off, OSV lockfile scan on'
@@ -136,15 +161,13 @@ export function JoinStrip({
     {
       label: 'Open alerts',
       value: repo ? `${open} on this app` : 'Cannot match',
+      valueText: repo ? `${open} on this app` : 'Cannot match',
       sub: repo ? 'Runtime and dev, all severities' : 'Map a repo to see findings',
     },
     {
       label: 'What matters',
-      value: exposed
-        ? `${exposed} exposed or blind spot${exposed === 1 ? '' : 's'}`
-        : repo || d.kind === 'database'
-          ? 'Nothing exposed'
-          : 'Unknown',
+      value: matters,
+      valueText: matters,
       sub: exposed
         ? 'Ranked at the top of Exposure'
         : d.reach === 'public'
@@ -180,9 +203,15 @@ export function JoinStrip({
                 : 'border-border',
             )}
           >
-            <small className="text-xs text-muted-foreground">{n.label}</small>
-            <b className="truncate font-medium">{n.value}</b>
-            <small className="truncate text-xs text-muted-foreground">{n.sub}</small>
+            <small className="text-xs text-muted-foreground tab:truncate" title={n.label}>
+              {n.label}
+            </small>
+            <b className="font-medium break-words tab:truncate" title={n.valueText}>
+              {n.value}
+            </b>
+            <small className="text-xs break-words text-muted-foreground tab:truncate" title={n.sub}>
+              {n.sub}
+            </small>
           </div>
         </li>
       ))}
