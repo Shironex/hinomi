@@ -275,7 +275,15 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
           </span>
         ) : null}
       </div>
-      <Title className="text-xl font-semibold tracking-[-0.02em] break-words">{d.name}</Title>
+      <Title
+        className={cn(
+          'leading-tight break-words',
+          // The page title is the shared page header's; in a split pane it is the pane title's.
+          titleLevel === 1 ? 'text-xl' : layout === 'two' ? 'text-lg tab:text-xl' : 'text-lg',
+        )}
+      >
+        {d.name}
+      </Title>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-foreground-2">
         {d.domains.length ? (
           d.domains.map((x) => (
