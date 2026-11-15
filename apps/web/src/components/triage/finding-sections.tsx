@@ -345,7 +345,9 @@ export function FindingHead({
       </div>
       <div className="mt-1 flex flex-wrap gap-2">
         {f.kind === 'advisory' ? (
-          <FixWithHinomi repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
+          f.releaseTag ? null : (
+            <FixWithHinomi repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
+          )
         ) : f.kind === 'guard' ? (
           actions.onTurnOff && (canDefer || f.guard?.override) ? (
             <Button variant="outline" onClick={actions.onTurnOff} aria-haspopup="dialog">
@@ -518,7 +520,9 @@ export function WhyItRanks({ f, rank }: { f: FindingDetail; rank?: number }) {
 function FixButtons({ f }: { f: FindingDetail }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <FixWithHinomi size="sm" repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
+      {f.releaseTag ? null : (
+        <FixWithHinomi size="sm" repos={planRepos(f)} findingId={f.id} noteId="fix-agent-note" />
+      )}
       {f.repo ? (
         <Button asChild size="sm" variant="outline">
           <a
@@ -659,12 +663,14 @@ function FixCardBody({ f, compact = false }: { f: FindingDetail; compact?: boole
             : 'Clears this finding'}
           {f.deployments.length > 1 ? ` in ${f.deployments.length} apps` : ''}
         </p>
-        <FixWithHinomi
-          repos={planRepos(f)}
-          findingId={f.id}
-          noteId="fix-agent-note"
-          className="w-full"
-        />
+        {f.releaseTag ? null : (
+          <FixWithHinomi
+            repos={planRepos(f)}
+            findingId={f.id}
+            noteId="fix-agent-note"
+            className="w-full"
+          />
+        )}
       </FixBox>
     )
   }
@@ -680,9 +686,11 @@ function FixCardBody({ f, compact = false }: { f: FindingDetail; compact?: boole
       </span>
       <p className="text-sm text-foreground-2">
         {clearsText(f)}{' '}
-        {f.plan
-          ? "Fix with Hinomi runs the repo's whole plan in one pull request, this bump included."
-          : NO_PLAN_NOTE}
+        {f.releaseTag
+          ? null
+          : f.plan
+            ? "Fix with Hinomi runs the repo's whole plan in one pull request, this bump included."
+            : NO_PLAN_NOTE}
       </p>
       <FixButtons f={f} />
     </FixBox>

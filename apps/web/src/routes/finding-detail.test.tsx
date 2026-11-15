@@ -37,6 +37,21 @@ describe('finding detail', () => {
     expect(screen.getByText('First seen by a scan')).toBeInTheDocument()
   })
 
+  it('offers Fix with Hinomi on a default branch finding', async () => {
+    mockViews({ 'GET /findings/1': findingDetail() })
+    await renderApp('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    expect(screen.getAllByRole('button', { name: /Fix with Hinomi/ }).length).toBeGreaterThan(0)
+  })
+
+  it('does not offer Fix with Hinomi on a release finding', async () => {
+    mockViews({ 'GET /findings/1': findingDetail({ releaseTag: 'v2.3.0' }) })
+    await renderApp('/finding/1')
+    await screen.findByRole('heading', { level: 1 })
+    expect(screen.getByText(/In the released build v2\.3\.0/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Fix with Hinomi/ })).not.toBeInTheDocument()
+  })
+
   it('says the version is unknown and why, instead of a question mark', async () => {
     mockViews({
       'GET /findings/1': findingDetail({
