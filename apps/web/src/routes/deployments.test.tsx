@@ -2,9 +2,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deploymentDetail, deploymentItem, repoRef, apiError, mockViews } from '@/test/fixtures'
+import { configuredRoutes } from '@/test/mock-api'
 import { renderApp } from '@/test/render-app'
 
 afterEach(() => vi.unstubAllGlobals())
+
+const settingsFixture = configuredRoutes()['GET /settings'] as Record<string, unknown>
 
 const proxy = deploymentItem({
   id: 6,
@@ -350,6 +353,7 @@ describe('deployment detail', () => {
 
   it('explains an image only service instead of asking for a repo', async () => {
     mockViews({
+      'GET /settings': settingsFixture,
       'GET /deployments/6': deploymentDetail({ ...proxy, watchPaths: null, findings: [] }),
     })
     await renderApp('/deployments/6')
@@ -357,8 +361,46 @@ describe('deployment detail', () => {
       await screen.findByText('Runs an image with no git source', { selector: 'b' }),
     ).toBeInTheDocument()
     expect(screen.queryByText('No repo matched', { selector: 'b' })).not.toBeInTheDocument()
-    expect(screen.getByText('Phase 2 (not yet)')).toBeInTheDocument()
+    expect(await screen.findByText('Off,', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'turn on in Settings' })).toHaveAttribute(
+      'href',
+      '/settings#settings-scans',
+    )
+    expect(screen.queryByText('Phase 2 (not yet)')).not.toBeInTheDocument()
   })
+
+  it.each([
+    ['coolify', null, 'Not available yet'],
+    ['sbom', null, 'Not available yet'],
+    [
+      'coolify',
+      {
+        status: 'ok',
+        anyExploited: false,
+        exploitedCount: 0,
+        actions: [],
+        eol: null,
+        checkedAt: null,
+      },
+      'Scanned',
+    ],
+  ] as const)(
+    'says what the image scan did for an image only service with the scan on (%s, %#)',
+    async (mode, imageSecurity, text) => {
+      mockViews({
+        'GET /settings': { ...settingsFixture, imageScan: mode },
+        'GET /deployments/6': deploymentDetail({
+          ...proxy,
+          watchPaths: null,
+          findings: [],
+          imageSecurity: imageSecurity as never,
+        }),
+      })
+      await renderApp('/deployments/6')
+      const row = (await screen.findByText('Image scan')).closest('div')!
+      expect(await within(row).findByText(text)).toBeInTheDocument()
+    },
+  )
 
   it('says when the deployment is unknown', async () => {
     mockViews({ 'GET /deployments/42': () => apiError(404, 'not_found', 'Deployment not found') })
