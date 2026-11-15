@@ -41,6 +41,15 @@ describe('release panel', () => {
     expect(p.getByRole('radio', { name: 'Automatic' })).toBeChecked()
   })
 
+  it('names the repo in the breadcrumb, not its id', async () => {
+    mockViews({ 'GET /repos/24': repoDetail() })
+    await renderApp('/repos/24')
+    await panel()
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
+      'kestrel-co/kestrel-desk',
+    )
+  })
+
   it('does not talk about account repos', async () => {
     mockViews({ 'GET /repos/24': repoDetail() })
     await renderApp('/repos/24')
