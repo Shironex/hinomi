@@ -218,6 +218,61 @@ describe('exposure', () => {
     expect(internal).toHaveTextContent('12 critical, 30 high, 60 moderate, 16 low')
   })
 
+  it('shows the runtime lines that end soonest, with their dates', async () => {
+    mockViews({
+      ...routes(),
+      'GET /overview': overview({
+        funnel: { ...overview().funnel, exposed: 0, needsAction: 0 },
+        blindSpots: { total: 0, deployed: 0, public: 0, needsAction: 0 },
+        windows: [
+          {
+            repoId: 8,
+            repoName: 'kestrel-co/ingest',
+            runtime: 'node',
+            line: '18',
+            eolFrom: '2025-04-30',
+            daysLeft: -554,
+            result: 'fail',
+          },
+          {
+            repoId: 1,
+            repoName: 'kestrel-co/storefront',
+            runtime: 'node',
+            line: '22',
+            eolFrom: '2027-04-30',
+            daysLeft: 176,
+            result: 'warn',
+          },
+        ],
+      }),
+      'GET /findings': findingsResponse([]),
+    })
+    await renderApp('/')
+    const strip = await screen.findByRole('list', { name: 'Runtime lines by end of support' })
+    const ended = within(within(strip).getByRole('link', { name: /Node 18/ }))
+    expect(ended.getByText('Ended')).toBeInTheDocument()
+    expect(ended.getByText('30 Apr 2025')).toBeInTheDocument()
+    expect(ended.getByText(/554 days ago/)).toBeInTheDocument()
+    expect(within(strip).getByRole('link', { name: /Node 22/ })).toHaveAttribute('href', '/repos/1')
+    expect(
+      screen.getByRole('link', { name: /Support windows\s*1 ended, 1 ending soon/ }),
+    ).toHaveAttribute('href', '/repos/8')
+  })
+
+  it('says there is no line with an end date yet', async () => {
+    mockViews({
+      ...routes(),
+      'GET /overview': overview({
+        funnel: { ...overview().funnel, exposed: 0, needsAction: 0 },
+        blindSpots: { total: 0, deployed: 0, public: 0, needsAction: 0 },
+      }),
+      'GET /findings': findingsResponse([]),
+    })
+    await renderApp('/')
+    expect(await screen.findByText(/No runtime line with an end date yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Support windows/ })).not.toBeInTheDocument()
+  })
+
   it('opens a row as its own page on a phone, with previous and next', async () => {
     vi.unstubAllGlobals()
     mockViews(routes())
