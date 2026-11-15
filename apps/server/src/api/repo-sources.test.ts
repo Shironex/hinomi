@@ -95,10 +95,15 @@ describe('GET and PATCH /api/repos/:id', () => {
     })
   })
 
-  it('refuses a source that is not a usable GitHub source', async () => {
-    const { call, repos, labs, edge, shared } = world()
+  it('refuses a source that is not a usable GitHub source or never saw the repo', async () => {
+    const { call, repos, labs, edge, shared, harbor } = world()
     expect((await call('PATCH', `/repos/${shared.id}`, { sourceId: edge.id })).status).toBe(404)
     expect((await call('PATCH', `/repos/${shared.id}`, { sourceId: 999 })).status).toBe(404)
+    // kestrel-labs is usable but never saw harbor on a scan.
+    const unseen = await call('PATCH', `/repos/${harbor.id}`, { sourceId: labs.id })
+    expect(unseen.status).toBe(409)
+    expect(unseen.json).toMatchObject({ error: { code: 'conflict' } })
+    expect(repos.repos.get(harbor.id)?.sourceOverrideId).toBeNull()
     repos.sources.update(labs.id, { enabled: false })
     const off = await call('PATCH', `/repos/${shared.id}`, { sourceId: labs.id })
     expect(off.status).toBe(409)

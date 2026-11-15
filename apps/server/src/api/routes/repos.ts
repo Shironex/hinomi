@@ -123,7 +123,7 @@ export function repoDetailRoutes(deps: ApiDeps) {
 
   app.patch('/:id', async (c) => {
     const { id } = readParams(c, idParamSchema)
-    requireRepo(id)
+    const current = requireRepo(id)
     const { sourceId } = await readJson(c, updateRepoRequestSchema)
     if (sourceId !== null) {
       const source = repositories.sources.get(sourceId)
@@ -133,6 +133,15 @@ export function repoDetailRoutes(deps: ApiDeps) {
           409,
           'conflict',
           `GitHub source "${source.name}" is switched off or has no credential.`,
+        )
+      }
+      // Only a source a scan saw the repo through can read it; keeping the current pick is fine.
+      const seen = repositories.repoSources.seenBy(id).some((r) => r.sourceId === sourceId)
+      if (!seen && sourceId !== current.sourceOverrideId) {
+        throw new HttpError(
+          409,
+          'conflict',
+          `GitHub source "${source.name}" has not seen this repo. Run a scan, or pick a source that sees it.`,
         )
       }
     }
