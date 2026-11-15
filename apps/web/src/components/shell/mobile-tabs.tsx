@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import type { NavCounts } from '@/hooks/use-shell-data'
 import { formatCount, PRIMARY_NAV, SETTINGS_NAV, type NavKey } from './nav'
 import { cn } from '@/lib/utils'
 
@@ -7,13 +8,12 @@ const MORE_KEYS: readonly (NavKey | undefined)[] = ['settings', 'guards', 'onboa
 /** Phone navigation (up to 760 px): four views plus More, which holds settings and the rest. */
 export function MobileTabs({
   current,
-  needsAction,
+  counts,
 }: {
   current: NavKey | undefined
-  needsAction: number | null
+  counts: NavCounts
 }) {
   const items = [...PRIMARY_NAV, SETTINGS_NAV]
-  const pip = formatCount(needsAction)
   return (
     <nav
       aria-label="Main"
@@ -21,6 +21,8 @@ export function MobileTabs({
     >
       {items.map((item) => {
         const IconCmp = item.icon
+        const pip =
+          item.hot || item.live ? formatCount(item.count ? counts[item.count] : null) : null
         const active = item.key === 'settings' ? MORE_KEYS.includes(current) : current === item.key
         return (
           <Link
@@ -34,10 +36,17 @@ export function MobileTabs({
           >
             <IconCmp aria-hidden="true" className="size-[22px]" stroke={1.75} />
             {item.tabLabel}
-            {item.hot && pip ? (
-              <span className="absolute top-0 left-[calc(50%+6px)] rounded-full bg-primary px-1.5 text-xs leading-[18px] font-bold text-primary-foreground tabular-nums">
+            {pip ? (
+              <span
+                className={cn(
+                  'absolute top-0 left-[calc(50%+6px)] rounded-full px-1.5 text-xs leading-[18px] font-bold tabular-nums',
+                  item.hot ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground-2',
+                )}
+              >
                 {pip}
-                <span className="sr-only"> need action</span>
+                <span className="sr-only">
+                  {item.badgeNote ?? (item.hot ? ' need action' : ' running')}
+                </span>
               </span>
             ) : null}
           </Link>
