@@ -516,6 +516,7 @@ function constantCatch(value) {
 
 // ../../node_modules/.pnpm/zod@4.6.7/node_modules/zod/v4/core/core.js
 var _a$1;
+const NEVER = /*@__PURE__*/ Object.freeze({ status: "aborted" });
 const _zodDesc = {
 	value: void 0,
 	enumerable: false
@@ -14071,6 +14072,56 @@ const healthResponseSchema = object({
 	status: literal("ok"),
 	version: string()
 });
+
+// ../../packages/shared/src/registry-credentials.ts
+const DOCKER_HUB_API_HOST = "registry-1.docker.io";
+const DOCKER_HUB_ALIASES = /* @__PURE__ */ new Set([
+	"docker.io",
+	"index.docker.io",
+	DOCKER_HUB_API_HOST
+]);
+const REGISTRY_HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[1-9]\d{0,4})?$/;
+function normalizeRegistryHost(raw) {
+	let host = raw.trim().toLowerCase();
+	host = host.replace(/^https:\/\//, "").replace(/\/+$/, "");
+	host = host.replace(/:443$/, "");
+	if (!REGISTRY_HOST.test(host)) return null;
+	return DOCKER_HUB_ALIASES.has(host) ? DOCKER_HUB_API_HOST : host;
+}
+const registryHost = string().max(260).transform((value, ctx) => {
+	const host = normalizeRegistryHost(value);
+	if (host === null) {
+		ctx.addIssue({
+			code: "custom",
+			message: "Must be a registry host such as ghcr.io or registry.example.com:5000"
+		});
+		return NEVER;
+	}
+	return host;
+});
+const registryUsername = string().trim().min(1).max(200).regex(/^[^\s:]+$/, "Must be a user name without spaces or colons");
+const registrySecret = string().trim().min(1).max(4e3);
+const registryCredentialSchema = object({
+	id: number$1().int().positive(),
+	host: string(),
+	username: string(),
+	secretSet: boolean(),
+	createdAt: datetime({ offset: true }),
+	updatedAt: datetime({ offset: true })
+});
+const registryCredentialsResponseSchema = object({
+	items: array(registryCredentialSchema),
+	canStoreSecrets: boolean()
+});
+const createRegistryCredentialRequestSchema = strictObject({
+	host: registryHost,
+	username: registryUsername,
+	secret: registrySecret
+});
+const updateRegistryCredentialRequestSchema = strictObject({
+	username: registryUsername.optional(),
+	secret: registrySecret.optional()
+}).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 
 // ../../packages/shared/src/runner-payload.ts
 const WORKFLOW_DISPATCH_INPUT_LIMIT = 65535;
