@@ -2,6 +2,7 @@ import type { FixPlan, FixPlanStep, FixRun, RepoRef } from '@hinomi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { IconListCheck, IconPackage, IconShieldCheck } from '@tabler/icons-react'
+import { RepoLink } from '@/components/ui/repo-link'
 import { ErrorState } from '@/components/states/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Callout } from '@/components/ui/callout'
@@ -201,7 +202,7 @@ export function PlanPane({
           {latest ? <RunStateText run={latest} /> : null}
         </div>
         <h1 className={focused ? 'text-lg tab:text-xl' : 'text-lg'}>
-          Fix plan for <span className="font-mono">{repo.fullName}</span>
+          Fix plan for <RepoLink repo={repo} className="font-mono" />
         </h1>
         {plan && preview ? (
           <p className="max-w-[68ch] text-foreground-2">

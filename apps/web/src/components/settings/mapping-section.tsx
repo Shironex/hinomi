@@ -11,6 +11,7 @@ import {
   IconPlus,
   IconX,
 } from '@tabler/icons-react'
+import { RepoLink } from '@/components/ui/repo-link'
 import { Field, FieldError } from '@/components/form/field'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
@@ -157,7 +158,7 @@ function MappingRow({
               manual && 'h-[26px] rounded-sm border border-border bg-sidebar pr-0.5 pl-2 text-xs',
             )}
           >
-            <span className="truncate">{repo.fullName}</span>
+            <RepoLink repo={repo} className="truncate" />
             {manual ? (
               <Button
                 variant="ghost"
