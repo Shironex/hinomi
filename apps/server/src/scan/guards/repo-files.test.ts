@@ -85,4 +85,66 @@ describe('repo file reader', () => {
     })
     expect(repositories.httpCache.get(`repo-file:kestrel-co/harbor@${SHA}:Dockerfile`)).toBeNull()
   })
+
+  it('keeps a tag read for maxAgeMs, then reads it again', async () => {
+    const t = reader({ 'action.yml': 'runs: {}' })
+    let clock = new Date('2026-11-08T10:00:00Z')
+    const make = () =>
+      createRepoFileReader({
+        sources: {
+          github: [{ sourceId: 3 } as ScanSources['github'][number]],
+          readRepoFile: (_o, _n, path, ref) => {
+            t.calls.push(`${path}@${ref}`)
+            return Promise.resolve('runs: {}')
+          },
+        },
+        httpCache: repositories.httpCache,
+        scans: new Map(),
+        now: () => clock,
+      })
+    const day = 24 * 60 * 60 * 1000
+    await make().read(t.row, 'action.yml', 'v4', { maxAgeMs: day })
+    clock = new Date(clock.getTime() + day / 2)
+    await make().read(t.row, 'action.yml', 'v4', { maxAgeMs: day })
+    expect(t.calls).toHaveLength(1)
+    clock = new Date(clock.getTime() + day)
+    await make().read(t.row, 'action.yml', 'v4', { maxAgeMs: day })
+    expect(t.calls).toHaveLength(2)
+  })
+
+  it('reads two repos of one scan separately when they share a path and ref', async () => {
+    const t = reader({ 'action.yml': 'runs: {}' })
+    const scan = t.make()
+    await scan.read(t.row, 'action.yml', 'v1')
+    await scan.read({ ...t.row, owner: 'other-co', name: 'tool' }, 'action.yml', 'v1')
+    expect(t.calls).toHaveLength(2)
+  })
+
+  it('lists a folder through the repo source', async () => {
+    const lists: string[] = []
+    const make = (result: string[] | null | Error, sourceId = 3) =>
+      createRepoFileReader({
+        sources: {
+          github: [{ sourceId: 3 } as ScanSources['github'][number]],
+          listRepoDir: (_o, _n, dir, ref) => {
+            lists.push(`${dir}@${ref}`)
+            return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
+          },
+        },
+        httpCache: repositories.httpCache,
+        scans: new Map(),
+        now: () => new Date('2026-11-08T10:00:00Z'),
+      }).list({ ...repo, sourceId }, '.github/workflows', 'main')
+    expect(await make(['.github/workflows/ci.yml'])).toEqual({
+      status: 'ok',
+      paths: ['.github/workflows/ci.yml'],
+    })
+    expect(lists).toEqual(['.github/workflows@main'])
+    expect(await make(null)).toEqual({ status: 'missing' })
+    expect(await make(new Error('GitHub answered 502'))).toEqual({
+      status: 'error',
+      reason: 'GitHub answered 502',
+    })
+    expect(await make([], 9)).toEqual({ status: 'no_source' })
+  })
 })

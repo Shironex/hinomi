@@ -1,5 +1,5 @@
 import type { GuardCheck, RootUserEvidence } from '@hinomi/shared'
-import type { RepoFileRead, RepoFileReader } from './repo-files.js'
+import type { RepoDirRead, RepoFileRead, RepoFileReader } from './repo-files.js'
 import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
 
 // Test helpers: a fake check whose results the test sets between scans. Fictional data only.
@@ -45,7 +45,10 @@ export function fakeGuard(check: GuardCheck = 'root_user') {
 
 /** A repo file reader with no GitHub source behind it: every read says so. */
 export function noRepoFiles(): RepoFileReader {
-  return { read: () => Promise.resolve({ status: 'no_source' }) }
+  return {
+    read: () => Promise.resolve({ status: 'no_source' }),
+    list: () => Promise.resolve({ status: 'no_source' }),
+  }
 }
 
 /**
@@ -60,6 +63,15 @@ export function fakeRepoFiles(files: Record<string, string>, failing: readonly s
       if (failing.includes(ref)) return Promise.resolve({ status: 'error', reason: 'rate limited' })
       const text = files[`${path}@${ref}`]
       return Promise.resolve(text === undefined ? { status: 'missing' } : { status: 'ok', text })
+    },
+    list(repo, dir, ref): Promise<RepoDirRead> {
+      if (failing.includes(ref)) return Promise.resolve({ status: 'error', reason: 'rate limited' })
+      const prefix = `${dir}/`
+      const paths = Object.keys(files)
+        .filter((key) => key.endsWith(`@${ref}`))
+        .map((key) => key.slice(0, key.lastIndexOf('@')))
+        .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+      return Promise.resolve(paths.length > 0 ? { status: 'ok', paths } : { status: 'missing' })
     },
   }
   return { reader, reads }

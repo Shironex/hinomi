@@ -24,7 +24,12 @@ import {
   type GithubRelease,
   type GithubSource,
 } from '../sources/github/index.js'
-import { createOsvClient, fetchLockfiles, type FetchedLockfile } from '../sources/osv/index.js'
+import {
+  createOsvClient,
+  createRepoContents,
+  fetchLockfiles,
+  type FetchedLockfile,
+} from '../sources/osv/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
 import { createImageSbomReader, type ImageSbomReader } from '../sources/registry/index.js'
 import { readScanSettings, type ScanSettings } from './settings.js'
@@ -99,6 +104,18 @@ export interface ScanSources {
     ref: string,
     sourceId: number,
   ): Promise<string | null>
+  /**
+   * Lists the file paths directly inside a folder of a repo at a ref through the given GitHub
+   * source; null when the folder does not exist, throws when the read fails. Absent in hand-built
+   * sources: guard checks that need it then say `unknown`.
+   */
+  listRepoDir?(
+    owner: string,
+    name: string,
+    dir: string,
+    ref: string,
+    sourceId: number,
+  ): Promise<string[] | null>
   /**
    * Reads the runtime pins of a repo at `ref` through the given GitHub source (anonymously when
    * it is null) and stores them, replacing the pins stored for that ref. Throws on a GitHub error
@@ -262,6 +279,17 @@ export function buildScanSources(
       const gh = github.get(sourceId)
       if (!gh) throw new Error(`GitHub source ${sourceId} is not available`)
       return gh.readFile(owner, name, path, ref)
+    },
+    listRepoDir: async (owner, name, dir, ref, sourceId) => {
+      const gh = github.get(sourceId)
+      if (!gh) throw new Error(`GitHub source ${sourceId} is not available`)
+      const entries = await createRepoContents(owner, name, ref, await gh.token(), {
+        ...(options.fetch && { fetch: options.fetch }),
+        ...(gh.apiUrl && { apiUrl: gh.apiUrl }),
+      }).list(dir)
+      return entries.length === 0
+        ? null
+        : entries.filter((e) => e.type === 'file').map((e) => e.path)
     },
     fetchLockfiles: async (owner, name, ref, sourceId) => {
       const gh = sourceId === null ? undefined : github.get(sourceId)
