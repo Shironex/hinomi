@@ -120,6 +120,13 @@
       "when": 1794079123460,
       "tag": "0015_repo_releases",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794744952181,
+      "tag": "0020_image_security",
+      "breakpoints": true
     }
   ]
 }

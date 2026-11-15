@@ -1,4 +1,10 @@
-import type { AdvisorySeverity, DeploymentKind, ImageFixState } from '@hinomi/shared'
+import {
+  imageSecurityStatusSchema,
+  type AdvisorySeverity,
+  type DeploymentKind,
+  type ImageFixState,
+  type ImageSecurity,
+} from '@hinomi/shared'
 import { z } from 'zod'
 import type {
   ImageFinding,
@@ -12,7 +18,7 @@ import { CoolifyError } from './errors.js'
 // Coolify's own image scan results (newer Coolify builds only):
 //   GET /vulnerabilities                       every resource with its stored security status
 //   GET /{applications|services|databases}/{uuid}/vulnerabilities   one resource's images and findings
-// Both need only the read ability. The response is untrusted input: every field is checked with
+// Both need only the read ability (Coolify 4.7.0 and newer). The response is untrusted input: every field is checked with
 // zod, entries that do not parse are counted and dropped, and names from it are only ever used as
 // Map keys or plain values, never as keys of a plain object.
 
@@ -25,13 +31,17 @@ const shortText = z.string().max(500)
 const optionalNumber = z.number().finite().nullable().optional()
 
 const probeSchema = z.object({
+  // Older builds (the `next` branch) said whether scanning was allowed; 4.7.0 does not.
   is_image_scanning_allowed: z.boolean().optional(),
   resources: z
     .array(
       z.object({
         uuid: shortText,
         security: z
-          .object({ checked_at: z.string().max(100).nullable().optional() })
+          .object({
+            status: shortText.nullable().optional(),
+            checked_at: z.string().max(100).nullable().optional(),
+          })
           .nullable()
           .optional(),
       }),
@@ -39,8 +49,33 @@ const probeSchema = z.object({
     .optional(),
 })
 
+const actionSchema = z.object({
+  type: z.string().max(100),
+  sentence: z.string().max(2000),
+  target: z.string().max(500).nullable().optional(),
+  image: z.string().max(1000).nullable().optional(),
+})
+
+const securitySchema = z.object({
+  status: shortText,
+  any_exploited: z.boolean().nullable().optional(),
+  exploited_count: z.number().int().nonnegative().nullable().optional(),
+  actions: z.array(z.unknown()).max(100).nullable().optional(),
+  eol: z
+    .object({
+      name: z.string().max(200).nullable().optional(),
+      version: z.string().max(200).nullable().optional(),
+      fixed: z.boolean().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  checked_at: z.string().max(100).nullable().optional(),
+})
+
 const imageSchema = z.object({
   image_ref: z.string().max(1000),
+  owner_uuid: shortText.nullable().optional(),
+  error_code: shortText.nullable().optional(),
   scan_status: shortText.nullable().optional(),
   scanned_at: z.string().max(100).nullable().optional(),
   truncated: z.boolean().optional(),
@@ -67,10 +102,12 @@ const findingSchema = z.object({
   cvss_score: optionalNumber,
   advisory_url: z.string().max(2000).nullable().optional(),
   image_ref: z.string().max(1000).nullable().optional(),
+  owner_uuid: shortText.nullable().optional(),
 })
 
 const resourceSchema = z.object({
   off_reason: shortText.nullable().optional(),
+  security: securitySchema.nullable().optional(),
   images: z.array(z.unknown()).max(500).optional(),
   findings: z.array(z.unknown()).optional(),
   pagination: z.object({ total: z.number().int().nonnegative().optional() }).nullable().optional(),
@@ -111,11 +148,17 @@ export async function probeImageScan(client: CoolifyClient): Promise<ImageScanPr
       'Coolify returned an unexpected shape for /vulnerabilities',
     )
   }
+  const resources = parsed.data.resources ?? []
   if (parsed.data.is_image_scanning_allowed === false) {
     return { status: 'unavailable', reason: 'disabled' }
   }
+  // 4.7.0 has no flag for it: scanning is off (or has run nowhere yet) when no resource has ever
+  // been checked.
+  if (resources.length > 0 && resources.every((r) => r.security?.status === 'not_checked')) {
+    return { status: 'unavailable', reason: 'disabled' }
+  }
   const checkedAt = new Map<string, string | null>()
-  for (const resource of parsed.data.resources ?? []) {
+  for (const resource of resources) {
     checkedAt.set(resource.uuid, resource.security?.checked_at ?? null)
   }
   return { status: 'available', checkedAt }
@@ -229,15 +272,43 @@ function toFinding(raw: z.infer<typeof findingSchema>): ImageFinding {
         : null,
     advisoryUrl: httpUrl(raw.advisory_url),
     imageRef: blankToNull(raw.image_ref),
+    ownerUuid: blankToNull(raw.owner_uuid),
   }
 }
 
 function toImage(raw: z.infer<typeof imageSchema>): ScannedImage {
   return {
     imageRef: raw.image_ref,
+    ownerUuid: blankToNull(raw.owner_uuid),
+    errorCode: blankToNull(raw.error_code),
     status: raw.scan_status ?? null,
     scannedAt: parseDate(raw.scanned_at),
     truncated: raw.truncated === true,
+  }
+}
+
+/** The resource's verdict; null when Coolify gave none or a status Hinomi does not know. */
+function toSecurity(raw: z.infer<typeof securitySchema> | null | undefined): ImageSecurity | null {
+  if (!raw) return null
+  const status = imageSecurityStatusSchema.safeParse(raw.status)
+  if (!status.success) return null
+  const actions = parseEach(raw.actions ?? [], actionSchema).ok.map((a) => ({
+    type: a.type,
+    sentence: a.sentence,
+    target: blankToNull(a.target),
+    image: blankToNull(a.image),
+  }))
+  const eolName = blankToNull(raw.eol?.name)
+  return {
+    status: status.data,
+    anyExploited: raw.any_exploited === true,
+    exploitedCount: raw.exploited_count ?? 0,
+    actions: actions.slice(0, 20),
+    eol:
+      raw.eol && eolName
+        ? { name: eolName, version: raw.eol.version?.trim() ?? '', fixed: raw.eol.fixed === true }
+        : null,
+    checkedAt: blankToNull(raw.checked_at),
   }
 }
 
@@ -268,6 +339,7 @@ export async function fetchResourceScan(
   const findings: ImageFinding[] = []
   let images: ScannedImage[] = []
   let offReason: string | null = null
+  let security: ImageSecurity | null = null
   let unreadable = 0
   let rowsRead = 0
   let capped = false
@@ -282,6 +354,13 @@ export async function fetchResourceScan(
       if (err instanceof CoolifyError && err.code === 'forbidden') {
         return { status: 'forbidden', message: FORBIDDEN_MESSAGE }
       }
+      if (err instanceof CoolifyError && err.code === 'rate_limited') {
+        return {
+          status: 'rate_limited',
+          message: err.message,
+          retryAfterSeconds: err.retryAfterSeconds ?? null,
+        }
+      }
       throw err
     }
     const parsed = resourceSchema.safeParse(body)
@@ -291,6 +370,7 @@ export async function fetchResourceScan(
     const data = parsed.data
     if (page === 1) {
       offReason = blankToNull(data.off_reason)
+      security = toSecurity(data.security)
       const parsedImages = parseEach(data.images ?? [], imageSchema)
       images = parsedImages.ok.map(toImage)
       unreadable += parsedImages.bad
@@ -315,6 +395,7 @@ export async function fetchResourceScan(
     status: 'ok',
     scan: {
       offReason,
+      security,
       images,
       findings,
       truncatedImages: images.filter((i) => i.truncated).map((i) => i.imageRef),

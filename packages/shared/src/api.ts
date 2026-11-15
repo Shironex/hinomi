@@ -13,7 +13,7 @@ import {
   sourceKindSchema,
 } from './model.js'
 import { guardEvidenceSchema, runtimeSupportEntrySchema } from './guard-evidence.js'
-import { imageScanModeSchema } from './image-scan.js'
+import { imageScanModeSchema, imageSecuritySchema } from './image-scan.js'
 import {
   guardCapabilitySchema,
   guardCheckSchema,
@@ -1099,6 +1099,8 @@ export const deploymentItemSchema = deploymentRefSchema.extend({
      */
     imageOnly: z.boolean(),
   }),
+  /** What the image scan source says about its images; null until an image scan read it. */
+  imageSecurity: imageSecuritySchema.nullable(),
   /** Advisory findings not fixed, by effective severity. */
   openFindings: severityCountsSchema,
   /** Exposed advisories on it (critical or high, runtime, public), not fixed or dismissed upstream. */

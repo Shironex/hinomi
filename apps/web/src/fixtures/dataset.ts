@@ -636,6 +636,7 @@ function deployment(input: DeploymentInput): DeploymentItem {
       imageOnly: false,
       ...input.coverage,
     },
+    imageSecurity: null,
     openFindings: {
       critical: count('critical'),
       high: count('high'),

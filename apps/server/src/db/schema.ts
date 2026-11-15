@@ -22,6 +22,7 @@ import {
   RELEASE_TIER_MODES,
   type AdvisorySeverity,
   type DeploymentFacts,
+  type ImageSecurity,
   type GuardEvidence,
   type ImageScanEvidence,
   type DeploymentKind,
@@ -214,6 +215,11 @@ export const deployments = sqliteTable(
      * reported), so unchanged results are not fetched again. Null until read.
      */
     imageScannedAt: timestamp('image_scanned_at'),
+    /**
+     * What the image scan source says about the whole deployment (Coolify's security status,
+     * exploited count, recommended actions, end of life OS). Null until an image scan read it.
+     */
+    imageSecurity: text('image_security', { mode: 'json' }).$type<ImageSecurity>(),
     firstSeenAt: timestamp('first_seen_at').notNull(),
     lastSeenAt: timestamp('last_seen_at').notNull(),
     createdAt: createdAt(),

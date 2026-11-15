@@ -107,13 +107,17 @@ const RECORDS = [
   }),
 ]
 
-function sources(mode: 'off' | 'coolify', reader?: ImageScanReader): ScanSources {
+function sources(
+  mode: 'off' | 'coolify',
+  reader?: ImageScanReader,
+  records: DeploymentRecord[] = RECORDS,
+): ScanSources {
   return {
     deployments: [
       fakeDeploymentSource({
         sourceId,
         name: 'main',
-        records: RECORDS,
+        records,
         ...(reader && { imageScan: reader }),
       }),
     ],
@@ -124,8 +128,8 @@ function sources(mode: 'off' | 'coolify', reader?: ImageScanReader): ScanSources
   }
 }
 
-const scan = (mode: 'off' | 'coolify', reader?: ImageScanReader) =>
-  runScan({ repositories: repos }, sources(mode, reader), { now: () => clock })
+const scan = (mode: 'off' | 'coolify', reader?: ImageScanReader, records?: DeploymentRecord[]) =>
+  runScan({ repositories: repos }, sources(mode, reader, records), { now: () => clock })
 
 const docs = () => repos.deployments.list().find((d) => d.name === 'static-docs')!
 const note = (type: 'image_only' | 'image_scan_partial') =>
@@ -353,6 +357,112 @@ describe('image scan from Coolify results', () => {
     ])
     expect(repos.sources.get(sourceId)?.lastError).toMatch(/403/)
     expect(note('image_only')).toMatchObject({ state: 'open' })
+  })
+
+  describe('with several image only deployments', () => {
+    const MANY = ['app-a', 'app-b', 'app-c', 'app-d', 'app-e', 'app-f'].map((externalId) =>
+      record({ externalId, name: externalId, domains: [] }),
+    )
+
+    it('stops asking after the first 403 of a scan', async () => {
+      const reader = fakeReader(available(), () =>
+        Promise.resolve({ status: 'forbidden', message: 'The Coolify token may not read (403)' }),
+      )
+      const summary = await scan('coolify', reader, MANY)
+      // Resources are read a few at a time: the ones already running finish, the rest never start.
+      expect(reader.reads.length).toBeLessThan(MANY.length)
+      expect(reader.reads.length).toBeLessThanOrEqual(4)
+      expect(summary.errors).toHaveLength(1)
+    })
+
+    it('stops at the first 429, says how long to wait and leaves the notes alone', async () => {
+      await scan('off', undefined, MANY)
+      const reader = fakeReader(available(), () =>
+        Promise.resolve({
+          status: 'rate_limited',
+          message: 'Coolify answered 429: too many failed requests, retry after 30 s',
+          retryAfterSeconds: 30,
+        }),
+      )
+      const summary = await scan('coolify', reader, MANY)
+      expect(reader.reads.length).toBeLessThanOrEqual(4)
+      expect(summary.errors).toHaveLength(1)
+      expect(summary.errors[0]?.error).toMatch(/retry after 30 s/)
+      const aNote = repos.deployments.list().find((d) => d.name === 'app-f')!
+      expect(repos.findings.getByKey(coverageNoteFindingKey('image_only', aNote.id))).toMatchObject(
+        { state: 'open' },
+      )
+    })
+  })
+
+  it('stores the verdict of the deployment, and the owners on the findings', async () => {
+    await scan('off')
+    const body = {
+      ...FIXTURE,
+      images: [
+        {
+          image_ref: 'ghcr.io/kestrel-co/static-docs:1.4.0',
+          owner_uuid: 'app-docs-web',
+          scan_status: 'completed',
+          scanned_at: '2026-11-07T07:55:00+00:00',
+        },
+      ],
+      findings: (FIXTURE.findings as Record<string, unknown>[]).map((f) => ({
+        ...f,
+        owner_uuid: 'app-docs-web',
+      })),
+      security: {
+        status: 'update_now',
+        any_exploited: true,
+        exploited_count: 1,
+        eol: { name: 'debian', version: '10', fixed: false },
+        actions: [{ type: 'bump_image', sentence: 'Move to 1.4.2.', target: '1.4.2' }],
+        checked_at: '2026-11-07T08:00:00+00:00',
+      },
+    }
+    await scan(
+      'coolify',
+      fakeReader(available(), () => scanOf(body)),
+    )
+    expect(docs().imageSecurity).toMatchObject({
+      status: 'update_now',
+      anyExploited: true,
+      exploitedCount: 1,
+      eol: { name: 'debian', version: '10', fixed: false },
+      actions: [{ type: 'bump_image', target: '1.4.2' }],
+    })
+    expect(byPackage('example-render').evidence).toMatchObject({ ownerUuids: ['app-docs-web'] })
+  })
+
+  it('opens the partial note with the error code of an image that failed to scan', async () => {
+    await scan('off')
+    const body = {
+      ...FIXTURE,
+      images: [
+        {
+          image_ref: 'cache.example.com/wiki-cache:7',
+          scan_status: 'failed',
+          error_code: 'image_pull_failed',
+        },
+        {
+          image_ref: 'ghcr.io/kestrel-co/static-docs:1.4.0',
+          scan_status: 'completed',
+          scanned_at: '2026-11-07T07:55:00+00:00',
+        },
+      ],
+    }
+    await scan(
+      'coolify',
+      fakeReader(available(), () => scanOf(body)),
+    )
+    const details = repos.findings
+      .listEvents(note('image_scan_partial')!.id)
+      .find((e) => e.type === 'details')
+    expect(details?.data).toMatchObject({
+      failedImages: [
+        { imageRef: 'cache.example.com/wiki-cache:7', errorCode: 'image_pull_failed' },
+      ],
+    })
   })
 
   it('leaves the note and findings alone when Coolify fails for a while', async () => {

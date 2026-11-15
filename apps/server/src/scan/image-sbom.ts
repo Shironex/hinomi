@@ -279,8 +279,11 @@ export function createSbomScanner(options: SbomScannerOptions): SbomScanner {
     const findings: ImageFinding[] = matched.flatMap((m) => m.findings)
     const scan: ResourceScan = {
       offReason: null,
+      security: null,
       images: sboms.map((image) => ({
         imageRef: image.imageRef,
+        ownerUuid: null,
+        errorCode: null,
         status: 'completed',
         scannedAt: now,
         truncated: image.sbom.truncated,

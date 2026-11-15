@@ -115,6 +115,7 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
       covered: mapped && !imageOnly && blindSpots.length === 0,
       imageOnly,
     },
+    imageSecurity: deployment.imageSecurity ?? null,
     openFindings: bySeverity(open),
     exposed: open.filter(isExposed).length,
     openBlindSpots: open.filter((f) => f.kind === 'blind_spot').length,

@@ -59,7 +59,7 @@ export function createCoolifyClient(options: CoolifyClientOptions): CoolifyClien
       }
       throw new CoolifyError('network', `Could not reach Coolify for ${path}`, { cause })
     }
-    if (!res.ok) throw errorForStatus(res.status, path)
+    if (!res.ok) throw errorForStatus(res.status, path, res.headers.get('retry-after'))
     try {
       return (await res.text()).trim()
     } catch (cause) {

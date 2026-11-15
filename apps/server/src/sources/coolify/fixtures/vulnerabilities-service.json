@@ -1,0 +1,82 @@
+{
+  "uuid": "svc-wiki",
+  "type": "service",
+  "off_reason": null,
+  "security": {
+    "status": "update_available",
+    "label": "Update available",
+    "action": null,
+    "check_reason": null,
+    "problem_count": 1,
+    "exploited_count": 0,
+    "any_exploited": false,
+    "critical_count": 0,
+    "high_count": 1,
+    "medium_count": 0,
+    "eol": {
+      "name": "debian",
+      "version": "10",
+      "fixed": true
+    },
+    "checked_at": "2026-11-07T09:00:00+00:00",
+    "actions": [
+      {
+        "type": "bump_image",
+        "sentence": "Move wiki-app to 3.2.1 to fix 1 high finding.",
+        "target": "3.2.1",
+        "copy": "ghcr.io/kestrel-co/wiki-app:3.2.1",
+        "image": "ghcr.io/kestrel-co/wiki-app:3.1.0",
+        "ref": null
+      }
+    ]
+  },
+  "images": [
+    {
+      "scan_uuid": "scan-10",
+      "owner_uuid": "svc-wiki-app",
+      "image_ref": "ghcr.io/kestrel-co/wiki-app:3.1.0",
+      "scan_status": "completed",
+      "error_code": null,
+      "scanned_at": "2026-11-07T08:55:00+00:00",
+      "truncated": false,
+      "security_status": "update_available"
+    },
+    {
+      "scan_uuid": "scan-11",
+      "owner_uuid": "svc-wiki-cache",
+      "image_ref": "cache.example.com/wiki-cache:7",
+      "scan_status": "failed",
+      "error_code": "image_pull_failed",
+      "scanned_at": null,
+      "truncated": false,
+      "security_status": "not_checked"
+    }
+  ],
+  "findings": [
+    {
+      "id": "CVE-2026-7001",
+      "display_id": "CVE-2026-7001",
+      "aliases": [],
+      "title": "example-wiki template injection",
+      "severity": "high",
+      "package": "example-wiki",
+      "version": "3.1.0",
+      "package_type": "npm",
+      "fixed_in": "3.2.1",
+      "state": "fixed",
+      "ignore": null,
+      "kev": false,
+      "epss": 0.02,
+      "risk": 40.0,
+      "cvss_score": 8.1,
+      "advisory_url": "https://osv.dev/vulnerability/CVE-2026-7001",
+      "image_ref": "ghcr.io/kestrel-co/wiki-app:3.1.0",
+      "owner_uuid": "svc-wiki-app"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 200,
+    "total": 1
+  }
+}

@@ -77,5 +77,55 @@ export const imageScanEvidenceSchema = z.object({
   fixState: imageFixStateSchema,
   /** The package type as the scanner names it (`deb`, `apk`, `npm`, `gomod`, ...), or the purl type. */
   packageType: z.string().max(100),
+  /**
+   * Which sub resource ran the image, as the source names it (Coolify: `owner_uuid`, the uuid of
+   * the service application or database inside a service). Empty when the source does not say.
+   */
+  ownerUuids: z.array(z.string().max(500)).max(50).default([]),
 })
 export type ImageScanEvidence = z.infer<typeof imageScanEvidenceSchema>
+
+/**
+ * Coolify's verdict on a deployment's images (its `Security` page), as Coolify rates it:
+ * `update_now`, `update_available`, `no_fix`, `check_needed`, `ok` or `not_checked`.
+ */
+export const IMAGE_SECURITY_STATUSES = [
+  'update_now',
+  'update_available',
+  'no_fix',
+  'check_needed',
+  'ok',
+  'not_checked',
+] as const
+export const imageSecurityStatusSchema = z.enum(IMAGE_SECURITY_STATUSES)
+export type ImageSecurityStatus = z.infer<typeof imageSecurityStatusSchema>
+
+/** One version recommendation of the scanner (Coolify's `security.actions`). */
+export const imageSecurityActionSchema = z.object({
+  type: z.string().max(100),
+  sentence: z.string().max(2000),
+  /** The version to move to, when the action names one. */
+  target: z.string().max(500).nullable(),
+  /** The image the action is about. */
+  image: z.string().max(1000).nullable(),
+})
+export type ImageSecurityAction = z.infer<typeof imageSecurityActionSchema>
+
+/**
+ * What the image scan source says about a whole deployment, stored on it so the overview can
+ * show it without reading findings: the verdict, how many findings are known exploited, the
+ * recommended actions and the end of life OS of an image (the runtime support windows read it).
+ */
+export const imageSecuritySchema = z.object({
+  status: imageSecurityStatusSchema,
+  anyExploited: z.boolean(),
+  exploitedCount: z.number().int().nonnegative(),
+  actions: z.array(imageSecurityActionSchema).max(20),
+  /** The OS an image runs on that gets no security fixes any more; `fixed`: an action leaves it. */
+  eol: z
+    .object({ name: z.string().max(200), version: z.string().max(200), fixed: z.boolean() })
+    .nullable(),
+  /** The source's change marker the verdict was computed at, ISO 8601. */
+  checkedAt: z.string().nullable(),
+})
+export type ImageSecurity = z.infer<typeof imageSecuritySchema>

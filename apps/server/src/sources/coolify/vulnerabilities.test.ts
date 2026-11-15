@@ -9,6 +9,9 @@ const FIXTURE = JSON.parse(
   readFileSync(new URL('./fixtures/vulnerabilities.json', import.meta.url), 'utf8'),
 ) as Record<string, unknown>
 
+const fixture = (name: string) =>
+  JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8')) as unknown
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -49,6 +52,37 @@ describe('probeImageScan', () => {
     await expect(probeImageScan(client)).resolves.toEqual({
       status: 'unavailable',
       reason: 'disabled',
+    })
+  })
+
+  it('finds scanning off in a 4.7.0 list where no resource was ever checked', async () => {
+    const { client } = clientFor(() => json(fixture('vulnerabilities-list-off')))
+    await expect(probeImageScan(client)).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'disabled',
+    })
+  })
+
+  it('is available as soon as one resource has a verdict', async () => {
+    const { client } = clientFor(() => json(fixture('vulnerabilities-list-on')))
+    const probe = await probeImageScan(client)
+    if (probe.status !== 'available') throw new Error('expected available')
+    expect(probe.checkedAt.get('app-docs')).toBe('2026-11-07T08:00:00+00:00')
+    expect(probe.checkedAt.get('svc-wiki')).toBeNull()
+  })
+
+  it('stays available for an instance without resources', async () => {
+    const { client } = clientFor(() => json({ resources: [] }))
+    await expect(probeImageScan(client)).resolves.toMatchObject({ status: 'available' })
+  })
+
+  it('throws a rate limit with the wait Coolify asked for', async () => {
+    const { client } = clientFor(
+      () => new Response('{}', { status: 429, headers: { 'retry-after': '45' } }),
+    )
+    await expect(probeImageScan(client)).rejects.toMatchObject({
+      code: 'rate_limited',
+      retryAfterSeconds: 45,
     })
   })
 
@@ -123,6 +157,60 @@ describe('fetchResourceScan', () => {
       // Only http and https links are kept.
       advisoryUrl: null,
     })
+  })
+
+  it('reads the verdict, owners, exploited counts, actions, eol and failed scans', async () => {
+    const { client } = clientFor(() => json(fixture('vulnerabilities-service')))
+    const result = await fetchResourceScan(client, 'service', 'svc-wiki')
+    if (result.status !== 'ok') throw new Error('expected ok')
+    expect(result.scan.security).toEqual({
+      status: 'update_available',
+      anyExploited: false,
+      exploitedCount: 0,
+      actions: [
+        {
+          type: 'bump_image',
+          sentence: 'Move wiki-app to 3.2.1 to fix 1 high finding.',
+          target: '3.2.1',
+          image: 'ghcr.io/kestrel-co/wiki-app:3.1.0',
+        },
+      ],
+      eol: { name: 'debian', version: '10', fixed: true },
+      checkedAt: '2026-11-07T09:00:00+00:00',
+    })
+    expect(result.scan.images.map((i) => [i.ownerUuid, i.status, i.errorCode])).toEqual([
+      ['svc-wiki-app', 'completed', null],
+      ['svc-wiki-cache', 'failed', 'image_pull_failed'],
+    ])
+    expect(result.scan.findings[0]).toMatchObject({ ownerUuid: 'svc-wiki-app' })
+  })
+
+  it('reads the exploited fields of the first fixture', async () => {
+    const { client } = clientFor(() => json(FIXTURE))
+    const result = await fetchResourceScan(client, 'application', 'app-docs')
+    expect(result.status === 'ok' && result.scan.security).toMatchObject({
+      status: 'update_now',
+      anyExploited: true,
+      exploitedCount: 1,
+      eol: null,
+    })
+  })
+
+  it('has no verdict for a status it does not know', async () => {
+    const body = { ...(FIXTURE as object), security: { status: 'brand_new_state' } }
+    const { client } = clientFor(() => json(body))
+    const result = await fetchResourceScan(client, 'application', 'app-docs')
+    expect(result.status === 'ok' && result.scan.security).toBeNull()
+  })
+
+  it('answers rate_limited with the wait, and does not ask again', async () => {
+    const { client, asked } = clientFor(
+      () => new Response('{}', { status: 429, headers: { 'retry-after': '30' } }),
+    )
+    const result = await fetchResourceScan(client, 'application', 'app-docs')
+    expect(result).toMatchObject({ status: 'rate_limited', retryAfterSeconds: 30 })
+    expect(result.status === 'rate_limited' && result.message).toMatch(/retry after 30 s/)
+    expect(asked).toHaveLength(1)
   })
 
   it('reads every page up to the total', async () => {

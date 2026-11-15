@@ -58,6 +58,21 @@ function toList(body: unknown, path: string): Raw[] {
   return list.map(asRecord).filter((r): r is Raw => r !== null)
 }
 
+/**
+ * The server list names the server column. A token that does not cover the whole team gets no
+ * server data (403, or an empty list), and the column stays empty instead of failing the sync.
+ */
+async function fetchServers(client: CoolifyClient): Promise<Raw[]> {
+  try {
+    return await fetchList(client, '/servers')
+  } catch (err) {
+    if (err instanceof CoolifyError && (err.code === 'forbidden' || err.code === 'not_found')) {
+      return []
+    }
+    throw err
+  }
+}
+
 async function fetchList(client: CoolifyClient, path: string, optional = false): Promise<Raw[]> {
   try {
     return toList(await client.getJson(path), path)
@@ -170,7 +185,7 @@ export async function fetchCoolifyInventory(options: CoolifyOptions): Promise<De
   const [applications, services, servers, databases] = await Promise.all([
     fetchList(client, '/applications'),
     fetchList(client, '/services'),
-    fetchList(client, '/servers'),
+    fetchServers(client),
     fetchList(client, '/databases', true),
   ])
   const index = indexServers(servers)
