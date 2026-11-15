@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/ui/callout'
 import { JoinStrip, ReachBadge, RunStatus } from '@/components/views/deployment-bits'
 import { DeploysPanel } from '@/components/views/deploys-panel'
+import { ImageSecurityPanel } from '@/components/views/image-security-panel'
 import { KeyValues, Panel, PanelBody, PanelHeader, Section } from '@/components/views/panel'
 import { RepoMappingPanel } from '@/components/views/repo-mapping-panel'
 import { bumpsThatClear } from '@/lib/deployment-map'
@@ -441,6 +442,7 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
           <div className="flex min-w-0 flex-col gap-6">
             {notes}
             {exposed}
+            <ImageSecurityPanel d={d} />
             <DeploymentGuardsPanel d={d} />
             {alerts}
           </div>
@@ -463,6 +465,7 @@ export function DeploymentDetailView({ d, layout, titleLevel }: DeploymentDetail
       {notes}
       <Bumps d={d} />
       {exposed}
+      <ImageSecurityPanel d={d} />
       <DeploymentGuardsPanel d={d} />
       {alerts}
       <div className="grid items-start gap-4 desk:grid-cols-2">
