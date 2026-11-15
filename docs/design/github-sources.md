@@ -12,7 +12,7 @@ Migration `0010_repo_sources` adds them and gives every existing repo the source
 
 ## Which source reads a repo
 
-A scan asks every enabled GitHub source with a credential about every repo it scans, one source after another (each source spends only its own rate limit). With "include account repos" on, each source's own repo list is read first and a source whose list leaves a repo out is not asked about it. The reader is then:
+A scan asks every enabled GitHub source with a credential about every repo it scans, one source after another (each source spends only its own rate limit). With "include account repos" on, each source's own repo list is read first and a source whose list leaves a repo out is not asked about it. With it off, the list is still read once a day for the desktop release tier only: a listed repo nothing deploys has its latest release checked through the lowest id source that lists it (see [api.md](../api.md#desktop-release-tier)). The reader is then:
 
 1. the source picked by hand, while it is enabled;
 2. else the lowest id source that can read the repo and tell whether its Dependabot alerts are on (a token without the alerts permission answers "unknown");
