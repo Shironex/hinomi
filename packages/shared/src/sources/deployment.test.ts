@@ -11,7 +11,7 @@ describe('deployment source kinds', () => {
   it('are source kinds, each with its capabilities', () => {
     for (const kind of DEPLOYMENT_SOURCE_KINDS) {
       expect(SOURCE_KINDS).toContain(kind)
-      expect(DEPLOYMENT_SOURCE_CAPABILITIES[kind].facts.size).toBeGreaterThan(0)
+      expect(DEPLOYMENT_SOURCE_CAPABILITIES[kind].facts).toBeInstanceOf(Set)
     }
   })
 
@@ -24,10 +24,22 @@ describe('deployment source kinds', () => {
 
 describe('deploymentGuardCapabilities', () => {
   it('reads each container check from the source declarations', () => {
-    expect(deploymentGuardCapabilities('root_user')).toEqual({ coolify: 'partial' })
-    expect(deploymentGuardCapabilities('docker_socket')).toEqual({ coolify: 'partial' })
-    expect(deploymentGuardCapabilities('shared_network')).toEqual({ coolify: 'partial' })
-    expect(deploymentGuardCapabilities('watch_paths_skip')).toEqual({ coolify: 'full' })
+    expect(deploymentGuardCapabilities('root_user')).toEqual({
+      coolify: 'partial',
+      manual: 'unknown',
+    })
+    expect(deploymentGuardCapabilities('docker_socket')).toEqual({
+      coolify: 'partial',
+      manual: 'unknown',
+    })
+    expect(deploymentGuardCapabilities('shared_network')).toEqual({
+      coolify: 'partial',
+      manual: 'unknown',
+    })
+    expect(deploymentGuardCapabilities('watch_paths_skip')).toEqual({
+      coolify: 'full',
+      manual: 'unknown',
+    })
   })
 
   it('answers nothing for checks that read the repo, not the container', () => {

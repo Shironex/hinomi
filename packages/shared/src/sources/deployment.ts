@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import type { GuardCapability, GuardCheck } from '../guards.js'
-import type { SourceKind } from '../model.js'
+import { deploymentReachSchema, type SourceKind } from '../model.js'
 import {
   COOLIFY_FACTS,
   COOLIFY_GUARD_CAPABILITIES,
   deploymentFactsSchema,
   type FactKey,
 } from './deployment-facts.js'
+import { MANUAL_FACTS, MANUAL_GUARD_CAPABILITIES } from './manual.js'
 
 // The deployment source contract (docs/design/phase-2.md section 9, docs/sources.md): what every
 // source of deployments returns and what it declares it can tell. The server's
@@ -16,7 +17,10 @@ import {
  * Source kinds that report deployments. A subset of `SOURCE_KINDS`: a new deployment source adds
  * its kind to both, plus an entry in `DEPLOYMENT_SOURCE_CAPABILITIES`.
  */
-export const DEPLOYMENT_SOURCE_KINDS = ['coolify'] as const satisfies readonly SourceKind[]
+export const DEPLOYMENT_SOURCE_KINDS = [
+  'coolify',
+  'manual',
+] as const satisfies readonly SourceKind[]
 export const deploymentSourceKindSchema = z.enum(DEPLOYMENT_SOURCE_KINDS)
 export type DeploymentSourceKind = z.infer<typeof deploymentSourceKindSchema>
 
@@ -51,6 +55,8 @@ export const deploymentRecordSchema = z.object({
   domains: z.array(z.string()),
   /** True when at least one domain is an http(s) URL. */
   isPublic: z.boolean(),
+  /** The reach the source states itself (a manual list). Left out: derived from `isPublic`. */
+  reach: deploymentReachSchema.optional(),
   server: z.string().nullable(),
   /** Raw status string of the source, for example "running:healthy". "unknown" when absent. */
   status: z.string(),
@@ -94,9 +100,18 @@ export const COOLIFY_CAPABILITIES: SourceCapabilities = {
   status: true,
 }
 
+/** A manual list reports no container facts; every container check on it says unknown. */
+export const MANUAL_CAPABILITIES: SourceCapabilities = {
+  facts: MANUAL_FACTS,
+  guards: MANUAL_GUARD_CAPABILITIES,
+  domains: true,
+  status: false,
+}
+
 /** The capabilities of every deployment source kind. */
 export const DEPLOYMENT_SOURCE_CAPABILITIES: Record<DeploymentSourceKind, SourceCapabilities> = {
   coolify: COOLIFY_CAPABILITIES,
+  manual: MANUAL_CAPABILITIES,
 }
 
 /** What each deployment source kind answers for one container check (for a guard's registry entry). */

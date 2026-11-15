@@ -5587,7 +5587,8 @@ const accessStatusSchema = discriminatedUnion("state", [
 const SOURCE_KINDS = [
 	"coolify",
 	"github",
-	"osv"
+	"osv",
+	"manual"
 ];
 const sourceKindSchema = _enum(SOURCE_KINDS);
 const SOURCE_AUTHS = ["token", "github_app"];
@@ -6078,7 +6079,7 @@ const deploymentFactsSchema = object({
 });
 
 // ../../packages/shared/src/sources/deployment.ts
-const DEPLOYMENT_SOURCE_KINDS = ["coolify"];
+const DEPLOYMENT_SOURCE_KINDS = ["coolify", "manual"];
 const deploymentSourceKindSchema = _enum(DEPLOYMENT_SOURCE_KINDS);
 const deploymentKindSchema = _enum([
 	"application",
@@ -6095,6 +6096,7 @@ const deploymentRecordSchema = object({
 	gitRepository: string().nullable().optional(),
 	domains: array(string()),
 	isPublic: boolean(),
+	reach: deploymentReachSchema.optional(),
 	server: string().nullable(),
 	status: string(),
 	image: string().nullable(),
@@ -14268,6 +14270,47 @@ const coolifyConnectionTestResultSchema = discriminatedUnion("ok", [object({
 	code: coolifyErrorCodeSchema,
 	message: string()
 })]);
+
+// ../../packages/shared/src/sources/manual-entries.ts
+const MANUAL_IMPORT_MAX_ENTRIES = 500;
+const MANUAL_IMPORT_MAX_BYTES = 49152;
+const trimmed = (max) => string().trim().min(1).max(max);
+const optionalText = (max) => string().trim().max(max).nullable().optional().transform((value) => value ? value : null);
+const domainSchema = string().trim().min(1).max(253).regex(/^(https?:\/\/)?[^\s/?#]+[^\s]*$/i, "Must be a host name or an http(s) URL").transform((value) => value.replace(/\/+$/, ""));
+const manualFields = {
+	name: trimmed(100),
+	repo: repoFullNameSchema.nullable().optional(),
+	branch: optionalText(255),
+	image: optionalText(300),
+	domains: array(domainSchema).max(50).optional().transform((list) => [...new Set(list ?? [])]),
+	reach: deploymentReachSchema.optional(),
+	server: optionalText(100)
+};
+const manualEntrySchema = strictObject(manualFields);
+const createManualDeploymentRequestSchema = strictObject({
+	sourceId: number$1().int().positive(),
+	...manualFields
+});
+const updateManualDeploymentRequestSchema = strictObject({
+	name: manualFields.name.optional(),
+	repo: manualFields.repo,
+	branch: string().trim().max(255).nullable().optional(),
+	image: string().trim().max(300).nullable().optional(),
+	domains: array(domainSchema).max(50).optional(),
+	reach: deploymentReachSchema.optional(),
+	server: string().trim().max(100).nullable().optional()
+}).refine((value) => Object.keys(value).length > 0, "Nothing to update");
+const importManualDeploymentsRequestSchema = strictObject({
+	sourceId: number$1().int().positive(),
+	yaml: string().max(MANUAL_IMPORT_MAX_BYTES, "The YAML file is too large (48 KiB at most)"),
+	replace: boolean().optional()
+});
+const importManualDeploymentsResponseSchema = object({
+	created: number$1().int().nonnegative(),
+	updated: number$1().int().nonnegative(),
+	removed: number$1().int().nonnegative()
+});
+const manualYamlSchema = strictObject({ deployments: array(unknown()).max(500) });
 
 // src/actions-io.ts
 function getInput(env, name) {
