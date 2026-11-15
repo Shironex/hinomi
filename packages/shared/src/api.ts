@@ -20,6 +20,7 @@ import {
   guardLevelSchema,
   guardResultSchema,
   overridableCheckSchema,
+  runtimeSchema,
 } from './guards.js'
 import { releaseTierModeSchema } from './releases.js'
 import { deploymentKindSchema } from './sources/deployment.js'
@@ -817,6 +818,25 @@ export const funnelReachSchema = z.object({
 })
 export type FunnelReach = z.infer<typeof funnelReachSchema>
 
+/**
+ * A runtime line of a repo that ends support on a known date, for the overview strip. Only
+ * runtimes judged by dates (Node) appear; Rust and Bun are judged by releases behind the latest
+ * and have none.
+ */
+export const overviewWindowSchema = z.object({
+  repoId: id,
+  repoName: z.string(),
+  runtime: runtimeSchema,
+  /** Release line the production pin runs on, for example `22`. */
+  line: z.string(),
+  /** End of security support, `YYYY-MM-DD`. */
+  eolFrom: z.iso.date(),
+  /** Days until `eolFrom`, negative when it has passed. */
+  daysLeft: z.number().int(),
+  result: guardResultSchema,
+})
+export type OverviewWindow = z.infer<typeof overviewWindowSchema>
+
 export const overviewResponseSchema = z.object({
   /** Advisory funnel, fixed findings left out. Every step narrows the previous one. */
   funnel: z.object({
@@ -853,6 +873,8 @@ export const overviewResponseSchema = z.object({
   topFixes: z.array(fixItemSchema),
   /** Guard findings not fixed (turned off ones included), per check and level. */
   guardCounts: z.record(guardCheckSchema, z.record(guardLevelSchema, z.number().int())),
+  /** The runtime lines that end support soonest (ended ones first), at most 5. */
+  windows: z.array(overviewWindowSchema),
 })
 export type OverviewResponse = z.infer<typeof overviewResponseSchema>
 

@@ -327,6 +327,7 @@ export function overview(over: Partial<OverviewResponse> = {}): OverviewResponse
     ],
     topFixes: [],
     guardCounts: emptyGuardCounts(),
+    windows: [],
     ...over,
   }
 }
