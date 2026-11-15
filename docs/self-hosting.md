@@ -117,6 +117,28 @@ http://<panel-tailnet-ip>:8000
 
 The server running Hinomi must be on the tailnet too, or able to reach that address.
 
+### Docker host source
+
+To read containers from a Docker host, give Hinomi a GET only socket proxy instead of the Docker socket itself. The image and the bundled compose file mount nothing for this; it is an opt in you add yourself.
+
+- **Socket (recommended).** Run a socket proxy that allows only `GET` on `/containers`, `/networks`, `/version` and `/_ping` and listens on a Unix socket, put that socket in a volume shared with Hinomi, and add a Docker host source with the socket path as Hinomi sees it inside its container:
+
+  ```yaml
+  services:
+    hinomi:
+      # as above, plus:
+      volumes:
+        - hinomi-data:/data
+        - docker-proxy:/run/docker-proxy:ro   # the proxy writes its socket here
+  ```
+
+  Mounting the raw `/var/run/docker.sock` into Hinomi works too (the image runs as a non root user, so it also needs the socket's group), but it is full control of the daemon, which is root on the host, even read only. The connection test warns when the connection allows more than Hinomi needs.
+- **TLS endpoint.** Hinomi refuses plain TCP, also inside a compose network, so a proxy that only listens on `tcp://...:2375` needs TLS in front of it (or the daemon's own TLS on `2376`). Enter it as `https://host:2376` with the CA, client certificate and key.
+
+Mark the containers to read with the label `hinomi.enable=true` (or turn off "only labelled containers"), and add `hinomi.repo` and `hinomi.domains` labels where the image and the proxy labels do not say. See [sources.md](sources.md#docker-hosts).
+
+The proxy container mounts the socket, so the Docker socket check flags it when it is in the inventory: leave it unlabelled, or turn the check off for it with a reason.
+
 ## Protect access
 
 Hinomi has no login. Pick one of these, then check Settings, Access (or the sidebar): it must say "Protected by Tailscale" or "Protected by Cloudflare Access". Details and every state are in [access.md](access.md).

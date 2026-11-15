@@ -1,6 +1,6 @@
 # Deployment sources
 
-A deployment source tells Hinomi what runs where: each deployment's name, the repo it was built from, its domains, its status and, where the platform says so, how its container is configured. Hinomi joins those deployments with advisories and guard checks; nothing in the join, the ranking or the guards depends on which source reported a deployment. Coolify, Dokploy and a manual list are the deployment sources today. Docker labels are planned for v0.3 ([design/phase-2.md](design/phase-2.md) section 9). Every source is read only: Hinomi never deploys, stops or changes anything on a platform.
+A deployment source tells Hinomi what runs where: each deployment's name, the repo it was built from, its domains, its status and, where the platform says so, how its container is configured. Hinomi joins those deployments with advisories and guard checks; nothing in the join, the ranking or the guards depends on which source reported a deployment. Coolify, Dokploy, a manual list and Docker hosts (read through the Engine API, see [Docker hosts](#docker-hosts)) are the deployment sources today. Every source is read only: Hinomi never deploys, stops or changes anything on a platform.
 
 GitHub and OSV are sources too (under Settings, Sources), but they read repos and advisories, not deployments. See [github.md](github.md) and [self-hosting.md](self-hosting.md#tokens).
 
@@ -8,18 +8,18 @@ GitHub and OSV are sources too (under Settings, Sources), but they read repos an
 
 Each kind of source declares once what it can report (`SourceCapabilities` in `packages/shared/src/sources/deployment.ts`). A guard whose signal the source cannot give says `unknown`, never pass, so a deployment a source knows little about never looks safe.
 
-| | Coolify | Manual list | Dokploy |
-|---|---|---|---|
-| Repo and branch | yes (`git_repository`, `git_branch`) | yes, as typed | yes, from the git provider fields (GitHub, GitLab, Gitea, Bitbucket, a git URL) |
-| Domains, so reach | yes (`fqdn`) | yes, as typed; the reach is picked by hand | yes (the domains of the application or compose service) |
-| Image | registry image and tag | as typed | applications deployed from an image (`dockerImage`) |
-| Run status | yes | no: `unknown`, which ranks as running | no: Dokploy reports the state of the last deploy (`idle`, `running`, `done`, `error`), kept as the status but never read as stopped |
-| Container user | partial: run options, compose `user:`, the Dockerfile's final stage; nixpacks, static and image apps say unknown | unknown | unknown |
-| Mounts | partial: run options, compose volumes, file storages (`host_path` of persistent storages is not in Coolify's API spec) | unknown | unknown |
-| Networks | partial: grouped by destination and project, plus external networks named in run options and compose | unknown | unknown |
-| Watch paths and auto deploy | yes | unknown | unknown |
-| Deploy history | applications only | no | no |
-| Image scan results | yes, on Coolify v4.7.0 and newer (see [self-hosting.md](self-hosting.md#image-scan)) | no | no |
+| | Coolify | Manual list | Dokploy | Docker host |
+|---|---|---|---|---|
+| Repo and branch | yes (`git_repository`, `git_branch`) | yes, as typed | yes, from the git provider fields (GitHub, GitLab, Gitea, Bitbucket, a git URL) | labels: `hinomi.repo`, else `org.opencontainers.image.source`; `hinomi.branch` |
+| Domains, so reach | yes (`fqdn`) | yes, as typed; the reach is picked by hand | yes (the domains of the application or compose service) | labels: `hinomi.domains`, else Traefik router rules and Caddy site labels; a port published on every interface counts as public |
+| Image | registry image and tag | as typed | applications deployed from an image (`dockerImage`) | inspect `Config.Image` |
+| Run status | yes | no: `unknown`, which ranks as running | no: Dokploy reports the state of the last deploy (`idle`, `running`, `done`, `error`), kept as the status but never read as stopped | yes (`State.Status`, with the health check) |
+| Container user | partial: run options, compose `user:`, the Dockerfile's final stage; nixpacks, static and image apps say unknown | unknown | unknown | full: inspect `Config.User`, the running value |
+| Mounts | partial: run options, compose volumes, file storages (`host_path` of persistent storages is not in Coolify's API spec) | unknown | unknown | full: inspect `Mounts` and `HostConfig.Binds` |
+| Networks | partial: grouped by destination and project, plus external networks named in run options and compose | unknown | unknown | full: inspect `NetworkSettings.Networks`, host networking |
+| Watch paths and auto deploy | yes | unknown | unknown | no (watch paths say unknown) |
+| Deploy history | applications only | no | no | no |
+| Image scan results | yes, on Coolify v4.7.0 and newer (see [self-hosting.md](self-hosting.md#image-scan)) | no | no | no (the registry SBOM half covers its images) |
 
 Dokploy's container facts (mounts, networks, watch paths, the user) are not read until their fields are confirmed against a live instance (design section 9.4), so every container check says unknown for its deployments.
 
@@ -63,6 +63,37 @@ The `deployments` phase reads every enabled deployment source, one after the oth
 A source that fails (unreachable, a rejected token) is marked with its error and keeps the deployments it reported last; the other sources go on, and the scan ends as `partial`. The scan run's per source results count units per kind (`attempted`, `failed`, `deployments`, `removed`).
 
 Facts about the container (user, mounts, networks and so on) are read during the inventory and stored on the deployment, so the guards never call a source. A source reads them again only when the resource changed since the last read (Coolify: its `updated_at` moved, or the stored facts are a day old). Only parsed values are kept, never environment variables, raw compose files, run options or storage contents.
+
+## Docker hosts
+
+A Docker source reads a Docker host through its Engine API, GET only (decision Q21). It connects in one of two ways:
+
+- **A Unix socket** (`/var/run/docker.sock`, or a named pipe on Windows). Recommended: a socket proxy in front, such as `tecnativa/docker-socket-proxy`, that allows only `GET /containers/json`, `GET /containers/{id}/json`, `GET /networks`, `GET /version` and `GET /_ping` (`CONTAINERS=1`, `NETWORKS=1`, `VERSION=1`, `PING=1`, everything else off, `POST=0`). The raw socket works, but access to it, even mounted read only, is full control of the daemon and so root on the host. See [self-hosting.md](self-hosting.md#docker-host-source) for the compose setup.
+- **An https endpoint** (`https://host:2376`) with an optional CA and client certificate. The client key is encrypted like a token and never shown again. Plain TCP without TLS is refused.
+
+What Hinomi reads and never does:
+
+- Requests: `GET /_ping`, `GET /version`, `GET /containers/json?all=1` (with `filters={"label":["hinomi.enable=true"]}` while "only labelled containers" is on, the default), then `GET /containers/{id}/json` per container. The connection test also reads `GET /info`: a GET only proxy refuses it, so when it answers the test says the connection allows more than Hinomi needs.
+- The client refuses any method but GET before a connection is opened, never follows a redirect, builds every path itself (a container id from the list must look like an id to be used), caps each answer at 8 MB and times out after 15 seconds. Domains and URLs in labels are parsed, never fetched.
+- `Config.Env` is deleted from each inspect answer before it is parsed, so environment variables are never kept, stored or logged. Only the parsed facts are stored.
+- Hinomi's own container, when it runs on the host it reads, is skipped by its id (from the hostname and `/proc/self/cgroup`).
+
+How containers become deployments:
+
+| Label or field | Becomes |
+|---|---|
+| `com.docker.compose.project` and `com.docker.compose.service` | one deployment per project and service (`compose:<project>/<service>`, kind `service`); replicas are joined, their mounts and networks merged |
+| other containers | one deployment per container name (`container:<name>`, kind `application`), stable across recreates |
+| `hinomi.repo` (`owner/name` or a git URL), else `org.opencontainers.image.source` | the repo. `hinomi.repo` wins because a base image can leave its own OCI source label behind |
+| `hinomi.branch` | the branch |
+| `org.opencontainers.image.revision` (a full sha) | the deployed commit |
+| `hinomi.domains` (comma separated, https when no scheme) | the domains; it overrides the proxy labels |
+| `traefik.http.routers.<r>.rule` (`Host(...)`) | domains, https when the router has TLS or a `websecure` entrypoint; skipped with `traefik.enable=false` |
+| `caddy`, `caddy_<n>` (caddy docker proxy) | domains, https unless the address says `http://` |
+| `com.docker.compose.project`, else `hinomi.project`, else the name | the project, for the shared network check |
+| `Config.Image` | the image |
+
+The shared network check groups Docker containers by the networks inspect lists (ignoring `none`; `host` gets its own text). Only containers in the inventory are peers: with "only labelled containers" on, an unlabelled container on the same network is not seen. Inspect is read again on every scan (one call per container), so the facts are always current.
 
 ## Adding a source
 
