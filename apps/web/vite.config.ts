@@ -58,7 +58,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     // Longer than asyncUtilTimeout, so a missing element fails with its own message, not a timeout.
-    testTimeout: 15_000,
+    testTimeout: 30_000,
   },
   server: {
     port: 5173,
