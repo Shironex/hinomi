@@ -1,4 +1,4 @@
-import { repoDetailSchema } from '@hinomi/shared'
+import { overviewResponseSchema, repoDetailSchema } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { readRuntimePins } from '../pins/index.js'
 import { runtimeSupportIndex } from '../scan/guards/runtime-testing.js'
@@ -70,5 +70,27 @@ describe('GET /api/repos/:id runtime data', () => {
     const detail = repoDetailSchema.parse((await call('GET', `/repos/${repo.id}`)).json)
     expect(detail.runtimePins).toHaveLength(2)
     expect(detail.supportLines).toEqual({ available: false, runtimes: [] })
+  })
+})
+
+describe('GET /api/overview windows', () => {
+  it('lists the lines that end support soonest, with the repo and the date', async () => {
+    const { call } = world(true)
+    const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)
+    expect(overview.windows).toHaveLength(1)
+    expect(overview.windows[0]).toMatchObject({
+      repoName: 'kestrel-co/kestrel-api',
+      runtime: 'node',
+      line: '18',
+      eolFrom: '2025-04-30',
+      result: 'fail',
+    })
+    expect(overview.windows[0]!.daysLeft).toBeLessThan(0)
+  })
+
+  it('is empty without support data', async () => {
+    const { call } = world(false)
+    const overview = overviewResponseSchema.parse((await call('GET', '/overview')).json)
+    expect(overview.windows).toEqual([])
   })
 })

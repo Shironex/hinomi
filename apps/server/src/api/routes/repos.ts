@@ -58,7 +58,7 @@ export function toRepoRelease(repositories: Repositories, repo: RepoRow): RepoRe
  * The runtime pins the last scan stored at the branch it reads (the deployed branch, else the
  * default one), judged with the current support data and settings.
  */
-function runtimeOf(deps: Pick<ApiDeps, 'repositories' | 'support' | 'now'>, repo: RepoRow) {
+export function runtimeOf(deps: Pick<ApiDeps, 'repositories' | 'support' | 'now'>, repo: RepoRow) {
   const { repositories } = deps
   const deployments = indexDeployments(repositories).byRepo.get(repo.id) ?? []
   const ref = lockfileRef(repo, deployments, null)

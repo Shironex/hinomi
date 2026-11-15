@@ -6814,6 +6814,15 @@ const funnelReachSchema = object({
 	repos: number$1().int(),
 	apps: number$1().int()
 });
+const overviewWindowSchema = object({
+	repoId: id$3,
+	repoName: string(),
+	runtime: runtimeSchema,
+	line: string(),
+	eolFrom: date(),
+	daysLeft: number$1().int(),
+	result: guardResultSchema
+});
 const overviewResponseSchema = object({
 	funnel: object({
 		total: number$1().int(),
@@ -6839,7 +6848,8 @@ const overviewResponseSchema = object({
 	sources: array(sourceHealthSchema),
 	recentActivity: array(activityItemSchema),
 	topFixes: array(fixItemSchema),
-	guardCounts: record(guardCheckSchema, record(guardLevelSchema, number$1().int()))
+	guardCounts: record(guardCheckSchema, record(guardLevelSchema, number$1().int())),
+	windows: array(overviewWindowSchema)
 });
 const FINDING_GROUPS = [
 	"none",

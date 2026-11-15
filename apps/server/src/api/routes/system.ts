@@ -23,6 +23,7 @@ import {
   type SourceHealth,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
+import { overviewWindows } from '../support-windows.js'
 import { coverageNoteTypeOf, type Repositories, type Source } from '../../repository/index.js'
 import {
   countFindings,
@@ -250,6 +251,7 @@ export function overviewRoutes(deps: ApiDeps) {
         .slice(0, TOP_FIXES)
         .map((fix) => toFixItem(fix, plans)),
       guardCounts: counts.guards.byCheck,
+      windows: overviewWindows(deps),
     })
   })
 
