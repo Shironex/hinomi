@@ -323,6 +323,12 @@ export function findingTitle(item: FindingListItem): string {
   return item.advisory?.summary ?? item.advisory?.advisoryKey ?? 'Advisory'
 }
 
+/** "image only note on shop" or "unpinned requirements note on acme/api": a note by its own type. */
+export function coverageNoteLabel(item: FindingListItem): string {
+  const info = COVERAGE_NOTE_INFO[item.coverageNote ?? 'image_only']
+  return `${info.short.toLowerCase()} note on ${blindSpotSubject(item)}`
+}
+
 /** What the blind spot is on: the repo, or the deployment when there is no repo. */
 export function blindSpotSubject(item: FindingListItem): string {
   return item.repo?.fullName ?? item.deployments[0]?.name ?? 'Unknown'
