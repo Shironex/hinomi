@@ -126,18 +126,26 @@ describe('fix runs page', () => {
     expect(screen.getByText('Next poll')).toBeInTheDocument()
   })
 
-  it('shows the tracker error and the rate limit pause', async () => {
+  // One render per test: each one rebuilds the whole fetch waterfall (plans, runs of every repo,
+  // the selected run), and a test shares a single time budget across all of its renders. Chained
+  // renders in one test ran out of it on a busy machine.
+  it('shows the tracker error of a run', async () => {
     wideScreen()
     fixtureApi()
     await renderApp('/fix-runs?sel=45')
     expect(
       await screen.findByText('Last error: GitHub answered 502 while reading the workflow run'),
     ).toBeVisible()
+  })
+
+  it('shows the rate limit pause of a run', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=48')
     expect(await screen.findByText('Paused until')).toBeInTheDocument()
   })
 
-  it('renders the deploys, warnings and verification of merged runs', async () => {
+  it('renders the deploys and the verification retry of a merged run', async () => {
     wideScreen()
     fixtureApi()
     await renderApp('/fix-runs?sel=40')
@@ -151,27 +159,39 @@ describe('fix runs page', () => {
     expect(
       screen.getByText('Last error: The OSV source timed out while reading the repo'),
     ).toBeVisible()
+  })
 
-    cleanup()
+  it('renders the warnings of a merged run waiting for a deploy', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=39')
     expect(await screen.findByText('2 warnings')).toBeVisible()
     expect(screen.getByText(/Watch paths skip the fix on status-page/)).toBeVisible()
     expect(screen.getByRole('list', { name: 'Deploys of the fix' })).toHaveTextContent(
       'Waiting for a deploy',
     )
+  })
 
-    cleanup()
+  it('renders a run that merged into a branch no app deploys', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=15')
     expect(await screen.findByText('Deploys another branch')).toBeVisible()
     expect(screen.getByText(/No app deploys the branch the fix merged into/)).toBeVisible()
+  })
 
-    cleanup()
+  it('renders the verification of a run that did not clear everything', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=18')
     expect(await screen.findByText('1 finding of 2 still open')).toBeVisible()
     expect(screen.getByRole('link', { name: 'finding #4' })).toHaveAttribute('href', '/finding/4')
     expect(screen.getByText('2 targeted, 1 cleared, 1 still open, 0 new')).toBeVisible()
+  })
 
-    cleanup()
+  it('renders a run that waits for the next scheduled scan', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=20')
     expect(await screen.findByText('The next scheduled scan verifies this run')).toBeVisible()
   })
@@ -189,8 +209,11 @@ describe('fix runs page', () => {
     expect(
       screen.getByText('No app deploys the fix, so the rescan reads the default branch'),
     ).toBeVisible()
+  })
 
-    cleanup()
+  it('waits for a deploy of the merge commit when an app deploys the repo', async () => {
+    wideScreen()
+    fixtureApi()
     await renderApp('/fix-runs?sel=39')
     expect(
       await screen.findByText(

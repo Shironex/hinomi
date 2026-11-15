@@ -2,10 +2,11 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 
-// Testing Library waits 1 s by default, tuned for an idle machine. A cold first render of a route
-// takes longer than that when the suites of the workspace run in parallel, so allow more; a
+// Testing Library waits 1 s by default, tuned for an idle machine. Rendering a route here is a
+// waterfall (plans, the runs of every repo, the selected one) that takes about a second at a
+// load of 90 and several when the suites of the workspace run in parallel, so allow more; a
 // passing assertion still returns at once, only a real failure waits the full time.
-configure({ asyncUtilTimeout: 5_000 })
+configure({ asyncUtilTimeout: 10_000 })
 
 // jsdom has no matchMedia; default to a light OS preference.
 if (typeof window.matchMedia !== 'function') {
