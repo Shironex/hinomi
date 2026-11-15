@@ -14,7 +14,12 @@ import type { RegistryTarget } from './reference.js'
 //   storage on a CDN) must resolve to public addresses only, and never gets the token.
 // - Bodies are read up to a byte cap, manifests and blobs are checked against their digest, and
 //   every request has a timeout.
-// Only anonymous pulls: a registry that wants credentials counts as `unauthorized`.
+// - Stored credentials (Settings, registry credentials) are looked up by the exact registry host,
+//   only once the registry answers 401. They go to that host (Basic) and to its token service
+//   (Basic, to get a pull scoped token) only when the token service is on the registry host itself
+//   or a known auth host of it (auth.docker.io for registry-1.docker.io). Never to a sibling host
+//   the anonymous rule allows, never across a redirect, never in a URL, an error or a log.
+// Without a credential a registry that wants one counts as `unauthorized`.
 
 export const MANIFEST_MEDIA_TYPES = {
   ociIndex: 'application/vnd.oci.image.index.v1+json',
@@ -49,8 +54,19 @@ export class RegistryError extends Error {
   }
 }
 
+/** A user name and its password or token, for one registry host. */
+export interface RegistryLogin {
+  username: string
+  secret: string
+}
+
 export interface RegistryClientOptions {
   fetch?: typeof fetch
+  /**
+   * The login stored for exactly this registry host (`ghcr.io`, `registry-1.docker.io`,
+   * `registry.example.com:5000`), or null. Asked only when the registry wants credentials.
+   */
+  credentials?: (host: string) => RegistryLogin | null
   /** Resolves a host name to its addresses, for the public address check. */
   lookup?: (hostname: string) => Promise<string[]>
   timeoutMs?: number
@@ -102,13 +118,43 @@ export function authHostAllowed(registryHost: string, authHost: string): boolean
   return auth === parent || auth.endsWith(`.${parent}`)
 }
 
+/**
+ * Token services known to belong to a registry, besides the registry host itself. Stored
+ * credentials go to these and to nothing else the sibling rule of authHostAllowed would allow.
+ */
+const KNOWN_AUTH_HOSTS: Readonly<Record<string, readonly string[]>> = {
+  'registry-1.docker.io': ['auth.docker.io'],
+  'registry.gitlab.com': ['gitlab.com'],
+}
+
+/**
+ * Whether stored credentials for `registryHost` may be sent to a token service on `authHost`:
+ * the same host (port included), or a known auth host of that registry. No wildcards.
+ */
+export function credentialHostAllowed(registryHost: string, authHost: string): boolean {
+  const registry = registryHost.toLowerCase()
+  const auth = authHost.toLowerCase()
+  return (
+    registry === auth ||
+    (Object.hasOwn(KNOWN_AUTH_HOSTS, registry) && KNOWN_AUTH_HOSTS[registry]!.includes(auth))
+  )
+}
+
+const basicAuthorization = (login: RegistryLogin) =>
+  `Basic ${Buffer.from(`${login.username}:${login.secret}`, 'utf8').toString('base64')}`
+
 /** Reads `key="value"` pairs of a `WWW-Authenticate` header into a Map. */
 function parseChallenge(
   header: string | null,
-): { scheme: 'bearer'; realm: string; service: string | null } | { scheme: 'other' } | null {
+):
+  | { scheme: 'bearer'; realm: string; service: string | null }
+  | { scheme: 'basic' }
+  | { scheme: 'other' }
+  | null {
   if (!header || header.length > MAX_CHALLENGE_LENGTH) return null
   const space = header.indexOf(' ')
   const scheme = (space === -1 ? header : header.slice(0, space)).toLowerCase()
+  if (scheme === 'basic') return { scheme: 'basic' }
   if (scheme !== 'bearer') return { scheme: 'other' }
   const params = new Map<string, string>()
   for (const match of header.slice(space + 1).matchAll(/([a-zA-Z_]+)="([^"]*)"/g)) {
@@ -168,8 +214,32 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
   const maxManifestBytes = options.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES
   const maxBlobBytes = options.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
-  // Pull tokens per registry and repository, for the life of the client (one scan).
-  const tokens = new Map<string, string>()
+  // Authorization header values (a pull token, or Basic) per registry and repository, for the
+  // life of the client (one scan).
+  const authorizations = new Map<string, string>()
+  // Logins per registry host, looked up once; null when none is stored.
+  const logins = new Map<string, RegistryLogin | null>()
+
+  /** The stored login for the registry host, or null. A store that fails is `unauthorized`. */
+  function loginFor(host: string): RegistryLogin | null {
+    if (!options.credentials) return null
+    if (logins.has(host)) return logins.get(host)!
+    let login: RegistryLogin | null
+    try {
+      login = options.credentials(host)
+    } catch {
+      // The store's error is not passed on: only what it means.
+      throw new RegistryError(
+        'unauthorized',
+        `the stored credentials for ${host} could not be read (HINOMI_SECRET_KEY missing or changed); enter them again`,
+      )
+    }
+    logins.set(host, login)
+    return login
+  }
+
+  /** Whether a login for the host was looked up and found during this client's life. */
+  const usedLogin = (host: string) => logins.get(host) != null
 
   /** Refuses a host that is not public (another host than the registry only). */
   async function checkPublic(url: URL): Promise<void> {
@@ -214,6 +284,7 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
   async function fetchToken(
     target: RegistryTarget,
     challenge: { realm: string; service: string | null },
+    login: RegistryLogin | null,
   ): Promise<string> {
     let realm: URL
     try {
@@ -233,13 +304,26 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
     if (realm.host !== target.host) await checkPublic(realm)
     if (challenge.service) realm.searchParams.set('service', challenge.service)
     realm.searchParams.set('scope', `repository:${target.repository}:pull`)
-    const res = await call(realm, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      redirect: 'error',
-    })
+    // The login goes to the token service only when it is the registry's own (see the top).
+    const sendLogin = login !== null && credentialHostAllowed(target.host, realm.host)
+    const headers: Record<string, string> = { accept: 'application/json' }
+    if (sendLogin) headers.authorization = basicAuthorization(login)
+    // No redirects: a login must never follow one to another host.
+    const res = await call(realm, { method: 'GET', headers, redirect: 'error' })
     if (res.status === 401 || res.status === 403) {
       await drain(res)
+      if (sendLogin) {
+        throw new RegistryError(
+          'unauthorized',
+          `${target.host} refused the stored credentials for this image (wrong user name or secret, no pull access, or it does not exist)`,
+        )
+      }
+      if (login !== null) {
+        throw new RegistryError(
+          'unauthorized',
+          `${target.host} wants credentials; the stored ones are not sent to its token service on ${realm.hostname}, which is not a known auth host of it`,
+        )
+      }
       // ghcr.io answers the same for a private image and one that does not exist.
       throw new RegistryError(
         'unauthorized',
@@ -286,19 +370,25 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
     for (let hops = 0; ;) {
       const sameHost = url.host === target.host
       const headers: Record<string, string> = { accept }
-      const token = sameHost ? tokens.get(tokenKey) : undefined
-      if (token) headers.authorization = `Bearer ${token}`
+      // Only the registry host gets the token or the login, never a redirect target.
+      const authorization = sameHost ? authorizations.get(tokenKey) : undefined
+      if (authorization) headers.authorization = authorization
       if (!sameHost) await checkPublic(url)
       const res = await call(url, { method, headers, redirect: 'manual' })
       if (res.status === 401 && sameHost && !askedToken) {
         askedToken = true
         await drain(res)
         const challenge = parseChallenge(res.headers.get('www-authenticate'))
-        if (challenge?.scheme !== 'bearer') {
-          throw new RegistryError('unauthorized', `${target.host} wants credentials for this image`)
+        const login = challenge ? loginFor(target.host) : null
+        if (challenge?.scheme === 'bearer') {
+          authorizations.set(tokenKey, `Bearer ${await fetchToken(target, challenge, login)}`)
+          continue
         }
-        tokens.set(tokenKey, await fetchToken(target, challenge))
-        continue
+        if (challenge?.scheme === 'basic' && login) {
+          authorizations.set(tokenKey, basicAuthorization(login))
+          continue
+        }
+        throw new RegistryError('unauthorized', `${target.host} wants credentials for this image`)
       }
       const location = res.headers.get('location')
       if (res.status >= 300 && res.status < 400 && location) {
@@ -320,11 +410,20 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
     }
   }
 
-  async function failure(res: Response, what: string): Promise<RegistryError> {
+  async function failure(
+    res: Response,
+    target: RegistryTarget,
+    what: string,
+  ): Promise<RegistryError> {
     await drain(res)
     if (res.status === 404) return new RegistryError('not_found', `${what} was not found`)
     if (res.status === 401 || res.status === 403) {
-      return new RegistryError('unauthorized', `${what} needs credentials (${res.status})`)
+      return new RegistryError(
+        'unauthorized',
+        usedLogin(target.host)
+          ? `${what}: the stored credentials have no pull access (${res.status})`
+          : `${what} needs credentials (${res.status})`,
+      )
     }
     if (res.status === 429) return new RegistryError('failed', `${what}: rate limited (429)`)
     return new RegistryError('failed', `${what}: the registry answered ${res.status}`)
@@ -355,10 +454,10 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
       await drain(head)
       const said = head.headers.get('docker-content-digest')?.trim().toLowerCase()
       if (head.ok && said && isDigest(said)) return said
-      if (!head.ok && head.status !== 405) throw await failure(head, what)
+      if (!head.ok && head.status !== 405) throw await failure(head, target, what)
       // The registry did not name the digest: read the manifest and hash it.
       const res = await send(target, path, 'GET', MANIFEST_ACCEPT)
-      if (!res.ok) throw await failure(res, what)
+      if (!res.ok) throw await failure(res, target, what)
       const bytes = await readCapped(res, maxManifestBytes, `the manifest of ${what}`)
       return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
     },
@@ -367,7 +466,7 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
       const what = `the manifest ${digest} of ${target.host}/${target.repository}`
       if (!isDigest(digest)) throw new RegistryError('invalid', `${what} has an unusable digest`)
       const res = await send(target, `manifests/${digest}`, 'GET', MANIFEST_ACCEPT)
-      if (!res.ok) throw await failure(res, what)
+      if (!res.ok) throw await failure(res, target, what)
       const bytes = await readCapped(res, maxManifestBytes, what)
       verifyDigest(bytes, digest, what)
       return parseManifest(res, bytes, what)
@@ -377,7 +476,7 @@ export function createRegistryClient(options: RegistryClientOptions = {}): Regis
       const what = `the blob ${digest} of ${target.host}/${target.repository}`
       if (!isDigest(digest)) throw new RegistryError('invalid', `${what} has an unusable digest`)
       const res = await send(target, `blobs/${digest}`, 'GET', '*/*')
-      if (!res.ok) throw await failure(res, what)
+      if (!res.ok) throw await failure(res, target, what)
       const bytes = await readCapped(res, maxBlobBytes, what)
       verifyDigest(bytes, digest, what)
       return bytes

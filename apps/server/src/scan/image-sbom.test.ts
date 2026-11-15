@@ -572,6 +572,53 @@ describe('image scan from registry SBOMs', () => {
     expect(imageFindings()).toHaveLength(3)
     expect(registry.requests.some((r) => r.includes(CDN_HOST))).toBe(false)
   })
+
+  it('reads a private image with the stored registry credential', async () => {
+    repos.settings.set(SCAN_SETTING_KEYS.imageScan, 'sbom')
+    const login = { username: 'kestrel-bot', secret: 'pat-fictional-secret-0001' }
+    registry = fakeRegistry('ghcr.io', [fakeImage('kestrel-co/edge-api', '2.3.0')], {
+      redirectBlobs: false,
+      login,
+    })
+    const run = async () => {
+      const built = buildScanSources(repos, {
+        fetch: (input, init) => {
+          const url = urlOf(input)
+          if (url.startsWith('https://api.osv.dev/')) return osv.fetch(input, init)
+          if (url.startsWith('https://ghcr.io/')) return registry.fetch(input, init)
+          return Promise.reject(new Error(`unexpected ${url}`))
+        },
+        osvMaxRetries: 0,
+      })
+      await runScan(
+        { repositories: repos },
+        {
+          ...built,
+          deployments: [
+            fakeDeploymentSource({
+              sourceId,
+              name: 'main',
+              records: () => Promise.resolve(records),
+            }),
+          ],
+        },
+        { now: () => clock },
+      )
+    }
+
+    // Without a credential the private image is unauthorized.
+    await run()
+    expect(note('image_sbom_unavailable')).toMatchObject({ state: 'open' })
+    expect(JSON.stringify(lastDetails('image_sbom_unavailable'))).toContain('unauthorized')
+
+    repos.registryCredentials.create({ host: 'ghcr.io', ...login })
+    clock = new Date(clock.getTime() + 60_000)
+    await run()
+    expect(imageFindings()).toHaveLength(3)
+    expect(note('image_sbom_unavailable')).toMatchObject({ state: 'fixed' })
+    const events = repos.findings.listEvents(note('image_sbom_unavailable')!.id)
+    expect(JSON.stringify(events)).not.toContain(login.secret)
+  })
 })
 
 describe('helpers', () => {

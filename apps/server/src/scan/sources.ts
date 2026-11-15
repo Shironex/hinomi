@@ -233,8 +233,12 @@ export function buildScanSources(
     github: [...github.values()].map((g) => g.github),
     osv,
     settings,
-    // Makes no request until the `sbom` image scan mode asks for an image.
-    imageSbom: createImageSbomReader({ ...(options.fetch && { fetch: options.fetch }) }),
+    // Makes no request until the `sbom` image scan mode asks for an image. Stored registry
+    // credentials are read (and decrypted) only when a registry asks for them.
+    imageSbom: createImageSbomReader({
+      ...(options.fetch && { fetch: options.fetch }),
+      credentials: (host) => repositories.registryCredentials.loginFor(host),
+    }),
     readRepoFile: async (owner, name, path, ref, sourceId) => {
       const gh = github.get(sourceId)
       if (!gh) throw new Error(`GitHub source ${sourceId} is not available`)

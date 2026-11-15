@@ -280,21 +280,43 @@ export interface FakeRegistry {
   requests: string[]
   /** Authorization headers sent to the CDN host (must stay empty). */
   cdnAuthorization: string[]
+  /** `host authorization` of every request that carried an Authorization header. */
+  authorizations: string[]
   images: Map<string, FakeImage>
 }
 
+export interface FakeRegistryOptions {
+  redirectBlobs?: boolean
+  /**
+   * A private registry: the token service gives a token only for this login (sent as Basic), or
+   * with `basic`, the registry wants this login itself on every request.
+   */
+  login?: { username: string; secret: string }
+  /** The token service's host (Docker Hub style: auth.docker.io); default the registry host. */
+  realmHost?: string
+  /** The registry answers a `Basic` challenge instead of naming a token service. */
+  basic?: boolean
+}
+
+export const basicOf = (login: { username: string; secret: string }) =>
+  `Basic ${Buffer.from(`${login.username}:${login.secret}`).toString('base64')}`
+
 /**
- * A registry on `host` that wants an anonymous pull token (ghcr.io style: realm on the same host)
- * and redirects blob reads to a CDN host. Unknown repositories answer 404.
+ * A registry on `host` that wants a pull token (ghcr.io style: realm on the same host; anonymous
+ * unless `login` is set) and redirects blob reads to a CDN host. Unknown repositories answer 404.
  */
 export function fakeRegistry(
   host: string,
   images: FakeImage[],
-  options: { redirectBlobs?: boolean } = {},
+  options: FakeRegistryOptions = {},
 ): FakeRegistry {
   const byRepo = new Map(images.map((i) => [i.repository, i]))
   const requests: string[] = []
   const cdnAuthorization: string[] = []
+  const authorizations: string[] = []
+  const realmHost = options.realmHost ?? host
+  const expectedAuth =
+    options.basic && options.login ? basicOf(options.login) : `Bearer ${FAKE_TOKEN}`
   const answer = (
     status: number,
     body: Buffer | string | null,
@@ -306,6 +328,8 @@ export function fakeRegistry(
     const method = init?.method ?? 'GET'
     requests.push(`${method} ${url.origin}${url.pathname}`)
     const headers = new Headers(init?.headers)
+    const sent = headers.get('authorization')
+    if (sent) authorizations.push(`${url.host} ${sent}`)
     if (url.host === CDN_HOST) {
       const auth = headers.get('authorization')
       if (auth) cdnAuthorization.push(auth)
@@ -317,17 +341,22 @@ export function fakeRegistry(
       }
       return Promise.resolve(answer(404, null))
     }
-    if (url.host !== host) return Promise.reject(new Error(`unexpected host ${url.host}`))
-    if (url.pathname === '/token') {
+    if (url.host === realmHost && url.pathname === '/token') {
+      if (options.login && sent !== basicOf(options.login)) {
+        return Promise.resolve(answer(401, '{"details":"incorrect username or password"}'))
+      }
       return Promise.resolve(answer(200, JSON.stringify({ token: FAKE_TOKEN, expires_in: 300 })))
     }
+    if (url.host !== host) return Promise.reject(new Error(`unexpected host ${url.host}`))
     const match = /^\/v2\/(.+)\/(manifests|blobs)\/([^/]+)$/.exec(url.pathname)
     if (!match) return Promise.resolve(answer(404, null))
     const [, repository, kind, reference] = match as unknown as [string, string, string, string]
-    if (headers.get('authorization') !== `Bearer ${FAKE_TOKEN}`) {
+    if (sent !== expectedAuth) {
       return Promise.resolve(
         answer(401, '{"errors":[{"code":"UNAUTHORIZED"}]}', {
-          'www-authenticate': `Bearer realm="https://${host}/token",service="${host}",scope="repository:${repository}:pull"`,
+          'www-authenticate': options.basic
+            ? `Basic realm="${host}"`
+            : `Bearer realm="https://${realmHost}/token",service="${host}",scope="repository:${repository}:pull"`,
         }),
       )
     }
@@ -353,10 +382,14 @@ export function fakeRegistry(
 
   return {
     fetch: fakeFetch,
+    // The CDN and a token service on another host are public; the registry host is not checked.
     lookup: (hostname) =>
-      hostname === CDN_HOST ? Promise.resolve([CDN_ADDRESS]) : Promise.resolve(['10.0.0.9']),
+      hostname === CDN_HOST || (realmHost !== host && hostname === realmHost)
+        ? Promise.resolve([CDN_ADDRESS])
+        : Promise.resolve(['10.0.0.9']),
     requests,
     cdnAuthorization,
+    authorizations,
     images: byRepo,
   }
 }
