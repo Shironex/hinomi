@@ -23,7 +23,7 @@ import {
   type AlertsSearch,
   type RowGroup,
 } from '@/lib/alerts-search'
-import { blindSpotSubject, TIER_INFO, tierTitle } from '@/lib/finding-meta'
+import { blindSpotSubject, coverageNoteLabel, TIER_INFO, tierTitle } from '@/lib/finding-meta'
 import { activeRowIndex } from '@/lib/list-nav'
 import { isTypingTarget } from '@/lib/shortcuts'
 import { findingName } from '@/lib/triage'
@@ -42,7 +42,7 @@ const number = new Intl.NumberFormat('en-US')
 function itemLabel(item: FindingListItem | undefined, id: number): string {
   if (!item) return `finding ${id}`
   if (item.kind === 'blind_spot') return `blind spot on ${blindSpotSubject(item)}`
-  if (item.kind === 'coverage_note') return `image only note on ${blindSpotSubject(item)}`
+  if (item.kind === 'coverage_note') return coverageNoteLabel(item)
   if (item.kind === 'guard') return `${item.guard?.title ?? 'guard'} on ${findingName(item)}`
   return `${item.advisory?.packageName ?? 'advisory'}${item.repo ? ` in ${item.repo.fullName}` : ''}`
 }
