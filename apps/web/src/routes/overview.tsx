@@ -257,7 +257,9 @@ export function OverviewPage() {
     ...findingsInfiniteQuery(TAB_PARAMS[listTab]),
     enabled: tab !== 'fixes',
   })
-  // Their totals are the tab counts, so both load whatever tab is open.
+  // Their totals are the tab counts, so all three load whatever tab is open. The action list
+  // shares its cache entry with the open tab, so no extra request when that tab is open.
+  const action = useInfiniteQuery(findingsInfiniteQuery(TAB_PARAMS.action))
   const progress = useInfiniteQuery(findingsInfiniteQuery(TAB_PARAMS.progress))
   const fixes = useInfiniteQuery(fixesInfiniteQuery())
 
@@ -307,7 +309,8 @@ export function OverviewPage() {
     {
       key: 'action',
       label: 'Needs action',
-      count: data ? data.funnel.needsAction + data.blindSpots.needsAction : null,
+      // The list also holds guard findings on public apps, which the funnel does not count.
+      count: action.data?.pages[0]?.total ?? null,
     },
     { key: 'blind', label: 'Blind', count: data?.blindSpots.total ?? null },
     { key: 'progress', label: 'In progress', count: progress.data?.pages[0]?.total ?? null },
