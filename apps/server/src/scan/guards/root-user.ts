@@ -1,4 +1,5 @@
 import {
+  deploymentGuardCapabilities,
   classifyContainerUser,
   hasNonrootTag,
   parseImageRef,
@@ -230,7 +231,8 @@ async function verdictOf(ctx: GuardContext, deployment: DeploymentRow): Promise<
 
 export const rootUserGuard: Guard = {
   check: 'root_user',
-  capabilities: { coolify: 'partial' },
+  // What each deployment source can answer, as the sources declare it.
+  capabilities: deploymentGuardCapabilities('root_user'),
   async run(ctx) {
     const results: GuardSubjectResult[] = []
     for (const deployment of ctx.deployments) {

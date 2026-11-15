@@ -1,4 +1,8 @@
-import { watchPathsTrigger, type WatchPathsSkipEvidence } from '@hinomi/shared'
+import {
+  deploymentGuardCapabilities,
+  watchPathsTrigger,
+  type WatchPathsSkipEvidence,
+} from '@hinomi/shared'
 import type { DeploymentRow } from '../../db/schema.js'
 import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
 
@@ -147,6 +151,7 @@ export function evaluateWatchPathsSkip(ctx: GuardContext): GuardSubjectResult[] 
 
 export const watchPathsSkipGuard: Guard = {
   check: 'watch_paths_skip',
-  capabilities: { coolify: 'full' },
+  // What each deployment source can answer, as the sources declare it.
+  capabilities: deploymentGuardCapabilities('watch_paths_skip'),
   run: evaluateWatchPathsSkip,
 }

@@ -1,8 +1,9 @@
-import type {
-  DeploymentFacts,
-  NetworkBasis,
-  NetworkPeer,
-  SharedNetworkEvidence,
+import {
+  deploymentGuardCapabilities,
+  type DeploymentFacts,
+  type NetworkBasis,
+  type NetworkPeer,
+  type SharedNetworkEvidence,
 } from '@hinomi/shared'
 import type { DeploymentRow } from '../../db/schema.js'
 import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
@@ -187,6 +188,7 @@ export function evaluateSharedNetwork(ctx: GuardContext): GuardSubjectResult[] {
 
 export const sharedNetworkGuard: Guard = {
   check: 'shared_network',
-  capabilities: { coolify: 'partial' },
+  // What each deployment source can answer, as the sources declare it.
+  capabilities: deploymentGuardCapabilities('shared_network'),
   run: evaluateSharedNetwork,
 }
