@@ -57,7 +57,7 @@ Scan status:
 
 | State | Fields | When |
 |---|---|---|
-| `unconfigured` | none | No Coolify or GitHub source is connected |
+| `unconfigured` | none | No Coolify, Dokploy or GitHub source with a token, and no manual list, is connected |
 | `queued` | `nextScanAt` (null when not planned) | Connected but never scanned: the first scan is about to start |
 | `scanning` | `scanRunId`, `startedAt`, `phase`, `done`, `total`, `skipped` | A scan is running |
 | `idle` | `lastScanAt`, `nextScanAt` | The latest scan finished |
@@ -67,7 +67,7 @@ A scan moves through these phases in order. `done` and `total` count the units o
 
 | Phase | Does | Units |
 |---|---|---|
-| `deployments` | Reads every enabled deployment source (Coolify today, see [sources.md](sources.md)), and the account repo list when that setting is on. Skipped with neither. A source that fails keeps the deployments it reported last; the others go on. For each Coolify resource it also stores deployment facts (user, mounts, networks, privileged, image, build pack, inline Dockerfile reading, destination, project, auto deploy) for the guards; settings and storages are read again only when the resource's `updated_at` moved or the stored facts are a day old. Only parsed values are kept, never environment variables, raw compose files, run options or storage contents | Deployment sources plus the repo list |
+| `deployments` | Reads every enabled deployment source (Coolify, Dokploy and the manual list, see [sources.md](sources.md)), and the account repo list when that setting is on. Skipped with neither. A source that fails keeps the deployments it reported last; the others go on. For each Coolify resource it also stores deployment facts (user, mounts, networks, privileged, image, build pack, inline Dockerfile reading, destination, project, auto deploy) for the guards; settings and storages are read again only when the resource's `updated_at` moved or the stored facts are a day old. Only parsed values are kept, never environment variables, raw compose files, run options or storage contents | Deployment sources plus the repo list |
 | `alerts` | Fetches GitHub repo health and Dependabot alerts per repo. Skipped without GitHub | Repos |
 | `lockfiles` | Reads lockfiles and checks them against OSV.dev per repo. Skipped while OSV is off | Repos |
 | `matching` | Joins advisories to deployments and saves the findings | Repos |
@@ -325,13 +325,13 @@ A repo that ships GitHub releases but has no deployment (a desktop app, still in
 |---|---|
 | `GET /api/sources` | `{ sources, canStoreTokens }`. Each source has `auth` (`token` or `github_app`), `appId` and `installationId` (null for tokens), `hasToken` (the token or the app's private key is stored), `repoCount` (GitHub: the repos it reads, a source picked by hand included) and `deploymentCount` (deployment sources: the deployments it reports) |
 | `GET /api/sources/:id` | One source |
-| `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, GitHub a token (URL only for Enterprise), OSV and `manual` (a hand kept deployment list, see [sources.md](sources.md#the-manual-list)) neither. A GitHub App instead sends `auth: "github_app"`, `appId`, `installationId` and `privateKey` (PEM) |
+| `POST /api/sources` | `{ kind, name, baseUrl?, token?, enabled? }`. Coolify needs a URL and a token, Dokploy a URL and an API key (sent as `token`), GitHub a token (URL only for Enterprise), OSV and `manual` (a hand kept deployment list, see [sources.md](sources.md#the-manual-list)) neither. A GitHub App instead sends `auth: "github_app"`, `appId`, `installationId` and `privateKey` (PEM) |
 | `PATCH /api/sources/:id` | Any of `name`, `baseUrl`, `token` (replaces the stored one), `enabled`; for a GitHub App `appId`, `installationId`, `privateKey`. Changing `auth` also needs the new token or private key |
 | `DELETE /api/sources/:id` | Removes it and its deployments. The repos a GitHub source read move to another GitHub source that saw them, or are left with no reader; findings and fix runs stay. Switching a source off (`enabled: false`) moves its repos the same way |
-| `POST /api/sources/test` | `{ kind, baseUrl?, token }` or `{ kind: "github", auth: "github_app", baseUrl?, appId, installationId, privateKey }`: tests credentials before saving them |
+| `POST /api/sources/test` | `{ kind, baseUrl?, token }` (`kind` one of `coolify`, `github`, `dokploy`) or `{ kind: "github", auth: "github_app", baseUrl?, appId, installationId, privateKey }`: tests credentials before saving them |
 | `POST /api/sources/:id/test` | Tests a saved source with its stored token or private key |
 
-A test answers `{ ok: true, message, version?, login?, scopes?, account?, repositorySelection?, repoCount?, missingPermissions? }` or `{ ok: false, code, message }`. A GitHub App test fails with code `permission` when a required permission is missing. See [github.md](github.md) for setting up the app.
+A test answers `{ ok: true, message, version?, login?, scopes?, account?, repositorySelection?, repoCount?, missingPermissions? }` or `{ ok: false, code, message }`. A GitHub App test fails with code `permission` when a required permission is missing. A Dokploy test lists the projects the key sees (`project.all`) and asks for the version (`settings.getDokployVersion`, left out when refused); a rejected key fails with `unauthorized`. See [github.md](github.md) for setting up the app.
 
 ### Settings and scans
 
