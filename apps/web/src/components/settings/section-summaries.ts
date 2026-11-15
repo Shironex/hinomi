@@ -67,7 +67,10 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const out: Partial<Record<SettingsSectionKey, string>> = {}
 
   if (sources.data) {
-    const connected = sources.data.sources.filter((s) => s.hasToken && s.enabled).length
+    // A Docker socket connects without a secret, so it counts without a token.
+    const connected = sources.data.sources.filter(
+      (s) => s.enabled && (s.hasToken || s.kind === 'docker'),
+    ).length
     const parts = [connected === 0 ? 'Nothing connected' : `${connected} connected`]
     if (settings.data) parts.push(`OSV.dev ${settings.data.osvEnabled ? 'on' : 'off'}`)
     if (!sources.data.canStoreTokens) parts.push('secret key missing')
