@@ -22,7 +22,7 @@ import {
   overridableCheckSchema,
 } from './guards.js'
 import { releaseTierModeSchema } from './releases.js'
-import { deploymentKindSchema } from './sources/coolify.js'
+import { deploymentKindSchema } from './sources/deployment.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
 import { nowMs } from './clock.js'
