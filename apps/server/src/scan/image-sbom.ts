@@ -11,7 +11,7 @@ import {
   type HttpCacheRepository,
   type Repositories,
 } from '../repository/index.js'
-import type { ImageFinding, ResourceScan } from '../sources/coolify/index.js'
+import type { ImageFinding, ResourceScan } from '../sources/deployments/index.js'
 import type { OsvClient } from '../sources/osv/index.js'
 import {
   DEFAULT_MAX_PACKAGES,

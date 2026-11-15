@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories } from '../db/test-db.js'
 import { coverageNoteFindingKey, type Repositories } from '../repository/index.js'
-import type { ImageScanProbe, ResourceScanResult } from '../sources/coolify/index.js'
+import type { ImageScanProbe, ResourceScanResult } from '../sources/deployments/index.js'
 import { createOsvClient } from '../sources/osv/index.js'
 import { createImageSbomReader } from '../sources/registry/index.js'
 import {

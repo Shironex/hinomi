@@ -1,7 +1,7 @@
 import type { AdvisoryRecord, OsvAdvisoryMatch, Reporter } from '@hinomi/shared'
 import type { AdvisoryRow } from '../db/schema.js'
 import type { AdvisoriesRepository, UpsertAdvisoryInput } from '../repository/index.js'
-import type { ImageFinding } from '../sources/coolify/index.js'
+import type { ImageFinding } from '../sources/deployments/index.js'
 
 /**
  * Ecosystem names as stored on advisories: GitHub's lowercase words. OSV

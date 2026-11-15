@@ -1,5 +1,5 @@
 import type { OsvEcosystem, OsvQuery, OsvVulnerability } from '@hinomi/shared'
-import type { ImageFinding } from '../sources/coolify/index.js'
+import type { ImageFinding } from '../sources/deployments/index.js'
 import { deriveSeverity, mapLimit, matchDependency, type OsvClient } from '../sources/osv/index.js'
 import type { ImagePackage } from '../sources/registry/index.js'
 

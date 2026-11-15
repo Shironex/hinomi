@@ -3,10 +3,10 @@ import {
   deploymentRecordSchema,
   type CoolifyConnectionConfig,
   type CoolifyConnectionTestResult,
-  type DeploymentFacts,
   type DeploymentKind,
   type DeploymentRecord,
 } from '@hinomi/shared'
+import type { CachedFacts } from '../deployments/types.js'
 import { mapLimit } from '../osv/index.js'
 import { createCoolifyClient, type CoolifyClient, type CoolifyClientOptions } from './client.js'
 import { CoolifyError } from './errors.js'
@@ -30,13 +30,6 @@ import {
 
 export type CoolifyOptions = CoolifyConnectionConfig &
   Pick<CoolifyClientOptions, 'timeoutMs' | 'fetch'> & { facts?: CoolifyFactsOptions }
-
-/** What is stored for a deployment from an earlier read. */
-export interface CachedFacts {
-  /** The resource's `updated_at` the facts were read at; null forces a read. */
-  version: string | null
-  facts: DeploymentFacts | null
-}
 
 export interface CoolifyFactsOptions {
   /** Facts stored for a resource by its uuid, undefined when none are. */
