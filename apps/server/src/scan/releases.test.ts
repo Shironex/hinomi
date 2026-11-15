@@ -11,6 +11,7 @@ import {
 import type { GithubRelease } from '../sources/github/index.js'
 import type { FetchedLockfile, OsvClient } from '../sources/osv/index.js'
 import { tierOf } from './rank.js'
+import { releaseCandidatesCacheKey } from './release-candidates.js'
 import { isReleaseCheckDue, releaseCacheKey, releaseStatus } from './releases.js'
 import { runRepoScan, runScan } from './run.js'
 import type { GithubScanSource, ScanSources } from './sources.js'
@@ -88,6 +89,9 @@ interface World {
   failRelease: Set<string>
   releaseCalls: { repo: string; etag: string | null }[]
   lockfileReads: string[]
+  /** Times the account repo list was read; the next list read fails while `failList` is set. */
+  listCalls: number
+  failList: boolean
 }
 
 let handle: DatabaseHandle
@@ -136,6 +140,8 @@ beforeEach(() => {
     failRelease: new Set(),
     releaseCalls: [],
     lockfileReads: [],
+    listCalls: 0,
+    failList: false,
   }
 })
 
@@ -156,8 +162,10 @@ function github(): GithubScanSource {
         pushedAt: null,
       }),
     fetchDependabotAlerts: () => Promise.resolve({ advisories: [], alerts: [], dismissed: [] }),
-    listAccountRepos: (): Promise<AccountRepo[]> =>
-      Promise.resolve(
+    listAccountRepos: (): Promise<AccountRepo[]> => {
+      world.listCalls++
+      if (world.failList) return Promise.reject(new Error('GitHub answered 502'))
+      return Promise.resolve(
         Object.keys(RELEASES).map((name) => ({
           owner: 'kestrel-co',
           name,
@@ -167,7 +175,8 @@ function github(): GithubScanSource {
           visibility: 'private',
           pushedAt: null,
         })),
-      ),
+      )
+    },
     fetchLatestRelease: (_owner, name, etag) => {
       world.releaseCalls.push({ repo: name, etag })
       if (world.failRelease.has(name)) return Promise.reject(new Error('GitHub answered 502'))
@@ -190,12 +199,12 @@ function osvClient(): OsvClient {
   }
 }
 
-function sources(osvOn = true): ScanSources {
+function sources(osvOn = true, includeAccountRepos = true): ScanSources {
   return {
     coolify: [],
     github: [github()],
     osv: osvOn ? { sourceId: null, client: osvClient() } : null,
-    settings: { osvEnabled: osvOn, includeAccountRepos: true, imageScan: 'off' },
+    settings: { osvEnabled: osvOn, includeAccountRepos, imageScan: 'off' },
     fetchLockfiles: (_owner, name, ref): Promise<FetchedLockfile[]> => {
       world.lockfileReads.push(`${name}@${ref}`)
       const version = world.lockfiles[`${name}@${ref}`]
@@ -208,6 +217,10 @@ function sources(osvOn = true): ScanSources {
 
 const scan = (at = AT, osvOn = true) =>
   runScan({ repositories: repos }, sources(osvOn), { now: () => at })
+
+/** A scan with "include account repos" off, as in a default install. */
+const deployedOnlyScan = (at = AT) =>
+  runScan({ repositories: repos }, sources(true, false), { now: () => at })
 
 const repo = (name: string) => repos.repos.getByName('kestrel-co', name)!
 const advisoryId = () => repos.advisories.findByAnyId(GHSA)[0]!.id
@@ -439,5 +452,73 @@ describe('desktop release tier', () => {
     await scan(new Date(AT.getTime() + 60_000), false)
     expect(world.lockfileReads).toEqual([])
     expect(repos.findings.get(id)?.state).toBe('open')
+  })
+})
+
+describe('desktop release tier with account repos off', () => {
+  it('scans the tag of a repo with installers and nothing else of it', async () => {
+    const summary = await deployedOnlyScan()
+    expect(summary.status).toBe('succeeded')
+    expect(world.listCalls).toBe(1)
+
+    expect(releaseStatus(repo('kestrel-desk'), false)).toBe('released')
+    expect(releaseRow('kestrel-desk')).toMatchObject({ state: 'open', releaseTag: 'v2.3.0' })
+    expect(world.lockfileReads).toContain('kestrel-desk@v2.3.0')
+    // The default branch of a repo nothing deploys stays unread.
+    expect(world.lockfileReads).not.toContain('kestrel-desk@main')
+    expect(mainRow('kestrel-desk')).toBeUndefined()
+    // The deployed repo is scanned as before and never asked for its release.
+    expect(world.lockfileReads).toContain('harbor@main')
+    expect(world.releaseCalls.map((c) => c.repo)).not.toContain('harbor')
+    expect(summary.sourceResults.github?.counts).toMatchObject({
+      releaseRepoLists: 1,
+      releases: 4,
+    })
+  })
+
+  it('leaves a repo without installers unscanned', async () => {
+    await deployedOnlyScan()
+    expect(releaseStatus(repo('kestrel-lib'), false)).toBe('no_installers')
+    expect(releaseRow('kestrel-lib')).toBeUndefined()
+    expect(world.lockfileReads.filter((r) => r.startsWith('kestrel-lib@'))).toEqual([])
+    expect(releaseStatus(repo('kestrel-beta'), false)).toBe('no_release')
+  })
+
+  it('follows the tier override: on scans the tag, off never asks', async () => {
+    const lib = repos.repos.upsert({ owner: 'kestrel-co', name: 'kestrel-lib' })
+    const desk = repos.repos.upsert({ owner: 'kestrel-co', name: 'kestrel-desk' })
+    repos.repos.setReleaseTier(lib.id, 'on')
+    repos.repos.setReleaseTier(desk.id, 'off')
+    await deployedOnlyScan()
+    expect(releaseRow('kestrel-lib')).toMatchObject({ state: 'open', releaseTag: 'v1.4.0' })
+    expect(world.lockfileReads).toContain('kestrel-lib@v1.4.0')
+    expect(world.releaseCalls.map((c) => c.repo)).not.toContain('kestrel-desk')
+    expect(world.lockfileReads.filter((r) => r.startsWith('kestrel-desk@'))).toEqual([])
+    expect(releaseStatus(repo('kestrel-desk'), false)).toBe('turned_off')
+  })
+
+  it('reads the repo list once a day and keeps the last one when a read fails', async () => {
+    await deployedOnlyScan()
+    world.lockfileReads = []
+    await deployedOnlyScan(new Date(AT.getTime() + DAY / 2))
+    expect(world.listCalls).toBe(1)
+    expect(world.lockfileReads).toContain('kestrel-desk@v2.3.0')
+
+    world.failList = true
+    world.lockfileReads = []
+    const summary = await deployedOnlyScan(new Date(AT.getTime() + DAY))
+    expect(world.listCalls).toBe(2)
+    expect(summary.errors).toContainEqual(
+      expect.objectContaining({ source: 'github', subject: 'kestrel-co repo list for releases' }),
+    )
+    expect(world.lockfileReads).toContain('kestrel-desk@v2.3.0')
+    expect(releaseRow('kestrel-desk')?.state).toBe('open')
+  })
+
+  it('adds nothing while account repos are scanned', async () => {
+    await scan()
+    // Only the deployments phase reads the list then.
+    expect(world.listCalls).toBe(1)
+    expect(repos.httpCache.get(releaseCandidatesCacheKey(githubSourceId))).toBeNull()
   })
 })
