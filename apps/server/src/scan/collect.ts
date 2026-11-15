@@ -11,7 +11,7 @@ import type { RuntimePinsRepository } from '../repository/index.js'
 import {
   dedupeDependencies,
   hasLockfileParser,
-  parseLockfile,
+  parseLockfileDetailed,
   scanDependencies,
 } from '../sources/osv/index.js'
 import { lockfileRef } from './deployments.js'
@@ -30,6 +30,11 @@ export interface OsvRepoResult {
   lockfiles: string[]
   /** Lockfiles found but not readable. */
   unparseable: { path: string; error: string }[]
+  /**
+   * requirements.txt files with lines that name no exact version, so those lines were not
+   * checked, with how many. Absent in hand-built scans.
+   */
+  unpinned?: { path: string; count: number }[]
   /** Every package of every lockfile read, with its lockfile; fills versions for GitHub alerts. */
   dependencies?: LockfileDependency[]
 }
@@ -94,20 +99,22 @@ function parseAll(files: Awaited<ReturnType<ScanSources['fetchLockfiles']>>) {
   const deps: LockfileDependency[] = []
   const lockfiles: string[] = []
   const unparseable: OsvRepoResult['unparseable'] = []
+  const unpinned: NonNullable<OsvRepoResult['unpinned']> = []
   for (const file of files) {
     // A format without a parser yet is not an error: it is left out of the scan.
     if (!hasLockfileParser(file.path)) continue
     try {
-      const parsed = parseLockfile(file.text, file.path, {
+      const parsed = parseLockfileDetailed(file.text, file.path, {
         ...(file.packageJson !== undefined && { packageJson: file.packageJson }),
       })
-      deps.push(...parsed.map((dep) => ({ ...dep, lockfile: file.path })))
+      deps.push(...parsed.dependencies.map((dep) => ({ ...dep, lockfile: file.path })))
+      if (parsed.unpinned > 0) unpinned.push({ path: file.path, count: parsed.unpinned })
       lockfiles.push(file.path)
     } catch (error) {
       unparseable.push({ path: file.path, error: errorMessage(error) })
     }
   }
-  return { all: deps, deps: dedupeDependencies(deps), lockfiles, unparseable }
+  return { all: deps, deps: dedupeDependencies(deps), lockfiles, unparseable, unpinned }
 }
 
 /** Reads the lockfiles of one repo and checks them against OSV.dev. Never throws. */
@@ -143,9 +150,9 @@ export async function scanLockfilesAt(
   sourceId: number | null,
 ): Promise<OsvRepoResult> {
   const files = await sources.fetchLockfiles(repo.owner, repo.name, ref, sourceId)
-  const { all, deps, lockfiles, unparseable } = parseAll(files)
+  const { all, deps, lockfiles, unparseable, unpinned } = parseAll(files)
   const matches = await scanDependencies(deps, osv.client)
-  return { matches, lockfiles, unparseable, dependencies: all }
+  return { matches, lockfiles, unparseable, unpinned, dependencies: all }
 }
 
 /**

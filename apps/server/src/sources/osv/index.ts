@@ -21,6 +21,7 @@ export {
   isLockfileName,
   LOCKFILE_NAMES,
   parseLockfile,
+  parseLockfileDetailed,
   UnsupportedLockfileError,
 } from './lockfiles/index.js'
 export type { LockfileName, ParseLockfileOptions } from './lockfiles/index.js'

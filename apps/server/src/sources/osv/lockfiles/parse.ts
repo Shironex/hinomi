@@ -6,7 +6,7 @@ import { parseComposerLock } from './composer.js'
 import { parseGemfileLock } from './gemfile.js'
 import { parsePackageLock } from './npm.js'
 import { parsePnpmLock } from './pnpm.js'
-import { parseRequirementsTxt } from './requirements.js'
+import { parseRequirementsTxtDetailed } from './requirements.js'
 import { parsePoetryLock, parseUvLock } from './python.js'
 import { parseYarnLock } from './yarn.js'
 
@@ -49,7 +49,17 @@ export function isLockfileName(name: string): name is LockfileName {
   return (LOCKFILE_NAMES as readonly string[]).includes(name)
 }
 
-type LockfileParser = (text: string, options: ParseLockfileOptions) => LockfileDependency[]
+/** What a lockfile parser returns: the packages, plus what the file listed that was not checked. */
+export interface ParsedLockfile {
+  dependencies: LockfileDependency[]
+  /** Lines of the file that name no exact version (requirements.txt only). */
+  unpinned: number
+}
+
+type LockfileParser = (
+  text: string,
+  options: ParseLockfileOptions,
+) => LockfileDependency[] | ParsedLockfile
 
 /**
  * One entry per lockfile name that has a parser. A name in `LOCKFILE_NAMES` without an entry
@@ -63,7 +73,12 @@ const PARSERS: Partial<Record<LockfileName, LockfileParser>> = {
   'yarn.lock': (text, options) => parseYarnLock(text, options.packageJson),
   'bun.lock': (text) => parseBunLock(text),
   'Cargo.lock': (text) => parseCargoLock(text),
-  'requirements.txt': (text, options) => parseRequirementsTxt(text, { filename: options.filename }),
+  'requirements.txt': (text, options) => {
+    const { dependencies, notChecked } = parseRequirementsTxtDetailed(text, {
+      filename: options.filename,
+    })
+    return { dependencies, unpinned: notChecked.unpinned }
+  },
   'go.mod': (text) => parseGoMod(text),
   'composer.lock': (text) => parseComposerLock(text),
   'uv.lock': (text) => parseUvLock(text),
@@ -77,14 +92,24 @@ export function hasLockfileParser(filename: string): boolean {
   return isLockfileName(name) && PARSERS[name] !== undefined
 }
 
+/** Parses a lockfile by its file name (a path is fine) into deduped dependencies and the unpinned count. */
+export function parseLockfileDetailed(
+  text: string,
+  filename: string,
+  options: ParseLockfileOptions = {},
+): ParsedLockfile {
+  const name = basename(filename)
+  const parser = isLockfileName(name) ? PARSERS[name] : undefined
+  if (!parser) throw new UnsupportedLockfileError(name)
+  const parsed = parser(text, { filename, ...options })
+  return Array.isArray(parsed) ? { dependencies: parsed, unpinned: 0 } : parsed
+}
+
 /** Parses a lockfile by its file name (a path is fine) into deduped dependencies. */
 export function parseLockfile(
   text: string,
   filename: string,
   options: ParseLockfileOptions = {},
 ): LockfileDependency[] {
-  const name = basename(filename)
-  const parser = isLockfileName(name) ? PARSERS[name] : undefined
-  if (!parser) throw new UnsupportedLockfileError(name)
-  return parser(text, { filename, ...options })
+  return parseLockfileDetailed(text, filename, options).dependencies
 }
