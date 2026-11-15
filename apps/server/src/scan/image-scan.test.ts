@@ -9,12 +9,8 @@ import {
   imageAdvisoryFindingKey,
   type Repositories,
 } from '../repository/index.js'
-import {
-  createCoolifyClient,
-  fetchResourceScan,
-  type ImageScanProbe,
-  type ResourceScanResult,
-} from '../sources/coolify/index.js'
+import { createCoolifyClient, fetchResourceScan } from '../sources/coolify/index.js'
+import type { ImageScanProbe, ResourceScanResult } from '../sources/deployments/index.js'
 import { applyCoverageNotes } from './blind-spots.js'
 import { indexDeployments } from './deployments.js'
 import { runImageScan } from './image-scan.js'

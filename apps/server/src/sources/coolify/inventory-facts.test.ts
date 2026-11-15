@@ -1,6 +1,7 @@
 import type { DeploymentFacts } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
-import { fetchCoolifyInventory, type CachedFacts } from './inventory.js'
+import type { CachedFacts } from '../deployments/types.js'
+import { fetchCoolifyInventory } from './inventory.js'
 
 // Facts reading on top of the inventory: which calls are made, and when stored facts are reused.
 

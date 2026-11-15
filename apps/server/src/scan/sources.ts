@@ -14,9 +14,8 @@ import {
   fetchResourceScan,
   probeImageScan,
   type CoolifyClient,
-  type ImageScanProbe,
-  type ResourceScanResult,
 } from '../sources/coolify/index.js'
+import type { ImageScanProbe, ResourceScanResult } from '../sources/deployments/index.js'
 import {
   createGithubSourceFromConfig,
   readRepoFile,

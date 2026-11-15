@@ -11,7 +11,7 @@ import {
   type Repositories,
 } from '../repository/index.js'
 import { mapLimit } from '../sources/osv/index.js'
-import type { ImageFinding, ResourceScan } from '../sources/coolify/index.js'
+import type { ImageFinding, ResourceScan } from '../sources/deployments/index.js'
 import { advisoryFromImage, saveAdvisory } from './advisories.js'
 import type { FindingChange } from './apply.js'
 import { errorMessage } from './collect.js'
