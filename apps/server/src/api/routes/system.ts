@@ -50,6 +50,7 @@ import {
   readSupportWindowDays,
   SUPPORT_WINDOW_KEY,
 } from '../../support/index.js'
+import { sourceNeedsToken } from '../../sources/deployments/index.js'
 import { readUpdateCheckEnabled, UPDATE_CHECK_KEY } from '../../version/index.js'
 import { latestPlans, tierOf, toFindingEvent, toFixItem, toScanRun } from '../serialize.js'
 
@@ -73,7 +74,7 @@ function behindSettings(repositories: Repositories) {
 function sourceHealth(source: Source): SourceHealth {
   const status: SourceHealth['status'] = !source.enabled
     ? 'disabled'
-    : source.kind !== 'osv' && !source.hasToken
+    : sourceNeedsToken(source.kind) && !source.hasToken
       ? 'missing_token'
       : source.lastError !== null
         ? 'error'

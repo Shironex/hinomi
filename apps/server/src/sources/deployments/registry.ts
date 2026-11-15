@@ -1,15 +1,18 @@
 import { isDeploymentSourceKind, type DeploymentSourceKind, type SourceKind } from '@hinomi/shared'
 import { coolifyDeploymentSource } from '../coolify/source.js'
+import { manualDeploymentSource } from '../manual/source.js'
 import type {
   CachedFacts,
   DeploymentSource,
   DeploymentSourceConfig,
   DeploymentSourceFactory,
+  StoredManualEntry,
 } from './types.js'
 
 /** Every kind of deployment source. A new source adds its factory here. */
 export const DEPLOYMENT_SOURCES: Record<DeploymentSourceKind, DeploymentSourceFactory> = {
   coolify: coolifyDeploymentSource,
+  manual: manualDeploymentSource,
 }
 
 /** The fields of a `sources` row that opening a deployment source reads. */
@@ -26,6 +29,8 @@ export interface DeploymentSourceStore {
   getToken(sourceId: number): string | null
   /** Facts stored for the source's deployments, by external id. */
   cachedFacts?(sourceId: number): ReadonlyMap<string, CachedFacts>
+  /** The entries of a manual list. */
+  manualEntries?(sourceId: number): StoredManualEntry[]
 }
 
 /**
@@ -37,6 +42,12 @@ export function isScannedDeploymentSource(
 ): boolean {
   if (!isDeploymentSourceKind(row.kind) || !row.enabled) return false
   return row.hasToken || !DEPLOYMENT_SOURCES[row.kind].needsToken
+}
+
+/** False for a source that connects with no token: OSV.dev and the deployment sources that need none. */
+export function sourceNeedsToken(kind: SourceKind): boolean {
+  if (kind === 'osv') return false
+  return !isDeploymentSourceKind(kind) || DEPLOYMENT_SOURCES[kind].needsToken
 }
 
 export type OpenDeploymentSourceOptions = Pick<DeploymentSourceConfig, 'timeoutMs' | 'fetch'>
@@ -70,6 +81,7 @@ export function openDeploymentSource(
     baseUrl: row.baseUrl,
     token: readToken,
     ...(store.cachedFacts && { cachedFacts: () => store.cachedFacts!(row.id) }),
+    ...(store.manualEntries && { manualEntries: () => store.manualEntries!(row.id) }),
     ...options,
   })
 }

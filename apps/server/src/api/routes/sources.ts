@@ -54,11 +54,12 @@ interface SourceShape {
   hasToken: boolean
 }
 
-/** What each kind needs: Coolify a URL and a token, GitHub a token, OSV neither. */
+/** What each kind needs: Coolify a URL and a token, GitHub a token, OSV and a manual list neither. */
 function checkShape({ kind, baseUrl, hasToken }: SourceShape): void {
-  if (kind === 'osv') {
+  if (kind === 'osv' || kind === 'manual') {
     if (baseUrl || hasToken) {
-      throw new HttpError(400, 'validation_failed', 'OSV takes no URL and no token')
+      const what = kind === 'osv' ? 'OSV' : 'A manual list'
+      throw new HttpError(400, 'validation_failed', `${what} takes no URL and no token`)
     }
     return
   }
@@ -133,7 +134,11 @@ async function runTest(
     return deps.testers.coolify({ baseUrl, token })
   }
   if (kind === 'github') return deps.testers.github({ baseUrl, token })
-  throw new HttpError(400, 'not_supported', 'OSV.dev needs no connection test')
+  throw new HttpError(400, 'not_supported', `${noTestReason(kind)} needs no connection test`)
+}
+
+function noTestReason(kind: SourceKind): string {
+  return kind === 'manual' ? 'A manual list' : 'OSV.dev'
 }
 
 /** Every source as the API serves it, with the repos and deployments it holds. */
@@ -278,8 +283,12 @@ export function sourcesRoutes(deps: ApiDeps) {
     const { id } = readParams(c, idParamSchema)
     const source = requireSource(repositories, id)
     await readJson(c, emptyBodySchema)
-    if (source.kind === 'osv') {
-      throw new HttpError(400, 'not_supported', 'OSV.dev needs no connection test')
+    if (source.kind === 'osv' || source.kind === 'manual') {
+      throw new HttpError(
+        400,
+        'not_supported',
+        `${noTestReason(source.kind)} needs no connection test`,
+      )
     }
     if (!source.hasToken) throw new HttpError(400, 'bad_request', 'This source has no token')
     const secret = repositories.sources.getToken(id)
