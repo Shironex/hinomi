@@ -78,6 +78,27 @@ describe('routes', () => {
     expect(topBar.getByRole('button', { name: 'Scan now' })).toBeEnabled()
   })
 
+  it('shows the needs action and running fix counts on the phone tab bar', async () => {
+    mockApi({
+      ...configuredRoutes(),
+      'GET /shell/nav-counts': {
+        needsAction: 267,
+        deployments: 12,
+        alerts: 4917,
+        activeFixRuns: 3,
+        guards: null,
+      },
+    })
+    await renderApp('/settings')
+    // The rail and the tab bar are both named Main; the tab bar comes last in the shell.
+    const tabs = screen.getAllByRole('navigation', { name: 'Main', hidden: true }).at(-1)!
+    const fixes = within(tabs).getByRole('link', { name: /Fixes/, hidden: true })
+    await waitFor(() => expect(fixes).toHaveTextContent('3'))
+    expect(within(tabs).getByRole('link', { name: /Exposure/, hidden: true })).toHaveTextContent(
+      '267',
+    )
+  })
+
   it('opens all keys from the key hint bar', async () => {
     // Settings is a split view; from 1100 px its detail pane holds the key bar.
     vi.stubGlobal('matchMedia', (query: string) => ({

@@ -122,7 +122,7 @@ export function AppShell() {
           </main>
           {split ? null : <KeyHintBar hints={PAGE_KEY_HINTS} className="sticky bottom-0 z-10" />}
         </div>
-        <MobileTabs current={meta.nav} needsAction={counts.needsAction} />
+        <MobileTabs current={meta.nav} counts={counts} />
         {dialogs}
       </div>
     </ShellContext.Provider>

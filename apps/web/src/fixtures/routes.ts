@@ -1,5 +1,10 @@
 import type { FindingGroup, FindingListItem, FindingsResponse, FindingTier } from '@hinomi/shared'
-import { DEFAULT_FIX_RUN_NOTIFY_EVENTS, FINDING_TIERS, releaseTierModeSchema } from '@hinomi/shared'
+import {
+  DEFAULT_FIX_RUN_NOTIFY_EVENTS,
+  FINDING_TIERS,
+  isFixRunTerminal,
+  releaseTierModeSchema,
+} from '@hinomi/shared'
 import {
   ACCESS,
   CHANNELS,
@@ -17,7 +22,7 @@ import {
 import { MANUAL_DEPLOYMENTS, MANUAL_SOURCE } from './manual'
 import { WEBHOOK_SECRET, isWebhookScenario, webhookFor, type WebhookScenario } from './webhook'
 import { guardNavCount, guardsResponseOf, overridesOf } from './guards'
-import { PLAN_REFS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
+import { PLAN_REFS, RUNS, planFor, planRefFor, runFor, runnerFor, runsFor } from './fix-runs'
 import { FIXTURE_VERSION, versionFor } from './version'
 import { repoDetailFor, setReleaseTier } from './repo-sources'
 import { windowsFor } from './repo-runtime'
@@ -239,7 +244,7 @@ export function fixtureRoute(
               needsAction: OVERVIEW.funnel.needsAction,
               deployments: DEPLOYMENTS.length,
               alerts: OVERVIEW.funnel.total,
-              activeFixRuns: null,
+              activeFixRuns: RUNS.filter((run) => !isFixRunTerminal(run.state)).length,
               guards: guardNavCount(FINDINGS),
             },
       )
