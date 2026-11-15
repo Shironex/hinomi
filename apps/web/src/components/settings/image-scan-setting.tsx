@@ -30,8 +30,9 @@ const MODE_NEEDS: Record<ImageScanMode, React.ReactNode> = {
   sbom: (
     <>
       Does the same, and for deployments Coolify does not scan reads the SBOM attestation of their
-      public registry images and matches it on OSV. An image with no attestation, or a private one,
-      gets a &ldquo;no image SBOM&rdquo; note.
+      registry images and matches it on OSV. A private image needs a registry credential below. An
+      image with no attestation, or a private one without a credential, gets a &ldquo;no image
+      SBOM&rdquo; note.
     </>
   ),
 }

@@ -192,6 +192,7 @@ export function configuredRoutes(): Record<string, unknown> {
       rustBehindReleases: 4,
       bunBehindReleases: 4,
     },
+    'GET /settings/registry-credentials': { items: [], canStoreSecrets: true },
     'GET /notifications/channels': { items: [] },
     'GET /notifications/settings': { publicBaseUrl: null, digestHour: 8 },
     'GET /deployments': { items: [deployment()] },

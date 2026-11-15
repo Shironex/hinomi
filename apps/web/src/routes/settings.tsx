@@ -19,6 +19,7 @@ import { AboutSection } from '@/components/settings/about-section'
 import { ChecksSection } from '@/components/settings/checks-section'
 import { MappingSection } from '@/components/settings/mapping-section'
 import { NotificationsSection } from '@/components/settings/notifications-section'
+import { RegistryCredentialsSection } from '@/components/settings/registry-credentials-section'
 import { ScansSection } from '@/components/settings/scans-section'
 import {
   useSectionSummaries,
@@ -136,6 +137,7 @@ function SectionDetail({
           intro="A scan reads Coolify and GitHub, then reranks. It never changes your servers or repos."
         >
           <ScansSection />
+          <RegistryCredentialsSection />
         </SettingsSection>
       )
     case 'checks':

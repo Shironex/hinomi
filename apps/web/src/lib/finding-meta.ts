@@ -226,7 +226,7 @@ export const COVERAGE_NOTE_INFO: Record<CoverageNoteType, GapInfo> = {
       ],
       [
         'Private image',
-        'Hinomi reads public images only. Use Coolify image scan results for private images.',
+        'Add a login for its registry under Settings, Scans, Registry credentials (a GHCR token needs read:packages). Coolify image scan results cover private images too.',
       ],
       ['Read failed', 'A network error or a rate limit is tried again on the next scan.'],
     ],
