@@ -5589,7 +5589,8 @@ const SOURCE_KINDS = [
 	"github",
 	"osv",
 	"manual",
-	"dokploy"
+	"dokploy",
+	"docker"
 ];
 const sourceKindSchema = _enum(SOURCE_KINDS);
 const SOURCE_AUTHS = ["token", "github_app"];
@@ -6012,7 +6013,11 @@ const factMountSchema = object({
 	service: string().nullable()
 });
 const factNetworkSchema = object({
-	origin: _enum(["run_options", "compose"]),
+	origin: _enum([
+		"run_options",
+		"compose",
+		"docker_inspect"
+	]),
 	name: string(),
 	service: string().nullable()
 });
@@ -6065,6 +6070,7 @@ const deploymentFactsSchema = object({
 	image: string().nullable(),
 	commit: string().nullable(),
 	user: string().nullable(),
+	userOrigin: _enum(["run_options", "docker_inspect"]).optional(),
 	services: array(factServiceSchema),
 	dockerfile: dockerfileFactSchema.nullable(),
 	mounts: array(factMountSchema),
@@ -6083,7 +6089,8 @@ const deploymentFactsSchema = object({
 const DEPLOYMENT_SOURCE_KINDS = [
 	"coolify",
 	"manual",
-	"dokploy"
+	"dokploy",
+	"docker"
 ];
 const deploymentSourceKindSchema = _enum(DEPLOYMENT_SOURCE_KINDS);
 const deploymentKindSchema = _enum([
@@ -6109,6 +6116,34 @@ const deploymentRecordSchema = object({
 	watchPaths: array(string()).nullable(),
 	facts: deploymentFactsSchema.nullable().optional(),
 	factsVersion: string().nullable().optional()
+});
+
+// ../../packages/shared/src/sources/docker.ts
+const DOCKER_TRANSPORTS = ["socket", "tls"];
+const dockerTransportSchema = _enum(DOCKER_TRANSPORTS);
+const socketPath = string().trim().min(1).max(300).regex(/^(\/[^\0\s]*|\\\\\.\\pipe\\[^\0\s\\]+)$/, "Must be an absolute socket path, for example /var/run/docker.sock");
+const certificate = string().trim().max(16e3).regex(/^(-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----\s*)+$/, "Must be a PEM certificate (-----BEGIN CERTIFICATE-----)");
+const clientKey = string().trim().max(16e3).regex(/^-----BEGIN ((RSA|EC) )?PRIVATE KEY-----[A-Za-z0-9+/=\s]+-----END ((RSA|EC) )?PRIVATE KEY-----$/, "Must be a PEM private key");
+const dockerSourceConfigSchema = object({
+	transport: dockerTransportSchema,
+	socketPath: socketPath.nullable(),
+	ca: certificate.nullable(),
+	cert: certificate.nullable(),
+	optIn: boolean()
+});
+const dockerSourceInputSchema = strictObject({
+	transport: dockerTransportSchema,
+	socketPath: socketPath.optional(),
+	ca: certificate.nullable().optional(),
+	cert: certificate.nullable().optional(),
+	key: clientKey.nullable().optional(),
+	optIn: boolean().optional()
+}).refine((value) => value.transport !== "socket" || value.socketPath !== void 0, {
+	message: "A socket connection needs the socket path",
+	path: ["socketPath"]
+}).refine((value) => value.transport !== "socket" || value.ca == null && value.cert == null && value.key == null, {
+	message: "Certificates only apply to a TLS connection",
+	path: ["transport"]
 });
 
 // ../../packages/shared/src/sources/github.ts
@@ -6558,6 +6593,7 @@ const sourceSchema = object({
 	lastError: string().nullable(),
 	repoCount: number$1().int().nonnegative(),
 	deploymentCount: number$1().int().nonnegative(),
+	docker: dockerSourceConfigSchema.nullable().optional(),
 	createdAt: isoDate$5,
 	updatedAt: isoDate$5
 });
@@ -6580,7 +6616,8 @@ const createSourceRequestSchema = strictObject({
 	auth: sourceAuthSchema.optional(),
 	appId: appId.optional(),
 	installationId: installationId.optional(),
-	privateKey: privateKey.optional()
+	privateKey: privateKey.optional(),
+	docker: dockerSourceInputSchema.optional()
 });
 const updateSourceRequestSchema = strictObject({
 	name: sourceName.optional(),
@@ -6590,7 +6627,8 @@ const updateSourceRequestSchema = strictObject({
 	auth: sourceAuthSchema.optional(),
 	appId: appId.optional(),
 	installationId: installationId.optional(),
-	privateKey: privateKey.optional()
+	privateKey: privateKey.optional(),
+	docker: dockerSourceInputSchema.optional()
 }).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 const testTokenRequestSchema = strictObject({
 	kind: _enum([
@@ -6610,7 +6648,12 @@ const testGithubAppRequestSchema = strictObject({
 	installationId,
 	privateKey
 });
-const testSourceRequestSchema = discriminatedUnion("auth", [testTokenRequestSchema, testGithubAppRequestSchema]);
+const testDockerRequestSchema = strictObject({
+	kind: literal("docker"),
+	baseUrl: httpUrl.nullable().optional(),
+	docker: dockerSourceInputSchema
+});
+const testSourceRequestSchema = union([discriminatedUnion("auth", [testTokenRequestSchema, testGithubAppRequestSchema]), testDockerRequestSchema]);
 const sourceTestResultSchema = discriminatedUnion("ok", [object({
 	ok: literal(true),
 	message: string(),
@@ -6620,7 +6663,8 @@ const sourceTestResultSchema = discriminatedUnion("ok", [object({
 	account: string().optional(),
 	repositorySelection: _enum(["all", "selected"]).optional(),
 	repoCount: number$1().int().optional(),
-	missingPermissions: array(string()).optional()
+	missingPermissions: array(string()).optional(),
+	warning: string().optional()
 }), object({
 	ok: literal(false),
 	code: string(),

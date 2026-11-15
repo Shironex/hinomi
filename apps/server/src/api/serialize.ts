@@ -1,4 +1,5 @@
 import {
+  readDockerSourceConfig,
   FINDING_TIERS,
   GUARD_COPY,
   guardEvidenceSchema,
@@ -240,6 +241,7 @@ export function toSourceDto(source: Source, counts: SourceCounts): SourceDto {
     lastError: source.lastError,
     repoCount: counts.repoCount,
     deploymentCount: counts.deploymentCount,
+    ...(source.kind === 'docker' && { docker: readDockerSourceConfig(source.config) }),
     createdAt: iso(source.createdAt),
     updatedAt: iso(source.updatedAt),
   }

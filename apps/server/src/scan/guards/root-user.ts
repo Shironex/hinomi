@@ -50,12 +50,13 @@ function userResult(value: string): GuardResult {
 
 const UNRESOLVED = (value: string) => `the user "${value}" uses a variable with no default value`
 
-function runOptionsVerdict(user: string): Verdict {
+/** The user from the run options, or the running user from Docker inspect (authoritative). */
+function userVerdict(user: string, source: 'run_options' | 'docker_inspect'): Verdict {
   const result = userResult(user)
   return {
     result,
     evidence: evidence({
-      source: 'run_options',
+      source,
       user,
       reason: result === 'unknown' ? UNRESOLVED(user) : null,
     }),
@@ -202,7 +203,7 @@ async function verdictOf(ctx: GuardContext, deployment: DeploymentRow): Promise<
       evidence: evidence({ reason: 'The source has not reported this deployment yet.' }),
     }
   }
-  if (facts.user !== null) return runOptionsVerdict(facts.user)
+  if (facts.user !== null) return userVerdict(facts.user, facts.userOrigin ?? 'run_options')
   if (facts.services.length > 0) return composeVerdict(facts.services)
   if (facts.dockerfile?.inline) {
     return dockerfileVerdict(facts.dockerfile.inline, { path: null, commit: null })

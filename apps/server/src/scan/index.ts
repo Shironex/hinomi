@@ -23,7 +23,7 @@ export {
   releaseStatus,
   RELEASE_CHECK_INTERVAL_MS,
 } from './releases.js'
-export { buildScanSources } from './sources.js'
+export { buildScanSources, isScannedDeploymentSource } from './sources.js'
 export type {
   BuildScanSourcesOptions,
   DeploymentSource,

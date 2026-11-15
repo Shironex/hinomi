@@ -1,0 +1,61 @@
+[
+  {
+    "Id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Names": ["/kestrel-api"],
+    "Image": "ghcr.io/kestrel-co/kestrel-api:1.4.2",
+    "Labels": {
+      "hinomi.enable": "true"
+    },
+    "State": "running",
+    "Created": 1762000000
+  },
+  {
+    "Id": "b1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "Names": ["/kestrel-shop-web-1"],
+    "Image": "kestrel-shop-web",
+    "Labels": {
+      "hinomi.enable": "true",
+      "com.docker.compose.project": "kestrel-shop",
+      "com.docker.compose.service": "web"
+    },
+    "State": "running",
+    "Created": 1762000100
+  },
+  {
+    "Id": "c2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "Names": ["/kestrel-shop-web-2"],
+    "Image": "kestrel-shop-web",
+    "Labels": {
+      "hinomi.enable": "true",
+      "com.docker.compose.project": "kestrel-shop",
+      "com.docker.compose.service": "web"
+    },
+    "State": "exited",
+    "Created": 1762000200
+  },
+  {
+    "Id": "d3dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "Names": ["/kestrel-blog"],
+    "Image": "nginx:1.27",
+    "Labels": {
+      "hinomi.enable": "true"
+    },
+    "State": "running",
+    "Created": 1762000300
+  },
+  {
+    "Id": "e4eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "Names": ["/hinomi"],
+    "Image": "ghcr.io/example/hinomi:0.3.0",
+    "Labels": {
+      "hinomi.enable": "true"
+    },
+    "State": "running",
+    "Created": 1762000400
+  },
+  {
+    "Id": "not-an-id",
+    "Names": ["/odd"],
+    "Labels": {}
+  }
+]

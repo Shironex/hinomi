@@ -28,6 +28,8 @@ export interface Source {
   lastOkAt: Date | null
   lastErrorAt: Date | null
   lastError: string | null
+  /** Kind specific settings that are not secrets (Docker: socket path, certificates, opt in). */
+  config: Record<string, unknown> | null
   createdAt: Date
   updatedAt: Date
 }
@@ -45,6 +47,7 @@ export interface CreateSourceInput {
   auth?: SourceAuth
   appId?: string | null
   installationId?: string | null
+  config?: Record<string, unknown> | null
 }
 
 export interface UpdateSourceInput {
@@ -54,6 +57,7 @@ export interface UpdateSourceInput {
   auth?: SourceAuth
   appId?: string | null
   installationId?: string | null
+  config?: Record<string, unknown> | null
 }
 
 export function toSource(row: SourceRow): Source {
@@ -70,6 +74,7 @@ export function toSource(row: SourceRow): Source {
     lastOkAt: row.lastOkAt,
     lastErrorAt: row.lastErrorAt,
     lastError: row.lastError,
+    config: row.config ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -126,6 +131,7 @@ export function createSourcesRepository(db: Db, secretBox: SecretBox | null) {
           auth: input.auth ?? 'token',
           appId: input.appId ?? null,
           installationId: input.installationId ?? null,
+          config: input.config ?? null,
         })
         .returning()
         .get()

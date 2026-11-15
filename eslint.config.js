@@ -31,6 +31,7 @@ const ERROR_TAXONOMY = [
   'ConnectionTestFailed',
   'CoolifyError',
   'DokployError',
+  'DockerError',
   'FindingTransitionError',
   'FixRunnerError',
   'FixPayloadError',

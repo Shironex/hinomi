@@ -24,6 +24,7 @@ describe('deployment source kinds', () => {
   it('tells deployment sources from the others', () => {
     expect(isDeploymentSourceKind('coolify')).toBe(true)
     expect(isDeploymentSourceKind('dokploy')).toBe(true)
+    expect(isDeploymentSourceKind('docker')).toBe(true)
     expect(isDeploymentSourceKind('github')).toBe(false)
     expect(isDeploymentSourceKind('osv')).toBe(false)
   })
@@ -34,19 +35,29 @@ describe('deploymentGuardCapabilities', () => {
     expect(deploymentGuardCapabilities('root_user')).toEqual({
       coolify: 'partial',
       manual: 'unknown',
+      docker: 'full',
     })
     expect(deploymentGuardCapabilities('docker_socket')).toEqual({
       coolify: 'partial',
       manual: 'unknown',
+      docker: 'full',
     })
     expect(deploymentGuardCapabilities('shared_network')).toEqual({
       coolify: 'partial',
       manual: 'unknown',
+      docker: 'full',
     })
     expect(deploymentGuardCapabilities('watch_paths_skip')).toEqual({
       coolify: 'full',
       manual: 'unknown',
     })
+  })
+
+  it('answers the container checks in full for a Docker host, watch paths not at all', () => {
+    for (const check of ['root_user', 'docker_socket', 'shared_network'] as const) {
+      expect(deploymentGuardCapabilities(check).docker).toBe('full')
+    }
+    expect(deploymentGuardCapabilities('watch_paths_skip').docker).toBeUndefined()
   })
 
   it('answers nothing for checks that read the repo, not the container', () => {

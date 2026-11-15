@@ -2,6 +2,7 @@ import type { SourceHealth } from '@hinomi/shared'
 import { Link } from '@tanstack/react-router'
 import {
   IconAlertTriangle,
+  IconBrandDocker,
   IconBrandGithub,
   IconCheck,
   IconDatabase,
@@ -22,6 +23,7 @@ const KIND: Record<SourceHealth['kind'], { icon: Icon; label: string }> = {
   osv: { icon: IconDatabase, label: 'OSV.dev lockfile scan' },
   manual: { icon: IconListDetails, label: 'Manual list' },
   dokploy: { icon: IconServerBolt, label: 'Dokploy' },
+  docker: { icon: IconBrandDocker, label: 'Docker host' },
 }
 
 function statusBadge(source: SourceHealth) {

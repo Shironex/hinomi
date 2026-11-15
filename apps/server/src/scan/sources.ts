@@ -31,6 +31,7 @@ import { createImageSbomReader, type ImageSbomReader } from '../sources/registry
 import { readScanSettings, type ScanSettings } from './settings.js'
 
 export type { DeploymentSource, ImageSbomReader, ImageScanReader }
+export { isScannedDeploymentSource }
 
 export interface GithubScanSource {
   sourceId: number

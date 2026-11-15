@@ -24,6 +24,7 @@ import {
 } from './guards.js'
 import { releaseTierModeSchema } from './releases.js'
 import { deploymentKindSchema } from './sources/deployment.js'
+import { dockerSourceConfigSchema, dockerSourceInputSchema } from './sources/docker.js'
 import { severitySchema } from './sources/github.js'
 import { advisorySeveritySchema } from './sources/osv.js'
 import { nowMs } from './clock.js'
@@ -320,6 +321,8 @@ export const sourceSchema = z.object({
   repoCount: z.number().int().nonnegative(),
   /** Coolify: the deployments this source reports (removed with it). 0 for other kinds. */
   deploymentCount: z.number().int().nonnegative(),
+  /** Docker: how Hinomi reaches the Engine API (`hasToken` says whether a client key is stored). */
+  docker: dockerSourceConfigSchema.nullable().optional(),
   createdAt: isoDate,
   updatedAt: isoDate,
 })
@@ -374,6 +377,8 @@ export const createSourceRequestSchema = z.strictObject({
   appId: appId.optional(),
   installationId: installationId.optional(),
   privateKey: privateKey.optional(),
+  /** Docker only, required there: the socket or the https endpoint (`baseUrl`) and TLS material. */
+  docker: dockerSourceInputSchema.optional(),
 })
 export type CreateSourceRequest = z.infer<typeof createSourceRequestSchema>
 
@@ -390,6 +395,8 @@ export const updateSourceRequestSchema = z
     installationId: installationId.optional(),
     /** A new private key replaces the stored one. */
     privateKey: privateKey.optional(),
+    /** Docker only: replaces how Hinomi connects (a missing `key` keeps the stored one). */
+    docker: dockerSourceInputSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateSourceRequest = z.infer<typeof updateSourceRequestSchema>
@@ -412,10 +419,17 @@ export const testGithubAppRequestSchema = z.strictObject({
   privateKey,
 })
 
+/** Test a Docker connection before saving it. `baseUrl` is the https endpoint for TLS. */
+export const testDockerRequestSchema = z.strictObject({
+  kind: z.literal('docker'),
+  baseUrl: httpUrl.nullable().optional(),
+  docker: dockerSourceInputSchema,
+})
+
 /** Test credentials before saving them (onboarding). */
-export const testSourceRequestSchema = z.discriminatedUnion('auth', [
-  testTokenRequestSchema,
-  testGithubAppRequestSchema,
+export const testSourceRequestSchema = z.union([
+  z.discriminatedUnion('auth', [testTokenRequestSchema, testGithubAppRequestSchema]),
+  testDockerRequestSchema,
 ])
 export type TestSourceRequest = z.infer<typeof testSourceRequestSchema>
 
@@ -438,6 +452,8 @@ export const sourceTestResultSchema = z.discriminatedUnion('ok', [
     repoCount: z.number().int().optional(),
     /** GitHub App: permissions Hinomi needs that the installation lacks, like `dependabot_alerts`. */
     missingPermissions: z.array(z.string()).optional(),
+    /** Connected, but with a caveat to show next to the message (Docker: more than GET access). */
+    warning: z.string().optional(),
   }),
   z.object({ ok: z.literal(false), code: z.string(), message: z.string() }),
 ])

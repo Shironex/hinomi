@@ -2,6 +2,7 @@ import { isDeploymentSourceKind, type DeploymentSourceKind, type SourceKind } fr
 import { coolifyDeploymentSource } from '../coolify/source.js'
 import { manualDeploymentSource } from '../manual/source.js'
 import { dokployDeploymentSource } from '../dokploy/source.js'
+import { dockerDeploymentSource } from '../docker/source.js'
 import type {
   CachedFacts,
   DeploymentSource,
@@ -15,6 +16,7 @@ export const DEPLOYMENT_SOURCES: Record<DeploymentSourceKind, DeploymentSourceFa
   coolify: coolifyDeploymentSource,
   manual: manualDeploymentSource,
   dokploy: dokployDeploymentSource,
+  docker: dockerDeploymentSource,
 }
 
 /** The fields of a `sources` row that opening a deployment source reads. */
@@ -23,6 +25,8 @@ export interface DeploymentSourceRow {
   kind: SourceKind
   name: string
   baseUrl: string | null
+  /** Kind specific settings (`sources.config`); absent or null when none. */
+  config?: Record<string, unknown> | null
 }
 
 /** Where the credential and the stored facts of a source come from (the repositories). */
@@ -81,6 +85,7 @@ export function openDeploymentSource(
     sourceId: row.id,
     name: row.name,
     baseUrl: row.baseUrl,
+    config: row.config ?? null,
     token: readToken,
     ...(store.cachedFacts && { cachedFacts: () => store.cachedFacts!(row.id) }),
     ...(store.manualEntries && { manualEntries: () => store.manualEntries!(row.id) }),

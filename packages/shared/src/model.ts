@@ -5,7 +5,7 @@ import { z } from 'zod'
 // The tuples are exported too, for drizzle column enums. Advisory severity
 // lives in sources/osv.ts (advisorySeveritySchema), shared by both sources.
 
-export const SOURCE_KINDS = ['coolify', 'github', 'osv', 'manual', 'dokploy'] as const
+export const SOURCE_KINDS = ['coolify', 'github', 'osv', 'manual', 'dokploy', 'docker'] as const
 export const sourceKindSchema = z.enum(SOURCE_KINDS)
 export type SourceKind = z.infer<typeof sourceKindSchema>
 

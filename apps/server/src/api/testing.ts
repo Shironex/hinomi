@@ -135,6 +135,9 @@ export function createTestApi({
     dokploy: vi.fn((): Promise<SourceTestResult> =>
       Promise.resolve({ ok: true, message: 'Connected to Dokploy, 2 projects visible' }),
     ),
+    docker: vi.fn((): Promise<SourceTestResult> =>
+      Promise.resolve({ ok: true, message: 'Connected to Docker 27.3.1, 2 containers' }),
+    ),
     github: vi.fn((): Promise<SourceTestResult> =>
       Promise.resolve({ ok: true, message: 'Connected as kestrel-bot', login: 'kestrel-bot' }),
     ),

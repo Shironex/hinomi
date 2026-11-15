@@ -1,0 +1,40 @@
+{
+  "Id": "c2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "Name": "/kestrel-shop-web-2",
+  "Created": "2026-11-01T09:59:00.000000000Z",
+  "State": {
+    "Status": "exited",
+    "Running": false,
+    "StartedAt": "0001-01-01T00:00:00Z"
+  },
+  "Config": {
+    "User": "",
+    "Image": "kestrel-shop-web",
+    "Labels": {
+      "hinomi.enable": "true",
+      "com.docker.compose.project": "kestrel-shop",
+      "com.docker.compose.service": "web"
+    },
+    "Env": ["KESTREL_FIXTURE_ENV=env-must-not-leak", "PATH=/usr/local/bin"],
+    "Cmd": ["node", "server.js"]
+  },
+  "HostConfig": {
+    "Binds": null,
+    "Privileged": false,
+    "NetworkMode": "bridge"
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/srv/kestrel-shop/uploads",
+      "Destination": "/app/uploads",
+      "RW": true
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "kestrel-shop_default": {}
+    },
+    "Ports": {}
+  }
+}

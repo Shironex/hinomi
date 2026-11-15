@@ -71,6 +71,7 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   osv: 'OSV.dev',
   manual: 'Manual list',
   dokploy: 'Dokploy',
+  docker: 'Docker host',
 }
 
 const CONTAINER_SOURCE: Record<ContainerSignalSource, string> = {

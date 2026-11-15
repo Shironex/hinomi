@@ -1,0 +1,37 @@
+{
+  "Id": "d3dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "Name": "/kestrel-blog",
+  "Created": "2026-11-01T09:59:00.000000000Z",
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "StartedAt": "2026-11-01T10:00:00.000000000Z"
+  },
+  "Config": {
+    "User": "0:0",
+    "Image": "nginx:1.27",
+    "Labels": {
+      "hinomi.enable": "true",
+      "hinomi.project": "kestrel-blog"
+    },
+    "Env": ["KESTREL_FIXTURE_ENV=env-must-not-leak", "PATH=/usr/local/bin"],
+    "Cmd": ["node", "server.js"]
+  },
+  "HostConfig": {
+    "Binds": null,
+    "Privileged": true,
+    "NetworkMode": "host"
+  },
+  "Mounts": [],
+  "NetworkSettings": {
+    "Networks": {},
+    "Ports": {
+      "80/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "8080"
+        }
+      ]
+    }
+  }
+}

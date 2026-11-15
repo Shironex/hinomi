@@ -42,7 +42,8 @@ export type FactMount = z.infer<typeof factMountSchema>
 
 /** A named network outside the platform's own grouping (what links resources across projects). */
 export const factNetworkSchema = z.object({
-  origin: z.enum(['run_options', 'compose']),
+  /** `docker_inspect`: a network the running container is attached to. */
+  origin: z.enum(['run_options', 'compose', 'docker_inspect']),
   /** The real network name (compose `name:` or the external name). */
   name: z.string(),
   service: z.string().nullable(),
@@ -127,8 +128,13 @@ export const deploymentFactsSchema = z.object({
   image: z.string().nullable(),
   /** Deployed commit when the source has a full 40 character sha, else null (read the branch). */
   commit: z.string().nullable(),
-  /** `--user` from the run options: wins over compose and the Dockerfile. Null when not set. */
+  /**
+   * `--user` from the run options, or the running user from Docker inspect (`""` there means
+   * root): wins over compose and the Dockerfile. Null when not set.
+   */
   user: z.string().nullable(),
+  /** Where `user` was read. Absent on facts stored before it existed: the run options. */
+  userOrigin: z.enum(['run_options', 'docker_inspect']).optional(),
   /** Compose services, empty for other build packs. */
   services: z.array(factServiceSchema),
   /** Dockerfile build pack only, null otherwise. */
@@ -182,4 +188,28 @@ export const COOLIFY_GUARD_CAPABILITIES: Partial<Record<GuardCheck, GuardCapabil
   docker_socket: 'partial',
   shared_network: 'partial',
   watch_paths_skip: 'full',
+}
+
+/**
+ * Facts a Docker host source can report. Inspect gives the running values; a Docker host has
+ * no build pack, Dockerfile, destination, auto deploy or watch paths.
+ */
+export const DOCKER_FACTS: ReadonlySet<FactKey> = new Set<FactKey>([
+  'user',
+  'mounts',
+  'networks',
+  'privileged',
+  'image',
+  'project',
+])
+
+/**
+ * The container checks a Docker host answers in full: `Config.User`, `Mounts` and
+ * `HostConfig.Binds`, and `NetworkSettings.Networks` are the running values. Watch paths are
+ * not answered (Docker has no such concept).
+ */
+export const DOCKER_GUARD_CAPABILITIES: Partial<Record<GuardCheck, GuardCapability>> = {
+  root_user: 'full',
+  docker_socket: 'full',
+  shared_network: 'full',
 }

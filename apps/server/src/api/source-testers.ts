@@ -1,6 +1,12 @@
-import type { SourceTestResult } from '@hinomi/shared'
+import { DOCKER_OPT_IN_LABEL, type DockerSourceConfig, type SourceTestResult } from '@hinomi/shared'
 import { testCoolifyConnection } from '../sources/coolify/index.js'
 import { testDokployConnection } from '../sources/dokploy/index.js'
+import {
+  createDockerTransport,
+  dockerEndpointOf,
+  isDockerError,
+  testDockerConnection,
+} from '../sources/docker/index.js'
 import {
   createGithubAppSource,
   createGithubSource,
@@ -29,10 +35,19 @@ export interface TestGithubAppInput {
   privateKey: string
 }
 
+export interface TestDockerInput {
+  config: DockerSourceConfig
+  /** The https endpoint for a TLS connection, null for a socket. */
+  baseUrl: string | null
+  /** The client key, null when no client certificate is used. */
+  key: string | null
+}
+
 /** Connection checks for the settings and onboarding screens. Never echo a secret. */
 export interface SourceTesters {
   coolify(input: TestCoolifyInput): Promise<SourceTestResult>
   dokploy(input: TestDokployInput): Promise<SourceTestResult>
+  docker(input: TestDockerInput): Promise<SourceTestResult>
   github(input: TestGithubInput): Promise<SourceTestResult>
   githubApp(input: TestGithubAppInput): Promise<SourceTestResult>
 }
@@ -84,6 +99,30 @@ export function createSourceTesters(options: { fetch?: typeof fetch } = {}): Sou
         ok: true,
         message: `Connected to ${where}, ${plural(result.projects, 'project')} visible`,
         version: result.version,
+      }
+    },
+
+    async docker({ config, baseUrl, key }) {
+      let transport
+      try {
+        transport = createDockerTransport(
+          dockerEndpointOf(config, baseUrl, () => key),
+          { timeoutMs: TEST_TIMEOUT_MS },
+        )
+      } catch (error) {
+        if (isDockerError(error)) return { ok: false, code: error.code, message: error.message }
+        throw error
+      }
+      const result = await testDockerConnection(transport, config.optIn)
+      if (!result.ok) return result
+      const what = config.optIn
+        ? `${plural(result.containers, 'container')} labelled ${DOCKER_OPT_IN_LABEL}=true`
+        : plural(result.containers, 'container')
+      return {
+        ok: true,
+        message: `Connected to Docker${result.version ? ` ${result.version}` : ''}, ${what}`,
+        version: result.version,
+        ...(result.warning && { warning: result.warning }),
       }
     },
 
