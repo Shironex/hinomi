@@ -18,6 +18,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Field } from '@/components/form/field'
 import { SegmentedChoice, type SegmentedOption } from '@/components/form/segmented-choice'
 import { GithubTokenHelp } from '@/components/onboarding/github-token-help'
+import { ManualSourceRows } from './manual-source-rows'
 import { SecretKeyCallout } from '@/components/sources/secret-key-callout'
 import { SourceConnectForm, type ConnectableKind } from '@/components/sources/source-connect-form'
 import { ErrorState } from '@/components/states/error-state'
@@ -100,6 +101,7 @@ export function SourcesSection() {
             />
           ))
         })}
+        <ManualSourceRows sources={sources.data.sources.filter((s) => s.kind === 'manual')} />
         <OsvRow />
       </SetBox>
       {adding ? (
