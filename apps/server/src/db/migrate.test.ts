@@ -17,6 +17,7 @@ const TABLES = [
   'fix_plans',
   'fix_runs',
   'http_cache',
+  'registry_credentials',
   'repo_sources',
   'repos',
   'runtime_pins',
