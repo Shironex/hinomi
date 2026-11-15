@@ -13,7 +13,7 @@ import {
   type GithubClient,
   type GithubCompareStatus,
 } from '../sources/github/index.js'
-import { readAppDeploys } from './coolify.js'
+import { readAppDeploys } from './deploys.js'
 import {
   afterMergeExpectation,
   deploysOtherBranch,

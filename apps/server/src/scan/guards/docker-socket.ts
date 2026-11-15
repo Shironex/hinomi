@@ -1,4 +1,5 @@
 import {
+  deploymentGuardCapabilities,
   isDockerSocketPath,
   type DockerSocketEvidence,
   type FactMount,
@@ -23,7 +24,8 @@ function socketMounts(mounts: readonly FactMount[]): SocketMount[] {
 
 export const dockerSocketGuard: Guard = {
   check: 'docker_socket',
-  capabilities: { coolify: 'partial' },
+  // What each deployment source can answer, as the sources declare it.
+  capabilities: deploymentGuardCapabilities('docker_socket'),
   run(ctx) {
     const results: GuardSubjectResult[] = []
     for (const deployment of ctx.deployments) {
