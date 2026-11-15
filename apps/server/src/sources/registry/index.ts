@@ -1,6 +1,7 @@
 export {
   authHostAllowed,
   createRegistryClient,
+  credentialHostAllowed,
   MANIFEST_MEDIA_TYPES,
   RegistryError,
   verifyDigest,
@@ -10,6 +11,7 @@ export type {
   RegistryClient,
   RegistryClientOptions,
   RegistryErrorCode,
+  RegistryLogin,
 } from './client.js'
 export { imagePackageOf, parsePurl } from './purl.js'
 export type { ImagePackage, Purl } from './purl.js'

@@ -25,7 +25,8 @@ export interface RegistryTarget {
 /** The registry target of a parsed image reference; null when the host is not a plain host. */
 export function registryTarget(ref: ImageRef): RegistryTarget | null {
   const hub = ref.registry === null || DOCKER_HUB_NAMES.has(ref.registry.toLowerCase())
-  const host = hub ? DOCKER_HUB_API_HOST : ref.registry!.toLowerCase()
+  // `:443` is the https default: drop it so the host matches the URL and a stored credential.
+  const host = hub ? DOCKER_HUB_API_HOST : ref.registry!.toLowerCase().replace(/:443$/, '')
   if (!HOST.test(host)) return null
   const repository =
     hub && !ref.repository.includes('/') ? `library/${ref.repository}` : ref.repository
