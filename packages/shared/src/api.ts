@@ -1419,7 +1419,7 @@ export const settingsSchema = z.object({
   updateCheckEnabled: z.boolean(),
   /** Days before end of life at which a support window turns to a warning. */
   supportWindowDays: z.number().int().min(SUPPORT_WINDOW_MIN_DAYS).max(SUPPORT_WINDOW_MAX_DAYS),
-  /** Image scan of image only deployments: `off` (default) or `coolify` (Coolify's own results). */
+  /** Image scan of image only deployments: `off` (default), `coolify` (Coolify's own results) or `sbom` (plus registry SBOMs). */
   imageScan: imageScanModeSchema,
   /** Rust: a pinned toolchain warns once it is more than this many stable releases behind. */
   rustBehindReleases: behindReleases,
