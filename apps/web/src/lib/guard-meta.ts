@@ -70,6 +70,7 @@ export const SOURCE_KIND_LABEL: Record<SourceKind, string> = {
   github: 'GitHub',
   osv: 'OSV.dev',
   manual: 'Manual list',
+  dokploy: 'Dokploy',
 }
 
 const CONTAINER_SOURCE: Record<ContainerSignalSource, string> = {

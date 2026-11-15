@@ -5588,7 +5588,8 @@ const SOURCE_KINDS = [
 	"coolify",
 	"github",
 	"osv",
-	"manual"
+	"manual",
+	"dokploy"
 ];
 const sourceKindSchema = _enum(SOURCE_KINDS);
 const SOURCE_AUTHS = ["token", "github_app"];
@@ -6079,7 +6080,11 @@ const deploymentFactsSchema = object({
 });
 
 // ../../packages/shared/src/sources/deployment.ts
-const DEPLOYMENT_SOURCE_KINDS = ["coolify", "manual"];
+const DEPLOYMENT_SOURCE_KINDS = [
+	"coolify",
+	"manual",
+	"dokploy"
+];
 const deploymentSourceKindSchema = _enum(DEPLOYMENT_SOURCE_KINDS);
 const deploymentKindSchema = _enum([
 	"application",
@@ -6588,7 +6593,11 @@ const updateSourceRequestSchema = strictObject({
 	privateKey: privateKey.optional()
 }).refine((value) => Object.keys(value).length > 0, "Nothing to update");
 const testTokenRequestSchema = strictObject({
-	kind: _enum(["coolify", "github"]),
+	kind: _enum([
+		"coolify",
+		"github",
+		"dokploy"
+	]),
 	auth: literal("token").optional(),
 	baseUrl: httpUrl.nullable().optional(),
 	token

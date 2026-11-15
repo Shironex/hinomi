@@ -1,0 +1,23 @@
+{
+  "composeId": "cmp-docs-0001",
+  "name": "docs",
+  "env": "SEARCH_KEY=FAKE-SECRET-compose-env",
+  "composeFile": "services:\n  web:\n    environment:\n      ADMIN_PASSWORD: FAKE-SECRET-compose-file\n",
+  "refreshToken": "FAKE-SECRET-compose-refresh-token",
+  "sourceType": "gitlab",
+  "composeType": "docker-compose",
+  "gitlabOwner": "kestrel-co",
+  "gitlabRepository": "docs",
+  "gitlabPathNamespace": "kestrel-co/docs",
+  "gitlabBranch": "main",
+  "gitlab": {
+    "gitlabId": "gl-1",
+    "name": "gitlab",
+    "accessToken": "FAKE-SECRET-gitlab-access",
+    "secret": "FAKE-SECRET-gitlab-secret"
+  },
+  "composeStatus": "done",
+  "createdAt": "2026-10-04T10:00:00.000Z",
+  "server": { "name": "edge-1" },
+  "domains": [{ "host": "docs.example.dev", "https": true, "path": "/", "serviceName": "web" }]
+}

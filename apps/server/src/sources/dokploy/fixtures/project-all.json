@@ -1,0 +1,53 @@
+[
+  {
+    "projectId": "prj-kestrel-0001",
+    "name": "kestrel",
+    "description": "",
+    "createdAt": "2026-10-01T09:00:00.000Z",
+    "env": "SHARED_DSN=postgres://app:FAKE-SECRET-project-env@db.example.dev/app",
+    "environments": [
+      {
+        "environmentId": "env-prod-0001",
+        "name": "production",
+        "isDefault": true,
+        "applications": [
+          { "applicationId": "app-harbor-0001", "name": "harbor", "applicationStatus": "done" },
+          { "applicationId": "app-proxy-0002", "name": "image-proxy", "applicationStatus": "done" }
+        ],
+        "compose": [
+          { "composeId": "cmp-docs-0001", "name": "docs", "composeStatus": "done" },
+          { "composeId": "cmp-gone-0002", "name": "removed-meanwhile", "composeStatus": "idle" }
+        ],
+        "mysql": [
+          {
+            "mysqlId": "mysql-0001",
+            "name": "mysql",
+            "databaseUser": "mysql",
+            "databasePassword": "FAKE-SECRET-mysql-password",
+            "databaseRootPassword": "FAKE-SECRET-mysql-root-password",
+            "dockerImage": "mysql:8"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "projectId": "prj-legacy-0002",
+    "name": "lantern",
+    "description": "",
+    "createdAt": "2024-06-19T15:05:58.785Z",
+    "applications": [
+      { "applicationId": "app-lantern-0003", "name": "lantern", "applicationStatus": "error" }
+    ],
+    "compose": [],
+    "redis": [
+      {
+        "redisId": "redis-0001",
+        "name": "redis",
+        "databasePassword": "FAKE-SECRET-redis-password",
+        "dockerImage": "redis:7",
+        "externalPort": 6379
+      }
+    ]
+  }
+]

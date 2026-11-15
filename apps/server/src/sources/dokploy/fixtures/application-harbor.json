@@ -1,0 +1,89 @@
+{
+  "applicationId": "app-harbor-0001",
+  "name": "harbor",
+  "appName": "kestrel-harbor-a1b2c3",
+  "description": null,
+  "env": "DATABASE_URL=postgres://harbor:FAKE-SECRET-app-env@db.example.dev/harbor",
+  "previewEnv": "PREVIEW_DSN=FAKE-SECRET-preview-env",
+  "buildArgs": "NPM_AUTH=FAKE-SECRET-build-arg",
+  "previewBuildArgs": "NPM_AUTH=FAKE-SECRET-preview-build-arg",
+  "buildSecrets": "FAKE-SECRET-build-secret",
+  "refreshToken": "FAKE-SECRET-refresh-token",
+  "sourceType": "github",
+  "owner": "kestrel-co",
+  "repository": "harbor",
+  "branch": "main",
+  "buildPath": "/",
+  "autoDeploy": true,
+  "watchPaths": ["apps/harbor/**"],
+  "username": null,
+  "password": "FAKE-SECRET-registry-password",
+  "dockerImage": null,
+  "customGitUrl": null,
+  "customGitSSHKeyId": "FAKE-SECRET-ssh-key-id",
+  "buildType": "dockerfile",
+  "dockerfile": "Dockerfile",
+  "applicationStatus": "done",
+  "createdAt": "2026-10-02T10:00:00.000Z",
+  "environmentId": "env-prod-0001",
+  "serverId": "srv-edge-0001",
+  "networkIds": [],
+  "environment": {
+    "environmentId": "env-prod-0001",
+    "name": "production",
+    "env": "STAGE_TOKEN=FAKE-SECRET-environment-env",
+    "project": {
+      "projectId": "prj-kestrel-0001",
+      "name": "kestrel",
+      "env": "SHARED_DSN=FAKE-SECRET-project-env"
+    }
+  },
+  "domains": [
+    { "domainId": "dom-1", "host": "harbor.example.dev", "https": true, "path": "/", "port": 3000 },
+    {
+      "domainId": "dom-2",
+      "host": "harbor.example.dev",
+      "https": true,
+      "path": null,
+      "port": 3000
+    },
+    {
+      "domainId": "dom-3",
+      "host": "api.harbor.example.dev",
+      "https": false,
+      "path": "/v1",
+      "port": 8080
+    }
+  ],
+  "deployments": [
+    { "deploymentId": "dep-1", "status": "done", "createdAt": "2026-11-10T08:00:00.000Z" },
+    { "deploymentId": "dep-2", "status": "error", "createdAt": "2026-11-12T08:00:00.000Z" },
+    { "deploymentId": "dep-3", "status": "done", "createdAt": "2026-11-11T08:00:00.000Z" }
+  ],
+  "mounts": [
+    { "mountId": "mnt-1", "type": "volume", "volumeName": "harbor-data", "mountPath": "/data" }
+  ],
+  "security": [
+    { "securityId": "sec-1", "username": "admin", "password": "FAKE-SECRET-basic-auth" }
+  ],
+  "registry": {
+    "registryId": "reg-1",
+    "registryName": "ghcr",
+    "username": "kestrel-bot",
+    "password": "FAKE-SECRET-nested-registry"
+  },
+  "github": {
+    "githubId": "gh-1",
+    "githubAppName": "kestrel-dokploy",
+    "githubWebhookSecret": "FAKE-SECRET-webhook",
+    "githubPrivateKey": "FAKE-SECRET-private-key"
+  },
+  "server": {
+    "serverId": "srv-edge-0001",
+    "name": "edge-1",
+    "ipAddress": "192.0.2.10",
+    "username": "root",
+    "sshKeyId": "FAKE-SECRET-server-ssh-key-id",
+    "sshKey": { "privateKey": "FAKE-SECRET-server-private-key" }
+  }
+}

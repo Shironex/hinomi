@@ -20,6 +20,7 @@ import { MANUAL_FACTS, MANUAL_GUARD_CAPABILITIES } from './manual.js'
 export const DEPLOYMENT_SOURCE_KINDS = [
   'coolify',
   'manual',
+  'dokploy',
 ] as const satisfies readonly SourceKind[]
 export const deploymentSourceKindSchema = z.enum(DEPLOYMENT_SOURCE_KINDS)
 export type DeploymentSourceKind = z.infer<typeof deploymentSourceKindSchema>
@@ -108,10 +109,24 @@ export const MANUAL_CAPABILITIES: SourceCapabilities = {
   status: false,
 }
 
+/**
+ * Dokploy (docs/design/phase-2.md section 9.4): applications and compose services with their
+ * repo, branch, image, domains and server. No container fact is confirmed against a live
+ * instance yet, so it claims none and every container check says `unknown`. Its status is the
+ * state of the last deploy (`idle`, `running`, `done`, `error`), not whether the container runs.
+ */
+export const DOKPLOY_CAPABILITIES: SourceCapabilities = {
+  facts: new Set<FactKey>(),
+  guards: {},
+  domains: true,
+  status: false,
+}
+
 /** The capabilities of every deployment source kind. */
 export const DEPLOYMENT_SOURCE_CAPABILITIES: Record<DeploymentSourceKind, SourceCapabilities> = {
   coolify: COOLIFY_CAPABILITIES,
   manual: MANUAL_CAPABILITIES,
+  dokploy: DOKPLOY_CAPABILITIES,
 }
 
 /** What each deployment source kind answers for one container check (for a guard's registry entry). */

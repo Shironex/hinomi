@@ -54,7 +54,10 @@ interface SourceShape {
   hasToken: boolean
 }
 
-/** What each kind needs: Coolify a URL and a token, GitHub a token, OSV and a manual list neither. */
+/**
+ * What each kind needs: Coolify and Dokploy a URL and a token, GitHub a token, OSV and a manual
+ * list neither.
+ */
 function checkShape({ kind, baseUrl, hasToken }: SourceShape): void {
   if (kind === 'osv' || kind === 'manual') {
     if (baseUrl || hasToken) {
@@ -65,6 +68,9 @@ function checkShape({ kind, baseUrl, hasToken }: SourceShape): void {
   }
   if (kind === 'coolify' && !baseUrl) {
     throw new HttpError(400, 'validation_failed', 'A Coolify source needs its URL')
+  }
+  if (kind === 'dokploy' && !baseUrl) {
+    throw new HttpError(400, 'validation_failed', 'A Dokploy source needs its URL')
   }
   if (!hasToken) {
     throw new HttpError(400, 'validation_failed', `A ${kind} source needs a token`)
@@ -134,6 +140,10 @@ async function runTest(
     return deps.testers.coolify({ baseUrl, token })
   }
   if (kind === 'github') return deps.testers.github({ baseUrl, token })
+  if (kind === 'dokploy') {
+    if (!baseUrl) throw new HttpError(400, 'validation_failed', 'A Dokploy source needs its URL')
+    return deps.testers.dokploy({ baseUrl, token })
+  }
   throw new HttpError(400, 'not_supported', `${noTestReason(kind)} needs no connection test`)
 }
 

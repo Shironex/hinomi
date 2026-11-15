@@ -8,6 +8,7 @@ import {
   IconKey,
   IconListDetails,
   IconServer2,
+  IconServerBolt,
   type Icon,
 } from '@tabler/icons-react'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +21,7 @@ const KIND: Record<SourceHealth['kind'], { icon: Icon; label: string }> = {
   github: { icon: IconBrandGithub, label: 'GitHub alerts' },
   osv: { icon: IconDatabase, label: 'OSV.dev lockfile scan' },
   manual: { icon: IconListDetails, label: 'Manual list' },
+  dokploy: { icon: IconServerBolt, label: 'Dokploy' },
 }
 
 function statusBadge(source: SourceHealth) {

@@ -133,9 +133,9 @@ function defaultClearTimer(handle: unknown): void {
 }
 
 /**
- * True when there is something to scan: an enabled Coolify or GitHub source
- * with a token, or an enabled manual list (it needs none). Without one, scheduled
- * scans are skipped.
+ * True when there is something to scan: an enabled Coolify, Dokploy or GitHub
+ * source with a token, or an enabled manual list (it needs none). Without one,
+ * scheduled scans are skipped.
  */
 export function isConfigured(repositories: Repositories): boolean {
   return repositories.sources
@@ -143,7 +143,8 @@ export function isConfigured(repositories: Repositories): boolean {
     .some(
       (s) =>
         s.enabled &&
-        (s.kind === 'manual' || (s.hasToken && (s.kind === 'coolify' || s.kind === 'github'))),
+        (s.kind === 'manual' ||
+          (s.hasToken && (s.kind === 'coolify' || s.kind === 'github' || s.kind === 'dokploy'))),
     )
 }
 

@@ -15,8 +15,15 @@ describe('deployment source kinds', () => {
     }
   })
 
+  it('declares no container fact or check for Dokploy until one is confirmed', () => {
+    expect(DEPLOYMENT_SOURCE_CAPABILITIES.dokploy.facts.size).toBe(0)
+    expect(DEPLOYMENT_SOURCE_CAPABILITIES.dokploy.guards).toEqual({})
+    expect(DEPLOYMENT_SOURCE_CAPABILITIES.dokploy.status).toBe(false)
+  })
+
   it('tells deployment sources from the others', () => {
     expect(isDeploymentSourceKind('coolify')).toBe(true)
+    expect(isDeploymentSourceKind('dokploy')).toBe(true)
     expect(isDeploymentSourceKind('github')).toBe(false)
     expect(isDeploymentSourceKind('osv')).toBe(false)
   })

@@ -30,6 +30,7 @@ const ERROR_TAXONOMY = [
   'ChannelValidationError',
   'ConnectionTestFailed',
   'CoolifyError',
+  'DokployError',
   'FindingTransitionError',
   'FixRunnerError',
   'FixPayloadError',
