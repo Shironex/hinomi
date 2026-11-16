@@ -30,6 +30,11 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      # uv for the real uv lock test; go, php and composer come with the runner image.
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.2
+          enable-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint
