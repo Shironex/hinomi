@@ -1,4 +1,4 @@
-import { and, desc, lt, lte } from 'drizzle-orm'
+import { and, desc, eq, lt, lte, ne, type SQL } from 'drizzle-orm'
 import type { AuditAction } from '@hinomi/shared'
 import type { Db } from '../db/client.js'
 import { auditEvents, type AuditEventRow } from '../db/schema.js'
@@ -6,6 +6,11 @@ import { currentTime } from '@hinomi/shared'
 
 /** The log keeps this many rows; older ones are removed as new ones come in. */
 export const AUDIT_KEEP_ROWS = 10_000
+/**
+ * Refused logins are kept apart, to this many: anyone can cause them, and a flood of them must
+ * never push out the logins and changes that matter.
+ */
+export const AUDIT_KEEP_FAILED_LOGINS = 2_000
 /** How often (in inserts) the oldest rows are trimmed. */
 const TRIM_EVERY = 100
 
@@ -24,6 +29,23 @@ export type AuditRepository = ReturnType<typeof createAuditRepository>
 
 /** The audit log: logins, logouts, passkeys, sessions and every change through the API. */
 export function createAuditRepository(db: Db) {
+  /** Keeps the newest `keep` rows of one pool. */
+  function trim(pool: SQL, keep: number): void {
+    const edge = db
+      .select({ id: auditEvents.id })
+      .from(auditEvents)
+      .where(pool)
+      .orderBy(desc(auditEvents.id))
+      .limit(1)
+      .offset(keep)
+      .get()
+    if (edge) {
+      db.delete(auditEvents)
+        .where(and(pool, lte(auditEvents.id, edge.id)))
+        .run()
+    }
+  }
+
   return {
     record(input: AuditInput, at: Date = currentTime()): AuditEventRow {
       const row = db
@@ -41,9 +63,8 @@ export function createAuditRepository(db: Db) {
         .returning()
         .get()
       if (row.id % TRIM_EVERY === 0) {
-        db.delete(auditEvents)
-          .where(lte(auditEvents.id, row.id - AUDIT_KEEP_ROWS))
-          .run()
+        trim(ne(auditEvents.action, 'login_failed'), AUDIT_KEEP_ROWS)
+        trim(eq(auditEvents.action, 'login_failed'), AUDIT_KEEP_FAILED_LOGINS)
       }
       return row
     },
