@@ -1,8 +1,11 @@
+import { lstatSync, mkdtempSync, readdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { FixDispatchStep } from '@hinomi/shared'
 import type { Command } from '../exec.js'
 import { isJsonObject, parseJsonFile } from '../json-file.js'
 import { PACKAGIST_API } from '../registry.js'
-import { repoJoin } from '../repo-fs.js'
+import { repoJoin, type RepoFs } from '../repo-fs.js'
 import type { Applier, EditOutcome, ProjectContext } from './types.js'
 
 // Composer with composer.lock. A step is a lockfile_update: one `composer update` with the
@@ -33,6 +36,56 @@ export const COMPOSER_ENV: Readonly<Record<string, string>> = {
   COMPOSER_NO_AUDIT: '1',
   COMPOSER_VENDOR_DIR: 'vendor',
   COMPOSER_BIN_DIR: 'vendor/bin',
+}
+
+let cache: string | null = null
+
+/**
+ * COMPOSER_ENV plus a cache folder of this runner process, outside every checkout, so a
+ * composer.json `config.cache-dir` cannot point the downloads at a folder of its choosing.
+ */
+export function composerEnv(): Record<string, string> {
+  cache ??= mkdtempSync(join(tmpdir(), 'hinomi-composer-'))
+  return { ...COMPOSER_ENV, COMPOSER_CACHE_DIR: cache }
+}
+
+/** How deep under vendor a committed symlink is looked for (vendor/<vendor>/<package>). */
+const VENDOR_DEPTH = 2
+
+/**
+ * The first committed symlink composer install would write through: vendor or vendor/bin
+ * themselves, or an entry under vendor down to a package folder. Null when there is none.
+ */
+export function vendorSymlink(fs: RepoFs, root: string): string | null {
+  const isLink = (path: string) => {
+    try {
+      return lstatSync(fs.absolute(path)).isSymbolicLink()
+    } catch {
+      return false
+    }
+  }
+  const vendor = repoJoin(root, COMPOSER_ENV.COMPOSER_VENDOR_DIR ?? 'vendor')
+  const bin = repoJoin(root, COMPOSER_ENV.COMPOSER_BIN_DIR ?? 'vendor/bin')
+  for (const path of [vendor, bin]) if (isLink(path)) return path
+  let level = [vendor]
+  for (let depth = 0; depth < VENDOR_DEPTH; depth++) {
+    const next: string[] = []
+    for (const dir of level) {
+      let names: string[]
+      try {
+        names = readdirSync(fs.absolute(dir))
+      } catch {
+        continue
+      }
+      for (const name of names) {
+        const path = repoJoin(dir, name)
+        if (isLink(path)) return path
+        next.push(path)
+      }
+    }
+    level = next
+  }
+  return null
 }
 
 /** composer.lock records packages from Packagist with this notification URL. */
@@ -115,7 +168,7 @@ export function composerUpdateCommand(steps: readonly FixDispatchStep[]): Comman
       '--no-audit',
       ...COMPOSER_SAFE_FLAGS,
     ],
-    env: { ...COMPOSER_ENV },
+    env: composerEnv(),
   }
 }
 
@@ -161,9 +214,14 @@ export const composerApplier: Applier = {
     return composerUpdateCommand(steps) ?? []
   },
 
-  // Downloads and installs the locked packages without running any script or plugin.
-  fullInstall() {
-    return { file: 'composer', args: ['install', ...COMPOSER_SAFE_FLAGS], env: { ...COMPOSER_ENV } }
+  // Downloads and installs the locked packages without running any script or plugin, and not
+  // through a committed symlink that would send the files outside the checkout.
+  fullInstall(ctx) {
+    const link = vendorSymlink(ctx.fs, ctx.root)
+    if (link) {
+      return { refused: `${link} is a symlink, so composer install could write outside the repo` }
+    }
+    return { file: 'composer', args: ['install', ...COMPOSER_SAFE_FLAGS], env: composerEnv() }
   },
 
   checks: () => Promise.resolve([]),

@@ -82,9 +82,10 @@ export interface Applier {
   ): InstallCommands | Promise<InstallCommands>
   /**
    * The frozen install that precedes the checks in `full` mode; null when the tool has none
-   * that runs no package code (pip), and the install counts as passed.
+   * that runs no package code (pip), and the install counts as passed. `refused` fails the
+   * install with that reason without running anything.
    */
-  fullInstall(ctx: ProjectContext): Command | null
+  fullInstall(ctx: ProjectContext): Command | null | { refused: string }
   /** Checks the project defines, in the order they run. */
   checks(ctx: ProjectContext): Promise<CheckSpec[]>
 }

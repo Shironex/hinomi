@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, relative } from 'node:path'
 import { parseFixResult, type FixDispatchStep } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { composerApplier, composerLockPackages } from './appliers/composer.js'
@@ -581,6 +581,10 @@ describe('composer', () => {
         COMPOSER_NO_AUDIT: '1',
         COMPOSER_VENDOR_DIR: 'vendor',
       })
+      // A cache outside the checkout, whatever composer.json's config.cache-dir says.
+      const cacheDir = call.command.env?.COMPOSER_CACHE_DIR ?? ''
+      expect(isAbsolute(cacheDir)).toBe(true)
+      expect(relative(root, cacheDir).startsWith('..')).toBe(true)
     }
     expect(times.requests).toEqual([`${PACKAGIST_API}kestrel/uri@1.2.4`])
     expect(result.patch?.files).toEqual(['composer.lock'])
@@ -610,6 +614,38 @@ describe('composer', () => {
       expect(times.requests).toEqual([])
     },
   )
+})
+
+describe('composer full mode and a committed vendor symlink', () => {
+  const isUpdate = (args: string[]) => args[0] === 'update'
+
+  it.each([
+    ['vendor', 'vendor'],
+    ['vendor/bin', 'vendor/bin'],
+    ['a package folder under vendor', 'vendor/kestrel/uri'],
+  ])('refuses to install through %s', async (_label, link) => {
+    const outside = mkdtempSync(join(tmpdir(), 'hinomi-outside-'))
+    const root = await fixtureRepo('composer-project', (dir) => {
+      mkdirSync(dirname(join(dir, link)), { recursive: true })
+      symlinkSync(outside, join(dir, link))
+      return Promise.resolve()
+    })
+    const exec = fakeExec(
+      fakeTool(root, 'Composer version 2.11.1', isUpdate, (lock) => ({
+        'composer.lock': lock.replace('"1.2.0"', '"1.2.4"'),
+      })),
+    )
+    const { result } = await runApply(
+      inputs(
+        dispatch([toolStep(1, 'composer', 'kestrel/uri', '1.2.0', '1.2.4')], { checks: 'full' }),
+      ),
+      deps(root, exec, mockPublishTimes({ 'kestrel/uri@1.2.4': OLD })),
+    )
+    expect(exec.calls.map((call) => call.command.args[0])).not.toContain('install')
+    expect(result.install.status).toBe('failed')
+    expect(result.install.output).toContain(`${link} is a symlink`)
+    expect(readdirSync(outside)).toEqual([])
+  })
 })
 
 // ---------------------------------------------------------------------------

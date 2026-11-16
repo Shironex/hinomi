@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { access, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { accessSync, appendFileSync, constants, mkdtempSync, readdirSync, realpathSync } from "node:fs";
+import { accessSync, appendFileSync, constants, lstatSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -16534,6 +16534,46 @@ const COMPOSER_ENV = {
 	COMPOSER_VENDOR_DIR: "vendor",
 	COMPOSER_BIN_DIR: "vendor/bin"
 };
+let cache = null;
+function composerEnv() {
+	cache ??= mkdtempSync(join(tmpdir(), "hinomi-composer-"));
+	return {
+		...COMPOSER_ENV,
+		COMPOSER_CACHE_DIR: cache
+	};
+}
+const VENDOR_DEPTH = 2;
+function vendorSymlink(fs, root) {
+	const isLink = (path) => {
+		try {
+			return lstatSync(fs.absolute(path)).isSymbolicLink();
+		} catch {
+			return false;
+		}
+	};
+	const vendor = repoJoin(root, COMPOSER_ENV.COMPOSER_VENDOR_DIR ?? "vendor");
+	const bin = repoJoin(root, COMPOSER_ENV.COMPOSER_BIN_DIR ?? "vendor/bin");
+	for (const path of [vendor, bin]) if (isLink(path)) return path;
+	let level = [vendor];
+	for (let depth = 0; depth < VENDOR_DEPTH; depth++) {
+		const next = [];
+		for (const dir of level) {
+			let names;
+			try {
+				names = readdirSync(fs.absolute(dir));
+			} catch {
+				continue;
+			}
+			for (const name of names) {
+				const path = repoJoin(dir, name);
+				if (isLink(path)) return path;
+				next.push(path);
+			}
+		}
+		level = next;
+	}
+	return null;
+}
 const PACKAGIST_NOTIFY = "https://packagist.org/downloads/";
 function composerLockPackages(text) {
 	const { data } = parseJsonFile(text);
@@ -16590,7 +16630,7 @@ function composerUpdateCommand(steps) {
 			"--no-audit",
 			...COMPOSER_SAFE_FLAGS
 		],
-		env: { ...COMPOSER_ENV }
+		env: composerEnv()
 	};
 }
 function checkStep$2(step) {
@@ -16631,11 +16671,13 @@ const composerApplier = {
 	lockfileInstall(_ctx, { steps }) {
 		return composerUpdateCommand(steps) ?? [];
 	},
-	fullInstall() {
+	fullInstall(ctx) {
+		const link = vendorSymlink(ctx.fs, ctx.root);
+		if (link) return { refused: `${link} is a symlink, so composer install could write outside the repo` };
 		return {
 			file: "composer",
 			args: ["install", ...COMPOSER_SAFE_FLAGS],
-			env: { ...COMPOSER_ENV }
+			env: composerEnv()
 		};
 	},
 	checks: () => Promise.resolve([])
@@ -18291,11 +18333,15 @@ var ApplyRun = class {
 		const { applier, ctx, project } = entry;
 		const prefix = project.root === "." ? "" : `${project.root}: `;
 		const command = applier.fullInstall(ctx);
-		const install = command ? await this.run(command, project.root, INSTALL_TIMEOUT_MS) : {
+		const install = command === null ? {
 			code: 0,
 			output: "",
 			durationMs: 0
-		};
+		} : "refused" in command ? {
+			code: 1,
+			output: command.refused,
+			durationMs: 0
+		} : await this.run(command, project.root, INSTALL_TIMEOUT_MS);
 		this.install.durationMs += install.durationMs;
 		const specs = (await applier.checks(ctx)).filter((spec) => selection.only === null || selection.only.includes(spec.name));
 		if (install.code !== 0) {

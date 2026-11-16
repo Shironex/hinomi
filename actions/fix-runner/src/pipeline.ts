@@ -389,9 +389,12 @@ class ApplyRun {
     const { applier, ctx, project } = entry
     const prefix = project.root === '.' ? '' : `${project.root}: `
     const command = applier.fullInstall(ctx)
-    const install = command
-      ? await this.run(command, project.root, INSTALL_TIMEOUT_MS)
-      : { code: 0, output: '', durationMs: 0 }
+    const install =
+      command === null
+        ? { code: 0, output: '', durationMs: 0 }
+        : 'refused' in command
+          ? { code: 1, output: command.refused, durationMs: 0 }
+          : await this.run(command, project.root, INSTALL_TIMEOUT_MS)
     this.install.durationMs += install.durationMs
     const specs = (await applier.checks(ctx)).filter(
       (spec) => selection.only === null || selection.only.includes(spec.name),
