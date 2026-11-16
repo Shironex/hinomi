@@ -5670,7 +5670,8 @@ const GUARD_CHECKS = [
 	"framework_support",
 	"runtime_support",
 	"runtime_pins_disagree",
-	"action_runtime"
+	"action_runtime",
+	"archived_deployed"
 ];
 const guardCheckSchema = _enum(GUARD_CHECKS);
 const GUARD_LEVELS = [
@@ -5681,7 +5682,7 @@ const GUARD_LEVELS = [
 const guardLevelSchema = _enum(GUARD_LEVELS);
 const GUARD_RESULTS = ["pass", ...GUARD_LEVELS];
 const guardResultSchema = _enum(GUARD_RESULTS);
-const OVERRIDABLE_CHECKS = [...GUARD_CHECKS, ...BLIND_SPOT_TYPES];
+const OVERRIDABLE_CHECKS = [.../* @__PURE__ */ new Set([...GUARD_CHECKS, ...BLIND_SPOT_TYPES])];
 const overridableCheckSchema = _enum(OVERRIDABLE_CHECKS);
 const GUARD_CAPABILITIES = [
 	"full",
@@ -5897,6 +5898,21 @@ const actionRuntimeEvidenceSchema = object({
 	actions: array(actionRuntimeEntrySchema),
 	reason: reason$1
 });
+const archivedRepoEntrySchema = object({
+	repoId: number$1().int().positive(),
+	repo: string(),
+	renamedTo: string().nullable(),
+	archived: boolean().nullable(),
+	pushedAt: datetime({ offset: true }).nullable(),
+	result: guardResultSchema,
+	reason: reason$1,
+	turnedOff: boolean().default(false)
+});
+const archivedDeployedEvidenceSchema = object({
+	check: literal("archived_deployed"),
+	repos: array(archivedRepoEntrySchema),
+	reason: reason$1
+});
 const guardEvidenceSchema = discriminatedUnion("check", [
 	rootUserEvidenceSchema,
 	sharedNetworkEvidenceSchema,
@@ -5905,7 +5921,8 @@ const guardEvidenceSchema = discriminatedUnion("check", [
 	frameworkSupportEvidenceSchema,
 	runtimeSupportEvidenceSchema,
 	runtimePinsDisagreeEvidenceSchema,
-	actionRuntimeEvidenceSchema
+	actionRuntimeEvidenceSchema,
+	archivedDeployedEvidenceSchema
 ]);
 
 // ../../packages/shared/src/image-scan.ts
@@ -7086,6 +7103,7 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 		]),
 		blindSpots: array(blindSpotTypeSchema),
 		covered: boolean(),
+		archivedRepo: boolean().optional(),
 		imageOnly: boolean()
 	}),
 	imageSecurity: imageSecuritySchema.nullable(),

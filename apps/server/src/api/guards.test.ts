@@ -24,7 +24,8 @@ function errorOf(json: unknown) {
 
 function setup() {
   const fake = fakeGuard('root_user')
-  const api = createTestApi({ guards: [fake.guard] })
+  const archived = fakeGuard('archived_deployed')
+  const api = createTestApi({ guards: [fake.guard, archived.guard] })
   const world = seedWorld(api.repos)
   const rootFail = observeGuard(api.repos, { deploymentId: world.web.id }, 'fail')
   return { ...api, world, rootFail }
@@ -56,7 +57,7 @@ describe('GET /api/guards', () => {
       reason: 'vendor image, cannot change',
     })
     const body = guardsResponseSchema.parse((await call('GET', '/guards')).json)
-    expect(body.items.map((i) => i.check)).toHaveLength(8)
+    expect(body.items.map((i) => i.check)).toHaveLength(9)
     const root = body.items.find((i) => i.check === 'root_user')!
     expect(root).toMatchObject({
       title: 'Container runs as root',
@@ -191,6 +192,11 @@ describe('guards on findings, deployments, the overview and the nav', () => {
       subject: { deploymentId: world.web.id },
       reason: 'frozen on purpose',
     })
+    // A blind spot row left from before archived_deployed became a guard check.
+    const legacy = repos.findings.observe(
+      { kind: 'blind_spot', blindSpotType: 'archived_deployed', repoId: world.repo.id },
+      currentTime(),
+    ).finding
     const detail = deploymentDetailSchema.parse(
       (await call('GET', `/deployments/${world.web.id}`)).json,
     )
@@ -202,9 +208,21 @@ describe('guards on findings, deployments, the overview and the nav', () => {
     })
     // Not registered: no scan runs it yet.
     expect(byCheck.get('docker_socket')).toMatchObject({ result: null, findingId: null })
+    // The guard has not taken the old blind spot over yet: it is the answer, listed once.
     expect(byCheck.get('archived_deployed')).toMatchObject({
-      result: 'pass',
+      result: 'fail',
+      findingId: legacy.id,
       override: { scope: 'deployment', reason: 'frozen on purpose' },
+    })
+    expect(detail.guards.filter((g) => g.check === 'archived_deployed')).toHaveLength(1)
+    // Taken over (resolved): registered and nothing open is a pass.
+    repos.findings.changeState(legacy.id, { state: 'fixed', actor: 'system' }, currentTime())
+    const after = deploymentDetailSchema.parse(
+      (await call('GET', `/deployments/${world.web.id}`)).json,
+    )
+    expect(after.guards.find((g) => g.check === 'archived_deployed')).toMatchObject({
+      result: 'pass',
+      findingId: null,
     })
     expect(byCheck.has('alerts_disabled')).toBe(false)
 
@@ -218,7 +236,7 @@ describe('guards on findings, deployments, the overview and the nav', () => {
       result: 'fail',
       findingId: world.blind.id,
     })
-    expect(proxyChecks.get('archived_deployed')).toMatchObject({ result: null })
+    expect(proxyChecks.get('archived_deployed')).toMatchObject({ result: 'pass', override: null })
   })
 
   it('counts guards on the overview and the nav', async () => {

@@ -47,6 +47,7 @@ Tests: one test file per check, a pure function of fictional rows. `scan/guards/
 - `docker_socket` (`scan/guards/docker-socket.ts`): `fail` when a bind mount (Docker inspect `Mounts` and `HostConfig.Binds`, run options, compose, file or persistent storage) is the Docker socket or a folder holding it, read only too. `pass` records which sources were read and any gap (Coolify does not document the persistent storage `host_path`); `unknown` when no source was read.
 - `shared_network` (`scan/guards/shared-network.ts`): resources of different projects on one network warn, `fail` when a peer is a database. Coolify resources group by the destination they are attached to and by external networks named in run options or compose (`basis: coolify_destination` or `external_network`); Docker host containers group by the networks inspect lists (`basis: docker_network`). Host networking warns with its own text (`host_network`).
 - `watch_paths_skip` (`scan/guards/watch-paths-skip.ts`): applications whose watch paths skip their Dockerfile or lockfiles warn. A Docker host has no watch paths, so its applications say `unknown`.
+- `archived_deployed`: see [Archived repo still deployed](#archived-repo-still-deployed) below.
 
 Signal sources per check, by source kind, are in [sources.md](sources.md#what-each-source-can-tell); a Docker host answers `root_user`, `docker_socket` and `shared_network` in full from container inspect.
 
@@ -77,6 +78,7 @@ After the blind spots, in the ranking phase, `runGuards` runs every registered c
 | `watch_paths_skip` | (none) | moderate |
 | `runtime_pins_disagree` | (none) | low |
 | `action_runtime` | moderate | low |
+| `archived_deployed` | high | (none) |
 
 Guards sit in the reach tiers next to advisories: `exposed` (public, counts as high or critical), `public_low`, `internal`, `not_deployed`. `unknown` ranks like a coverage note, in the `coverage` tier. The advisory funnel never counts guards.
 
@@ -84,9 +86,9 @@ Guards sit in the reach tiers next to advisories: `exposed` (public, counts as h
 
 `POST /api/overrides { check, deploymentId | repoId, reason }` turns a check off for one deployment or one repo, with a reason. The check keeps running; its finding is stored as `accepted` with the override's reason and a `turned_off` event (actor user), so it stays visible under the accepted filter and its level and evidence stay current. It never notifies and never reopens on escalation. Deleting the override reopens it.
 
-- A deployment is covered by an override on itself, or on any repo it runs.
+- A deployment is covered by an override on itself, or on any repo it runs (`archived_deployed`: on every repo it runs, since each repo is judged on its own).
 - A repo is covered by an override on itself, or when every deployment that runs it has the check off.
-- Blind spot types can be turned off the same way (`archived_deployed`, decision Q5).
+- Blind spot types can be turned off the same way (decision Q5). `archived_deployed` started as a blind spot and is a guard check now, with the same id, so its old overrides keep working.
 
 ## Notifications
 
@@ -152,3 +154,34 @@ No support data yet (a fresh install without network): the check returns nothing
 - Each Node line is judged like a Node pin (`windowStateOf`): the end of security support has passed `fail`, within `supportWindowDays` `warn`, otherwise `pass`; a line the support data does not have is `unknown`.
 - One finding per repo, the worst entry; `evidence.actions` lists every action that declares a Node line, with the workflow file and line of its `uses:` (null for the repo's own action, `self`). An action with no `action.yml` (a private repo the source cannot read) is left out.
 - A repo with no GitHub source to read it is `unknown`. A failed read (rate limit, network) leaves the row alone unless a worse level was already found, and the `reason` says so. No support data yet: the check returns nothing. At most 100 actions are read per repo and scan.
+
+## Archived repo still deployed
+
+`archived_deployed` (`scan/guards/archived-deployed.ts`) fails a deployment that runs code from a GitHub repo that is archived. It was a repo blind spot before; it is a guard check now so it can be judged per deployment, say `unknown` when GitHub cannot answer, and rank by the deployment's reach.
+
+It reads the repo health the alerts phase already fetched (`archived` from `GET /repos/{owner}/{repo}`, through the repo's reader, see [github.md](github.md)), so it makes no GitHub call of its own and shares the alerts phase's rate limit handling. One finding per deployment; a deployment that runs several repos (a manual mapping) lists each in `evidence.repos` and takes the worst.
+
+| What GitHub said about a repo | Entry |
+|---|---|
+| archived | `fail` |
+| not archived (or unarchived since) | `pass` |
+| renamed or moved: GitHub answers under another `owner/name` | judged like any other answer, `renamedTo` holds the new name (a change of letter case is not a rename) |
+| every GitHub source asked answers 404 | `unknown`: deleted, moved to an account the token cannot read, or hosted elsewhere |
+| a source refused the sign in or permission (`auth`, `permission`: the token or app lost access) | `unknown`, with that reason |
+| GitHub is not connected | `unknown` |
+| a passing error (rate limit, network, a server error) | nothing: the row is left alone, unless another repo of the deployment fails |
+
+Renames are followed whether or not account repos are listed (`scan.includeAccountRepos`): a deployed repo that no source's list names is asked of every source directly (two calls per source and scan, `GET /repos/{owner}/{repo}` and its `/vulnerability-alerts`, only for such repos), so GitHub's redirect to the new name answers, and a deleted repo answers 404. A side effect with account repos listed: the list names the repo under its new name, so the old name (still mapped to the deployment) and the new name are two repo rows that read the same alerts, and an advisory can show up twice until the deployment's mapping names the new repo.
+
+A repo override turns off that repo's entry only (`turnedOff: true`, not counted): a deployment that runs `harbor` (turned off) and `ledger` still fails when `ledger` is archived. The deployment is covered by repo overrides only when every repo it runs has one. An open `fail` that is not turned off makes the deployment not covered (`coverage.covered` false, `coverage.archivedRepo` true in `GET /api/deployments`).
+
+A deployment that runs no mapped repo passes with a reason, so a finding left from an old mapping closes; `no_repo_mapping` and the `image_only` note cover the gap. Stopped deployments are checked too and rank low.
+
+A snoozed or accepted row is reopened (event `escalated`) not only when the level gets worse but also when another repo of the deployment counts as archived at the same `fail` level: a snooze set for `harbor` does not hide that `ledger` is archived now. The event's reason names the new repos (`newly archived: kestrel-co/ledger`).
+
+Upgrading: an open `archived_deployed` blind spot from an earlier version is never opened again. It hands over to the guard in two steps.
+
+- Carry over, per deployment, in the scan its guard row opens: when every repo that makes the row `fail` or `unknown` (turned off ones left out) has an old row snoozed or accepted until a date, the guard row takes that state, with the earliest end and its reason (event `carried_over`, `fromFindingIds`), and its opening is not announced. When any such repo has no deferred old row (it was open, or there was none), the guard row stays open and is announced. A deployment that runs a snoozed `harbor` and an archived `ledger` is announced.
+- Close: the old row resolves with `{ reason: 'moved_to_guard', check: 'archived_deployed' }` once the guard has an outcome (any level, or pass) for every deployment that runs the repo (the digest does not list it, and no fix is counted). Until then it stays open and the deployment panel shows it as `fail`, so a scan that could not read GitHub never turns it into a pass. A row whose repo nothing deploys any more resolves with `not_deployed` as before.
+
+An override needs nothing: the id is the same. Known stuck case: when GitHub never gives an answer for some deployment of the repo (every scan ends in a passing error for it), the old row stays open for as long as that lasts; it is shown, not hidden, and closes on the first scan that decides every deployment.

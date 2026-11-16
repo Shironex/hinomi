@@ -110,6 +110,23 @@ describe('guardEvidenceSchema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('reads archived repo evidence and defaults the reasons', () => {
+    const parsed = guardEvidenceSchema.parse({
+      check: 'archived_deployed',
+      repos: [
+        {
+          repoId: 3,
+          repo: 'kestrel-co/harbor',
+          renamedTo: 'kestrel-co/harbor-legacy',
+          archived: true,
+          pushedAt: '2026-03-02T09:00:00Z',
+          result: 'fail',
+        },
+      ],
+    })
+    expect(parsed).toMatchObject({ reason: null, repos: [{ reason: null, result: 'fail' }] })
+  })
+
   it('rejects evidence of one check under another check id', () => {
     const result = guardEvidenceSchema.safeParse({
       check: 'docker_socket',

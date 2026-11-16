@@ -40,7 +40,7 @@ Repo to deployment mapping comes from the Coolify git repository field, with man
 ### Phase 0: see it
 - Connect Coolify and GitHub in a first-run flow; scan on a schedule (default every 6 h) and on demand.
 - Exposure view: ranked findings for deployed repos. Everything-else view: the rest, ranked and filterable.
-- Blind spot findings: alerts disabled, archived repo still deployed, deployment with no repo mapping.
+- Blind spot findings: alerts disabled, deployment with no repo mapping. An archived repo still deployed is a guard finding (docs/guards.md).
 - Notifications: Discord webhook first (new critical/high on a deployed repo immediately, daily digest for the rest), then generic webhook and email.
 
 ### Phase 1: fix it

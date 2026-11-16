@@ -2,6 +2,7 @@ import { destinationLabel } from '@hinomi/shared'
 import type { ReactNode } from 'react'
 import type {
   ActionRuntimeEvidence,
+  ArchivedDeployedEvidence,
   DockerSocketEvidence,
   FixHint,
   FrameworkSupportEvidence,
@@ -27,6 +28,7 @@ import {
   RUNTIME_LABEL,
   supportDate,
 } from '@/lib/guard-meta'
+import { formatDate } from '@/lib/finding-meta'
 import { cn } from '@/lib/utils'
 import { GuardResultBadge } from './guard-badges'
 
@@ -420,6 +422,34 @@ function ActionRuntime({ e }: { e: ActionRuntimeEvidence }) {
   )
 }
 
+function ArchivedRepos({ e }: { e: ArchivedDeployedEvidence }) {
+  return (
+    <ul aria-label="Repos" className={LIST}>
+      {e.repos.map((r) => (
+        <ResultItem
+          key={r.repoId}
+          result={r.result}
+          title={<span className="font-mono">{r.repo}</span>}
+        >
+          {r.renamedTo ? (
+            <span>
+              Renamed on GitHub to <Code>{r.renamedTo}</Code>
+            </span>
+          ) : null}
+          {r.archived !== null ? (
+            <span>{r.archived ? 'Archived on GitHub' : 'Not archived'}</span>
+          ) : null}
+          {r.pushedAt ? <span>Last push {formatDate(r.pushedAt)}</span> : null}
+          {r.turnedOff ? <span>Turned off for this repo, not counted</span> : null}
+          {r.result === 'unknown' && r.reason && r.reason !== e.reason ? (
+            <span>{r.reason}</span>
+          ) : null}
+        </ResultItem>
+      ))}
+    </ul>
+  )
+}
+
 export function GuardEvidenceView({
   evidence,
   level,
@@ -445,6 +475,8 @@ export function GuardEvidenceView({
         return evidence.runtimes.length ? <PinsDisagree e={evidence} /> : null
       case 'action_runtime':
         return evidence.actions.length ? <ActionRuntime e={evidence} /> : null
+      case 'archived_deployed':
+        return evidence.repos.length ? <ArchivedRepos e={evidence} /> : null
     }
   })()
   return (

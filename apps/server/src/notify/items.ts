@@ -12,7 +12,8 @@ import type { RankedFinding } from '../scan/index.js'
 
 /**
  * What happened to a finding, as far as a notification is concerned. `escalated`: a guard's
- * level got worse (warn to fail, or a support window into end of life).
+ * level got worse (warn to fail, or a support window into end of life), or its news did at the
+ * same level (archived_deployed: another repo of the deployment is archived now).
  */
 export type ItemEvent = 'opened' | 'reopened' | 'fixed' | 'resolved' | 'expired' | 'escalated'
 

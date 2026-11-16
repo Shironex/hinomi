@@ -93,6 +93,7 @@ export const GUARD_SEVERITY: Record<GuardCheck, Record<'warn' | 'fail', Severity
   watch_paths_skip: { fail: 'moderate', warn: 'moderate' },
   runtime_pins_disagree: { fail: 'low', warn: 'low' },
   action_runtime: { fail: 'moderate', warn: 'low' },
+  archived_deployed: { fail: 'high', warn: 'moderate' },
 }
 
 function effectiveSeverity(input: ExposureInput): { severity: Severity; unscored: boolean } {

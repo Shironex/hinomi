@@ -10,6 +10,8 @@ import { OVERRIDABLE_CHECKS } from './guards.js'
 describe('check override requests', () => {
   it('accepts a guard check or a blind spot type for one deployment', () => {
     expect(OVERRIDABLE_CHECKS).toContain('archived_deployed')
+    // A guard check and a blind spot type at once, listed once.
+    expect(new Set(OVERRIDABLE_CHECKS).size).toBe(OVERRIDABLE_CHECKS.length)
     const body = { check: 'docker_socket', deploymentId: 4, reason: 'socket proxy on purpose' }
     expect(createCheckOverrideRequestSchema.parse(body)).toEqual(body)
     expect(

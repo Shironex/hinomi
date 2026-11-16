@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
+import { archivedDeployedGuard } from './guards/archived-deployed.js'
+import type { Guard } from './guards/index.js'
 import { runRepoScan, runScan, type ScanProgress, type ScanSummary } from './run.js'
 import { SCAN_SETTING_KEYS } from './settings.js'
 import { buildScanSources } from './sources.js'
@@ -34,6 +36,8 @@ interface World {
   appStatus: Record<string, string>
   /** GitHub sent an empty vulnerable range for its alerts (only the first patched version). */
   blankRange: boolean
+  /** Repos GitHub reports as archived. */
+  archived: Record<string, boolean>
 }
 
 const ADVISORIES: Record<string, { pkg: string; severity: string; fixed: string; cve: string }> = {
@@ -64,6 +68,7 @@ function initialWorld(): World {
     githubDismissed: {},
     appStatus: {},
     blankRange: false,
+    archived: {},
   }
 }
 
@@ -176,7 +181,7 @@ function githubResponse(world: World, url: URL, init: RequestInit | undefined): 
     return json({
       name: repo,
       owner: { login: 'kestrel-co' },
-      archived: false,
+      archived: world.archived[repo] ?? false,
       default_branch: 'main',
       visibility: 'public',
       pushed_at: '2026-11-01T00:00:00Z',
@@ -262,11 +267,11 @@ afterEach(() => handle.close())
 const day = 24 * 60 * 60 * 1000
 const t0 = new Date('2026-11-06T06:00:00Z').getTime()
 
-function scan(n: number): Promise<ScanSummary> {
+function scan(n: number, guards: readonly Guard[] = []): Promise<ScanSummary> {
   const sources = buildScanSources(repos, { fetch: mockFetch(world), osvMaxRetries: 0 })
   return runScan({ repositories: repos }, sources, {
     now: () => new Date(t0 + n * day),
-    guards: [],
+    guards,
   })
 }
 
@@ -490,6 +495,43 @@ describe('runScan', () => {
     await scan(2)
     expect(repos.findings.get(note.id)).toMatchObject({ state: 'fixed' })
     expect(repos.findings.listEvents(note.id)[0]?.type).toBe('resolved')
+  })
+
+  it('answers archived_deployed with the guard check per deployment, closing the old blind spot', async () => {
+    await scan(0)
+    const web = repos.deployments.list().find((d) => d.name === 'harbor-web')!
+    // What an earlier version stored: the repo blind spot.
+    const old = repos.findings.observe(
+      { kind: 'blind_spot', blindSpotType: 'archived_deployed', repoId: repoId('harbor-web') },
+      new Date(t0),
+    ).finding
+    world.archived['harbor-web'] = true
+    const guardOf = () =>
+      repos.findings
+        .list({ kind: 'guard', deploymentId: web.id })
+        .find((f) => f.guardCheck === 'archived_deployed')
+
+    await scan(1, [archivedDeployedGuard])
+    expect(repos.findings.get(old.id)?.state).toBe('fixed')
+    expect(repos.findings.listEvents(old.id)[0]).toMatchObject({
+      type: 'resolved',
+      data: { reason: 'moved_to_guard', check: 'archived_deployed' },
+    })
+    expect(guardOf()).toMatchObject({
+      state: 'open',
+      guardLevel: 'fail',
+      evidence: { repos: [{ repo: 'kestrel-co/harbor-web', archived: true }] },
+    })
+    expect(blindSpots()).not.toContain('archived_deployed:open')
+
+    // Unarchived: the guard resolves. Gone from GitHub: unknown, never a silent pass.
+    world.archived['harbor-web'] = false
+    await scan(2, [archivedDeployedGuard])
+    expect(guardOf()?.state).toBe('fixed')
+    world.repoStatus['harbor-web'] = 404
+    await scan(3, [archivedDeployedGuard])
+    expect(guardOf()).toMatchObject({ state: 'open', guardLevel: 'unknown' })
+    expect(repos.findings.get(old.id)?.state).toBe('fixed')
   })
 
   it('keeps blind spots untouched when the check could not run', async () => {

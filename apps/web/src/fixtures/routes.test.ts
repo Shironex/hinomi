@@ -110,7 +110,9 @@ describe('fixture API', () => {
       const { source } = repoDetailSchema.parse(get(`/repos/${repo.id}`).body)
       const current = source.current?.id ?? 0
       reads.set(current, (reads.get(current) ?? 0) + 1)
-      expect(source.seenBy.map((s) => s.id)).toContain(current)
+      // A repo nothing reads now (access lost) still lists the source that last saw it.
+      const expected = source.current ? [current] : [source.seenBy[0]?.id]
+      expect(source.seenBy.map((s) => s.id)).toEqual(expect.arrayContaining(expected))
     }
     // The counts on Settings, Sources match the repos each source reads.
     for (const s of github) expect(reads.get(s.id) ?? 0, s.name).toBe(s.repoCount)

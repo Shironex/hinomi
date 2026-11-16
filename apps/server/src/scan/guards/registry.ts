@@ -1,4 +1,5 @@
 import { actionRuntimeGuard } from './action-runtime.js'
+import { archivedDeployedGuard } from './archived-deployed.js'
 import { dockerSocketGuard } from './docker-socket.js'
 import { frameworkSupportGuard } from './framework-support.js'
 import { rootUserGuard } from './root-user.js'
@@ -21,4 +22,5 @@ export const GUARDS: readonly Guard[] = [
   runtimeSupportGuard,
   runtimePinsDisagreeGuard,
   actionRuntimeGuard,
+  archivedDeployedGuard,
 ]

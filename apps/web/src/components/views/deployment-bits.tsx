@@ -1,6 +1,7 @@
 import type { DeploymentItem } from '@hinomi/shared'
 import { Fragment } from 'react'
 import {
+  IconArchive,
   IconCircleCheck,
   IconCircleX,
   IconEyeOff,
@@ -74,11 +75,21 @@ export function CoverageCell({ d }: { d: DeploymentItem }) {
   }
   if (d.coverage.alerts === 'unknown')
     return <span className="text-sm text-muted-foreground">Unknown</span>
-  return d.coverage.covered ? (
-    <StatusText icon={IconCircleCheck} tone="ok">
-      Covered
-    </StatusText>
-  ) : (
+  if (d.coverage.covered) {
+    return (
+      <StatusText icon={IconCircleCheck} tone="ok">
+        Covered
+      </StatusText>
+    )
+  }
+  if (d.coverage.archivedRepo && d.coverage.blindSpots.length === 0) {
+    return (
+      <StatusText icon={IconArchive} className="text-blind">
+        Archived repo
+      </StatusText>
+    )
+  }
+  return (
     <StatusText icon={IconEyeOff} className="text-blind">
       {d.coverage.blindSpots.length} blind spot{d.coverage.blindSpots.length === 1 ? '' : 's'}
     </StatusText>

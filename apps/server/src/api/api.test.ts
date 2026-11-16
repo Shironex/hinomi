@@ -9,6 +9,7 @@ import {
   scanStatusSchema,
   sourcesResponseSchema,
   nowMs,
+  currentTime,
 } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { MAX_BODY_BYTES } from './index.js'
@@ -339,6 +340,52 @@ describe('deployments and repo overrides', () => {
     )
     expect(detail.findings.map((f) => f.id)).toEqual([world.critical.id, world.lowDev.id])
     expect((await call('GET', '/deployments/9999')).status).toBe(404)
+  })
+
+  it('does not call a deployment covered while it still runs an archived repo', async () => {
+    const { call, repos } = createTestApi()
+    const world = seedWorld(repos)
+    const subject = { deploymentId: world.web.id }
+    const evidence = {
+      check: 'archived_deployed' as const,
+      repos: [
+        {
+          repoId: world.repo.id,
+          repo: 'kestrel-co/storefront',
+          renamedTo: null,
+          archived: true,
+          pushedAt: null,
+          result: 'fail' as const,
+          reason: null,
+          turnedOff: false,
+        },
+      ],
+      reason: null,
+    }
+    const row = repos.findings.observe(
+      { kind: 'guard', guardCheck: 'archived_deployed', subject, guardLevel: 'fail', evidence },
+      currentTime(),
+    ).finding
+    const coverage = async () =>
+      deploymentsResponseSchema
+        .parse((await call('GET', '/deployments')).json)
+        .items.find((d) => d.id === world.web.id)!.coverage
+    expect(await coverage()).toMatchObject({ blindSpots: [], covered: false, archivedRepo: true })
+
+    // Turned off on purpose: covered again.
+    repos.checkOverrides.create({ check: 'archived_deployed', subject, reason: 'frozen tool' })
+    repos.findings.changeState(
+      row.id,
+      {
+        state: 'accepted',
+        reason: 'frozen tool',
+        until: null,
+        actor: 'user',
+        eventType: 'turned_off',
+      },
+      currentTime(),
+    )
+    expect(await coverage()).toMatchObject({ covered: true, archivedRepo: false })
   })
 
   it('adds, lists and removes manual repo mappings', async () => {

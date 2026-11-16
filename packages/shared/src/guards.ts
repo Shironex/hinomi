@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BLIND_SPOT_TYPES } from './model.js'
+import { BLIND_SPOT_TYPES, type BlindSpotType } from './model.js'
 
 // Guard checks (see docs/design/phase-2.md sections 2 to 5). A guard is a
 // configuration or support check on a deployment or a repo. It writes a
@@ -17,6 +17,7 @@ export const GUARD_CHECKS = [
   'runtime_support',
   'runtime_pins_disagree',
   'action_runtime',
+  'archived_deployed',
 ] as const
 export const guardCheckSchema = z.enum(GUARD_CHECKS)
 export type GuardCheck = z.infer<typeof guardCheckSchema>
@@ -35,10 +36,14 @@ export const guardResultSchema = z.enum(GUARD_RESULTS)
 export type GuardResult = z.infer<typeof guardResultSchema>
 
 /**
- * Checks that can be turned off with a reason, per deployment or per repo: every
- * guard check and every blind spot type (so `archived_deployed` can be turned off too).
+ * Checks that can be turned off with a reason, per deployment or per repo: every guard check and
+ * every blind spot type. `archived_deployed` is both: it was a blind spot before it became a guard
+ * check, so an override written for the blind spot keeps covering the guard. Listed once.
  */
-export const OVERRIDABLE_CHECKS = [...GUARD_CHECKS, ...BLIND_SPOT_TYPES] as const
+export const OVERRIDABLE_CHECKS = [...new Set([...GUARD_CHECKS, ...BLIND_SPOT_TYPES])] as [
+  GuardCheck | BlindSpotType,
+  ...(GuardCheck | BlindSpotType)[],
+]
 export const overridableCheckSchema = z.enum(OVERRIDABLE_CHECKS)
 export type OverridableCheck = z.infer<typeof overridableCheckSchema>
 
@@ -296,5 +301,23 @@ export const GUARD_COPY: Record<GuardCheck, GuardCopy> = {
       warn: 'Bump each listed action to a release that runs on a supported Node line, or update `runs.using` in your own `action.yml`.',
     },
     docsAnchor: 'action-runtime',
+  },
+  archived_deployed: {
+    title: 'Archived repo still deployed',
+    question: 'Does the deployment run code from a GitHub repo that is archived?',
+    reads:
+      'The archived flag GitHub reports for each repo the deployment runs, read with the repo metadata the scan already fetches. A renamed repo is followed to its new name.',
+    levels: ['fail', 'unknown'],
+    explanation: {
+      fail: 'The deployment runs code from an archived repo. Archived repos are read only: Dependabot opens no fix pull requests, nothing new gets merged, and Hinomi cannot open a fix pull request either, so its vulnerabilities stay unpatched.',
+      unknown:
+        'GitHub could not say whether the repo is archived: no connected GitHub source sees it (it was deleted, moved to an account the token cannot read, or is hosted elsewhere), or GitHub is not connected.',
+    },
+    fix: {
+      fail: 'Unarchive the repo if the app is still maintained, or move the deployment to the repo that replaced it. If the app is frozen on purpose, turn this check off for the deployment with a reason.',
+      unknown:
+        'Connect a GitHub source that can read the repo, or map the deployment to the repo it is built from now.',
+    },
+    docsAnchor: 'archived-deployed',
   },
 }

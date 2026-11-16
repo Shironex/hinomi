@@ -1,6 +1,6 @@
 import type { RepoHealth } from '@hinomi/shared'
 import type { RepoRow } from '../db/schema.js'
-import { isGithubError } from '../sources/github/index.js'
+import { isGithubError, type GithubErrorKind } from '../sources/github/index.js'
 import type { GithubScanSource, ScanSources } from './sources.js'
 
 // Which GitHub source reads a repo. A scan asks every enabled GitHub source that may see the repo
@@ -21,6 +21,8 @@ export interface SourceProbe {
   alertsReadable: boolean | null
   /** The error when `sees` is null. */
   error?: string
+  /** What kind of GitHub error `error` is, when it was one (`auth` and `permission`: access lost). */
+  errorKind?: GithubErrorKind
 }
 
 export interface RepoOwnership {
@@ -38,7 +40,9 @@ export function repoKey(owner: string, name: string): string {
 
 /**
  * The sources worth asking about the repo, lowest id first. An override narrows it to that
- * source; a source whose account repo list was read this scan and leaves the repo out is skipped.
+ * source; a source whose account repo list was read this scan and leaves the repo out is skipped,
+ * unless every list leaves it out: then every source is asked, so a repo that was renamed or
+ * moved (listed under its new name) is still followed, and one that is gone answers 404.
  */
 function candidates(
   sources: ScanSources,
@@ -55,6 +59,7 @@ function candidates(
     if (list && !list.has(key)) unseen.push(github.sourceId)
     else ask.push(github)
   }
+  if (ask.length === 0) return { ask: [...sources.github], unseen: [] }
   return { ask, unseen }
 }
 
@@ -94,6 +99,7 @@ async function ask(source: GithubScanSource, repo: RepoRow): Promise<Answer> {
         sees: gone ? false : null,
         alertsReadable: null,
         ...(!gone && { error: errorText(error) }),
+        ...(!gone && isGithubError(error) && { errorKind: error.kind }),
       },
       passing: !lost,
     }

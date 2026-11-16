@@ -64,8 +64,11 @@ export {
   type GuardCounts,
 } from './counts.js'
 export {
+  CARRIED_OVER_EVENT,
   GUARDS,
+  MOVED_TO_GUARD,
   applyGuards,
+  isMovedToGuard,
   evaluateGuards,
   repoRuntimeView,
   runGuards,

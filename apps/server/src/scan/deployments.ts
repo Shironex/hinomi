@@ -61,6 +61,17 @@ export function indexDeployments(repositories: Repositories): DeploymentIndex {
   return { deployments, byRepo, unmapped }
 }
 
+/** Repo ids each deployment runs, from the index (manual mappings honoured). */
+export function reposByDeployment(index: DeploymentIndex): Map<number, number[]> {
+  const map = new Map<number, number[]>()
+  for (const [repoId, deployments] of index.byRepo) {
+    for (const deployment of deployments) {
+      map.set(deployment.id, [...(map.get(deployment.id) ?? []), repoId])
+    }
+  }
+  return map
+}
+
 export function repoReach(index: DeploymentIndex, repoId: number): ExposureReach {
   return reachOf(index.byRepo.get(repoId) ?? [])
 }

@@ -17,14 +17,21 @@ export interface CoveringOverride {
 export interface OverrideIndex {
   /**
    * The override covering `check` on a subject, or null. A deployment is covered by an override
-   * on itself, else by one on any repo it runs. A repo is covered by an override on itself, else
-   * when every deployment that runs it has the check turned off (so `archived_deployed`, a repo
-   * blind spot, can be turned off from the deployment).
+   * on itself, else by one on any repo it runs (for PER_REPO_CHECKS: on every repo it runs). A
+   * repo is covered by an override on itself, else when every deployment that runs it has the
+   * check turned off.
    */
   covering(check: OverridableCheck, subject: OverrideSubject): CoveringOverride | null
 }
 
 const KNOWN_CHECKS: ReadonlySet<string> = new Set(OVERRIDABLE_CHECKS)
+
+/**
+ * Checks that judge each repo of a deployment on its own (`archived_deployed`): an override on
+ * one repo turns off that repo's entry, never the deployment's other repos, so the deployment is
+ * covered by repo overrides only when every repo it runs has one.
+ */
+export const PER_REPO_CHECKS: ReadonlySet<OverridableCheck> = new Set(['archived_deployed'])
 
 export function indexOverrides(
   rows: readonly CheckOverrideRow[],
@@ -47,11 +54,16 @@ export function indexOverrides(
       if ('deploymentId' in subject) {
         const own = byDeployment.get(`${check}:${subject.deploymentId}`)
         if (own) return { override: own, scope: 'deployment' }
-        for (const repoId of reposOf.get(subject.deploymentId) ?? []) {
-          const repo = byRepo.get(`${check}:${repoId}`)
-          if (repo) return { override: repo, scope: 'repo' }
+        const repoIds = reposOf.get(subject.deploymentId) ?? []
+        const found = repoIds.map((repoId) => byRepo.get(`${check}:${repoId}`))
+        if (PER_REPO_CHECKS.has(check)) {
+          const first = found[0]
+          return first && found.every((row) => row !== undefined)
+            ? { override: first, scope: 'repo' }
+            : null
         }
-        return null
+        const repo = found.find((row) => row !== undefined)
+        return repo ? { override: repo, scope: 'repo' } : null
       }
       const own = byRepo.get(`${check}:${subject.repoId}`)
       if (own) return { override: own, scope: 'repo' }

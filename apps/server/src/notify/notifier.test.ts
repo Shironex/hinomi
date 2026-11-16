@@ -1,3 +1,4 @@
+import type { GuardCheck, GuardEvidenceInput } from '@hinomi/shared'
 import { z } from 'zod'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createSecretBox } from '../crypto/secret-box.js'
@@ -8,7 +9,7 @@ import type { FindingChange, ScanSummary } from '../scan/index.js'
 import { indexDeployments } from '../scan/deployments.js'
 import { runGuards } from '../scan/guards/index.js'
 import { fakeGuard, noRepoFiles, rootUserEvidence } from '../scan/guards/testing.js'
-import { markDismissedUpstream, markFixed, reopenIfFixed } from '../scan/state.js'
+import { markDismissedUpstream, markFixed, reopenIfFixed, snoozeFinding } from '../scan/state.js'
 import { maskWebhookUrl, type ResolvedEmail } from './channels.js'
 import { SmtpError, type MailMessage } from './email.js'
 import { findingNotifications } from './history.js'
@@ -559,13 +560,15 @@ describe('desktop release findings', () => {
 })
 
 describe('guard findings', () => {
-  /** Runs a fake root user check on the deployment, at the given level, through the framework. */
-  async function guardScan(level: 'warn' | 'fail' | 'unknown') {
-    const fake = fakeGuard('root_user')
+  /** Runs a fake check (root user by default) on the deployment, at the given level, through the framework. */
+  async function guardScan(
+    level: 'warn' | 'fail' | 'unknown',
+    check: GuardCheck = 'root_user',
+    evidence: GuardEvidenceInput = rootUserEvidence(),
+  ) {
+    const fake = fakeGuard(check)
     const deployment = repos.deployments.list()[0]!
-    fake.state.results = [
-      { subject: { deploymentId: deployment.id }, level, evidence: rootUserEvidence() },
-    ]
+    fake.state.results = [{ subject: { deploymentId: deployment.id }, level, evidence }]
     const index = indexDeployments(repos)
     const ctx = {
       deployments: index.deployments,
@@ -636,6 +639,88 @@ describe('guard findings', () => {
       reason: 'sandboxed on purpose',
     })
     await n.handleScanFinished(await guardScan('fail'))
+    advance(24 * 60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(0)
+  })
+
+  const archived = (repoId: number): GuardEvidenceInput => ({
+    check: 'archived_deployed',
+    repos: [
+      {
+        repoId,
+        repo: 'kestrel-co/harbor',
+        renamedTo: null,
+        archived: true,
+        pushedAt: null,
+        result: 'fail',
+      },
+    ],
+  })
+
+  it('sends an archived repo still deployed right away, ranked high', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'discord', name: 'alerts', url: DISCORD_URL })
+    const repo = seedDeployedRepo()
+    await n.handleScanFinished(await guardScan('fail', 'archived_deployed', archived(repo.id)))
+    expect(calls[0]?.body.embeds.map((e) => e.title)).toEqual([
+      '[HIGH] Archived repo still deployed',
+    ])
+  })
+
+  /** An archived_deployed blind spot row an earlier version left, already in an old digest. */
+  async function oldArchivedBlindSpot(n: ReturnType<typeof notifier>, repoId: number) {
+    const row = repos.findings.observe(
+      { kind: 'blind_spot', blindSpotType: 'archived_deployed', repoId },
+      clock,
+    ).finding
+    advance(24 * 60)
+    await n.sendDigest()
+    calls.length = 0
+    advance(60)
+    return row
+  }
+
+  it('never lists a blind spot the guard took over as resolved', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    const repo = seedDeployedRepo()
+    const old = await oldArchivedBlindSpot(n, repo.id)
+    await n.handleScanFinished(await guardScan('fail', 'archived_deployed', archived(repo.id)))
+    expect(repos.findings.get(old.id)?.state).toBe('fixed')
+    advance(24 * 60)
+    await n.sendDigest()
+    const items = calls.flatMap((c) => c.body.items.map((i) => [i.event, i.title]))
+    expect(items).not.toContainEqual(['resolved', 'Archived repository is still deployed'])
+  })
+
+  it('announces nothing when the old blind spot was snoozed, now or in the digest', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    const repo = seedDeployedRepo()
+    const old = await oldArchivedBlindSpot(n, repo.id)
+    snoozeFinding(repos.findings, old.id, {
+      reason: 'migrating off it',
+      until: new Date(clock.getTime() + 30 * 24 * 3_600_000),
+      now: clock,
+    })
+    await n.handleScanFinished(await guardScan('fail', 'archived_deployed', archived(repo.id)))
+    expect(calls).toHaveLength(0)
+    advance(24 * 60)
+    await n.sendDigest()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('never sends an archived repo a repo override written for the old blind spot covers', async () => {
+    const n = notifier()
+    n.channels.add({ kind: 'webhook', name: 'hook', url: HOOK_URL })
+    const repo = seedDeployedRepo()
+    repos.checkOverrides.create({
+      check: 'archived_deployed',
+      subject: { repoId: repo.id },
+      reason: 'frozen internal tool',
+    })
+    await n.handleScanFinished(await guardScan('fail', 'archived_deployed', archived(repo.id)))
     advance(24 * 60)
     await n.sendDigest()
     expect(calls).toHaveLength(0)

@@ -1107,8 +1107,13 @@ export const deploymentItemSchema = deploymentRefSchema.extend({
     alerts: z.enum(['enabled', 'disabled', 'unknown', 'none']),
     /** Open blind spots on the deployment or its repos. */
     blindSpots: z.array(blindSpotTypeSchema),
-    /** No open blind spot, and a repo is mapped (databases need none). */
+    /**
+     * No open blind spot, no open `archived_deployed` guard fail (unless turned off), and a repo
+     * is mapped (databases need none).
+     */
     covered: z.boolean(),
+    /** An `archived_deployed` guard fail is open on it and not turned off. Absent means false. */
+    archivedRepo: z.boolean().optional(),
     /**
      * No git source: a service from a template or an app deployed from a registry
      * image. Not a blind spot; the phase 2 image scan will cover it.

@@ -58,6 +58,8 @@ export interface GuardWorld {
 }
 
 const COMMIT = '4f2c91a7d3e85b60c19f2a4e7d8b3c5a6f0e1d92'
+const ACCESS_LOST =
+  'The GitHub token or app lost access to this repo (sign in or permission refused), so nothing can tell whether it is archived.'
 
 const node = (line: string, eolFrom: string, daysLeft: number, latest: string): SupportLine => ({
   product: 'nodejs',
@@ -747,6 +749,56 @@ export function guardFindings(world: GuardWorld): FindingListItem[] {
         reason: 'This source has no watch paths for a service run from a registry image.',
       },
     }),
+    g({
+      id: 122,
+      check: 'archived_deployed',
+      level: 'fail',
+      severity: 'high',
+      tier: 'not_deployed',
+      rank: 3,
+      stopped: true,
+      repo: null,
+      deployments: [apps.marketing],
+      firstSeenHours: 24 * 60,
+      evidence: {
+        check: 'archived_deployed',
+        repos: [
+          {
+            repoId: repos.marketing.id,
+            repo: repos.marketing.fullName,
+            renamedTo: null,
+            archived: true,
+            pushedAt: ago(24 * 75),
+            result: 'fail',
+          },
+        ],
+      },
+    }),
+    g({
+      id: 123,
+      check: 'archived_deployed',
+      level: 'unknown',
+      severity: 'low',
+      tier: 'coverage',
+      rank: 0.2,
+      repo: null,
+      deployments: [apps.status],
+      evidence: {
+        check: 'archived_deployed',
+        repos: [
+          {
+            repoId: repos.status.id,
+            repo: repos.status.fullName,
+            renamedTo: null,
+            archived: null,
+            pushedAt: null,
+            result: 'unknown',
+            reason: ACCESS_LOST,
+          },
+        ],
+        reason: ACCESS_LOST,
+      },
+    }),
   ]
 }
 
@@ -770,6 +822,22 @@ function passEvidence(check: GuardCheck, item: DeploymentItem): GuardEvidenceInp
   if (check === 'docker_socket') {
     return { check, mounts: [], checked: ['run_options', 'persistent_storage', 'file_storage'] }
   }
+  if (check === 'archived_deployed') {
+    return {
+      check,
+      repos: item.repos.map((r) => ({
+        repoId: r.id,
+        repo: r.fullName,
+        renamedTo: null,
+        archived: false,
+        pushedAt: null,
+        result: 'pass' as const,
+      })),
+      reason: item.repos.length
+        ? null
+        : 'This deployment runs no mapped repo, so no archived repo is deployed.',
+    }
+  }
   if (check === 'watch_paths_skip' && item.repos.length) {
     return {
       check,
@@ -788,14 +856,14 @@ const REPO_CHECKS: ReadonlySet<GuardCheck> = new Set([
   'action_runtime',
 ])
 
-/** GET /deployments/:id `guards`: every check on the deployment, then its open blind spot types. */
+/** GET /deployments/:id `guards`: every check on the deployment. */
 export function deploymentGuardsFor(
   item: DeploymentItem,
   findings: readonly FindingListItem[],
 ): DeploymentGuard[] {
   const repoIds = new Set(item.repos.map((r) => r.id))
   const guards = findings.filter(isGuard)
-  const out: DeploymentGuard[] = GUARD_CHECKS.map((check) => {
+  return GUARD_CHECKS.map((check): DeploymentGuard => {
     const repoCheck = REPO_CHECKS.has(check)
     const found = guards.find(
       (f) =>
@@ -824,22 +892,6 @@ export function deploymentGuardsFor(
       override: null,
     }
   })
-  const archived = findings.find(
-    (f) =>
-      f.kind === 'blind_spot' &&
-      f.blindSpotType === 'archived_deployed' &&
-      f.deployments.some((d) => d.id === item.id),
-  )
-  if (archived) {
-    out.push({
-      check: 'archived_deployed',
-      result: 'fail',
-      evidence: null,
-      findingId: archived.id,
-      override: null,
-    })
-  }
-  return out
 }
 
 /** Overview `guardCounts`: guard findings not fixed (turned off ones included), per check and level. */
