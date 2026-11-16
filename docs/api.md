@@ -393,11 +393,12 @@ Both live on the server, so every tab and browser sees the same setup progress. 
 
 | Method and path | Does |
 |---|---|
-| `GET /api/notifications/channels` | Channels with masked URLs. An email channel has `url: "host:port"` and `email: { host, port, security, user, from, to, passwordSet }`; the password is never returned |
-| `POST /api/notifications/channels` | `{ kind: "discord" \| "webhook", name, url, enabled?, minSeverity? }`, or `{ kind: "email", name, email: { host, port, security: "tls" \| "starttls" \| "none", user?, password?, from, to: string[] }, enabled?, minSeverity? }` |
-| `PATCH /api/notifications/channels/:id` | Any of `name`, `url` (discord and webhook), `email` (a partial of the SMTP settings; an omitted `password` stays, an empty one removes it), `enabled`, `minSeverity` |
+| `GET /api/notifications/channels` | Channels with masked URLs, `secretSet` for kinds with a token or secret (never the secret), `chatId` for Telegram, `allowPrivate`, and `disabledReason` when Hinomi turned the channel off by itself. An email channel has `url: "host:port"` and `email: { host, port, security, user, from, to, passwordSet }`; the password is never returned |
+| `POST /api/notifications/channels` | `{ kind: "discord" \| "slack" \| "ntfy" \| "gotify" \| "telegram" \| "webhook" \| "webpush", name, url?, secret?, chatId?, allowPrivate?, enabled?, minSeverity? }` with the fields of that kind (see [notifications.md](notifications.md#settings)), or `{ kind: "email", name, email: { host, port, security: "tls" \| "starttls" \| "none", user?, password?, from, to: string[] }, enabled?, minSeverity? }` |
+| `PATCH /api/notifications/channels/:id` | Any of `name`, `url`, `secret` (an empty one removes an optional secret), `chatId`, `allowPrivate`, `email` (a partial of the SMTP settings; an omitted `password` stays, an empty one removes it), `enabled`, `minSeverity` |
 | `DELETE /api/notifications/channels/:id` | Removes it |
 | `POST /api/notifications/channels/:id/test` | Sends a test message: `{ ok, error? }` |
+| `GET /api/notifications/push-key` | `{ publicKey }`: the VAPID public key a browser subscribes to web push with, made on first use. When the stored key does not decrypt with the current `HINOMI_SECRET_KEY`, a new one is made and the web push channels are turned off with a `disabledReason` (see [notifications.md](notifications.md#web-push)). 409 `secret_key_missing` when the key is sealed and `HINOMI_SECRET_KEY` is not set; the stored key is left as it is |
 | `GET /api/notifications/settings` | `{ publicBaseUrl, digestHour, fixRunEvents }`; `fixRunEvents` is `{ prOpened, checksFailing, verified, notCleared, failed, warnings }`, all booleans, all `true` until switched off |
 | `PATCH /api/notifications/settings` | `publicBaseUrl` (empty clears it), `digestHour` (0 to 23, server local time) and `fixRunEvents` (any of the six switches; the ones left out keep their value, an unknown name or an empty object is a 400) |
 
