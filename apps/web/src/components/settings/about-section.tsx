@@ -101,7 +101,7 @@ export function AboutSection() {
         <SetRow
           icon={<IconInfoCircle stroke={1.75} />}
           title="Check for new releases"
-          sub="Once a day Hinomi reads the latest release from GitHub, with no data sent beyond the request itself. It is the only call Hinomi makes that is not to a source you connected."
+          sub="Once a day Hinomi reads the latest release from GitHub, with no data sent beyond the request itself. The other outbound calls are listed in the self-hosting guide."
           aside={
             <Switch
               aria-label="Check for new releases"
