@@ -2,6 +2,96 @@
 
 All notable changes to Hinomi. Versions follow [Semantic Versioning](https://semver.org/); release images are on `ghcr.io/shironex/hinomi`.
 
+## 0.3.0 (2026-11-16)
+
+Hinomi now guards what it finds. Version 0.2.0 fixed vulnerable dependencies; this release looks at the other half of staying safe: how your deployments are configured and whether what runs on them is still supported. It also reads more than Coolify, more than lockfiles and more than deployed repos.
+
+### Highlights
+
+- **Drift guards.** Checks for a container that runs as root, a mounted Docker socket, resources of different projects on one network, watch paths that skip the Dockerfile or lockfiles, a framework or runtime near end of life, runtime pins that disagree and a GitHub Action on an old Node. Each is a finding with a level, evidence and a fix hint, and each can be turned off for one deployment or repo with a reason.
+- **Runtime support windows.** Node, Rust, Bun and your frameworks are judged against endoflife.date: a line near its end warns, a line past it fails.
+- **Image scan.** Deployments that run an image with no repo are scanned from Coolify's own results, or from the SBOM the image carries in its registry, with a login per registry for private images.
+- **A desktop release tier.** A repo that ships installers on GitHub releases but deploys nowhere gets its latest release scanned.
+- **More lockfiles.** go.mod, uv.lock, poetry.lock, requirements.txt, composer.lock and Gemfile.lock join the npm, pnpm, yarn, bun and Cargo files.
+- **More than Coolify.** Deployments can come from a manual list, from Docker hosts or from Dokploy, all behind one source interface.
+- **A version display and an update check.** The running version is in the rail and in Settings, About, with a note when a newer release exists.
+
+### What's New
+
+#### Drift guards
+- A guard is a configuration or support check on a deployment or a repo. It writes one finding per check and subject, at level warn, fail or unknown, next to the advisories and with the same states (snooze, accept, reopen) and history.
+- Container checks: `root_user`, `docker_socket`, `shared_network` and `watch_paths_skip`. They read what the deployment source reports about the container, and say unknown when the source cannot give the signal. Unknown never counts as a pass.
+- Support checks: `framework_support`, `runtime_support`, `runtime_pins_disagree` and `action_runtime`. See the support windows below.
+- A fail on a running deployment is sent right away, a warn goes in the daily digest, and unknown is never sent.
+- Turn a check off for one deployment or repo with a reason. The check keeps running and its finding stays visible as accepted.
+- A guards view, a guards panel on each deployment, an overview card, and a Checks section in Settings.
+
+#### Runtime support windows
+- Node pins are judged by the end of security support from endoflife.date. The warning window is `supportWindowDays` (default 90).
+- Rust and Bun have no usable end dates, so they are judged by releases behind the latest: a pin more than 4 releases behind warns (`rustBehindReleases` and `bunBehindReleases`).
+- Frameworks come from the direct runtime dependencies in the lockfiles, joined to the endoflife.date products by package; there is no hand kept list.
+- Runtime pins are read from version files, `engines`, Dockerfiles and CI, and the repo page lists every file that pins an old line, with the edit that moves it.
+- The overview has a support windows strip. The data is cached, refreshed daily and shown at `GET /api/support/status`.
+
+#### Image scan
+- For deployments that run an image with no git source. Off by default: turn it on in Settings, Scans.
+- `coolify` reads the results Coolify already computed. It needs Coolify 4.7.0 or newer with image scanning on for the server and the app.
+- `sbom` does the same and, for what Coolify does not cover, reads the SBOM attestation in the image's registry and matches it on OSV.
+- Findings are reported as `image`, ranked like lockfile advisories, and each deployment shows Coolify's verdict on its image.
+- Registry credentials for private images: a login per registry host under Settings, Scans. They are write only, encrypted, never shown again, and sent only to that registry.
+
+#### Desktop release tier
+- A repo with GitHub releases and no deployment gets its latest release checked once a day. When the release has installers, its tag is scanned against OSV and the findings are tracked apart from the default branch.
+- A finding already fixed on the default branch says so, because users still run the released build.
+- Per repo, the tier can be set to auto, on or off. A repo page shows the release.
+
+#### More lockfile ecosystems
+- go.mod, uv.lock, poetry.lock, requirements.txt (pinned lines only), composer.lock and Gemfile.lock are read and checked on OSV, which now covers Go, PyPI, Packagist and RubyGems.
+- A requirements.txt with lines that name no exact version gets a coverage note instead of a guess.
+
+#### Deployment sources
+- Hinomi reads deployments through one source interface. Coolify moved behind it, so a scan reads every enabled source and the guards never call a platform directly.
+- A manual list, for hosts Hinomi cannot read: entries in Settings, through the API or by importing a YAML file. It needs no token.
+- Docker hosts, read through the Engine API with GET requests only, over a socket or https. Containers are labelled with `hinomi.*` labels, and Traefik and Caddy labels give the domains. Hinomi never keeps environment variables.
+- Dokploy, with an instance URL and an API key. Its container facts are not read yet, so the container checks say unknown for Dokploy deployments.
+- Coolify now also reports how containers are configured (user, mounts, networks, watch paths).
+
+#### Version display and update check
+- The rail footer and Settings, About show the running version, commit and build date, and release images carry them as build args.
+- Once a day Hinomi reads the latest release from GitHub and says when a newer one exists. A pre-release only looks for newer pre-releases, and Settings, About switches it off.
+
+#### Follow-ups
+- Settings controls for the image scan mode, the support window and the Rust and Bun allowances.
+- A repo page, with links from repo names, a release filter on the alerts search, and an image security verdict on each deployment.
+- Release notes are written from this changelog and the merged pull requests.
+
+### Fixes
+- The shared network guard names the destination (`Docker network (destination 2) on server 2`) instead of showing Coolify's internal class name and raw ids. Findings stored by the release candidate read correctly too.
+- A guard fail looks like a fail everywhere it shows, and a warn like a warn, whatever severity its check ranks it as. Before, a fail of some checks (framework support among them) could look like a warn.
+- Releases of repos nothing deploys are checked even when account repos are off, for the repos your GitHub sources list.
+- Pinning a repo to a GitHub source that never saw it is refused.
+- Coverage notes are named by their own type in recent activity and in the alerts messages, and the needs action tab counts the list it opens.
+- Long names stay readable in the deployment join strip, and the phone tabs show the running fix count.
+- Fix with Hinomi is hidden on release findings, which a release fixes instead.
+
+### Under the Hood
+- Migrations 0011 to 0016, 0020 and 0023 (the numbers in between are not used).
+- Dependency updates: hono 4.13.16, @hono/node-server 2.1.6, jsdom 31 for the web tests, and newer pnpm/action-setup and docker/login-action in CI.
+- The release workflow bakes the version, commit and build date into the image.
+- The self-hosting guide has an "Outbound connections" section listing every host Hinomi calls, what triggers each call and how to turn it off. The About switch no longer says the update check is the only outbound call.
+
+### Upgrade notes
+- Migrations 0011 to 0023 run on start and only go forward. Back up the `/data` volume first, with your `HINOMI_SECRET_KEY`.
+- New settings and their defaults: `imageScan` is `off`, `supportWindowDays` is 90, and `rustBehindReleases` and `bunBehindReleases` are 4. Nothing about your existing scans changes until you turn something on; the guards run on the next scan.
+- `HINOMI_SECRET_KEY` now also protects registry credentials and Docker host client keys, on top of tokens. Rotating it means entering those again.
+- With `includeAccountRepos` off, the releases of the repos your GitHub sources list are now still checked, once a day. Their default branch stays unread.
+- Pinning a repo to a GitHub source that never saw it now answers 409. Run a scan first, or pick a source that sees it.
+- The Coolify image scan needs Coolify 4.7.0 or newer with image scanning switched on. The reader follows the 4.7.0 API description and has not been compared with a running instance yet.
+- A Dokploy API key has full access, because Dokploy has no read only key. Create a dedicated Dokploy user for Hinomi and generate the key as that user.
+- Give Hinomi a GET only socket proxy for a Docker host rather than the socket itself, even mounted read only.
+- Hinomi now makes more outbound calls than the update check: endoflife.date once a day (no switch, a stored copy is used when it fails), and, with the `sbom` image scan, the registries your images name. See [Outbound connections](docs/self-hosting.md#outbound-connections) for every host and how to turn each off.
+- Run `docker pull ghcr.io/shironex/hinomi:0.3.0`; `latest` and `0.3` move to this release.
+
 ## 0.3.0-rc.1 (2026-11-15)
 
 Hinomi now guards what it finds. Version 0.2.0 fixed vulnerable dependencies; this release looks at the other half of staying safe: how your deployments are configured and whether what runs on them is still supported. It also reads more than Coolify, more than lockfiles and more than deployed repos. This is a release candidate: it is a pre-release image, `latest` and the `0.3` tag stay where they are, and I would like it run on a real setup before 0.3.0.
