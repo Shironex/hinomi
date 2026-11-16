@@ -27,6 +27,33 @@ export function parseIp(raw: string | undefined | null): ParsedIp | null {
   return null
 }
 
+/**
+ * The client a rate limit counts: an IPv4 address as is, an IPv6 address by its /64. One
+ * subscriber or host usually holds a whole /64, so counting single IPv6 addresses would let
+ * a client rotate through billions of fresh ones.
+ */
+export function rateLimitKey(ip: ParsedIp): string {
+  if (ip.family === 'ipv4') return ip.address
+  return `${expandIpv6(ip.address).slice(0, 4).join(':')}::/64`
+}
+
+/** The eight 16 bit groups of an IPv6 address, in short hex (`2001:db8:0:0:...`). */
+function expandIpv6(address: string): string[] {
+  let text = address
+  // An IPv4 tail (`::ffff:192.0.2.1`, `64:ff9b::198.51.100.7`) becomes two groups.
+  const tail = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text)
+  if (tail) {
+    const [a, b, c, d] = tail.slice(1).map(Number) as [number, number, number, number]
+    text = `${text.slice(0, tail.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+  }
+  const [head = '', rest] = text.split('::')
+  const left = head ? head.split(':') : []
+  const right = rest === undefined ? [] : rest ? rest.split(':') : []
+  const fill: string[] =
+    rest === undefined ? [] : Array.from({ length: 8 - left.length - right.length }, () => '0')
+  return [...left, ...fill, ...right].map((group) => Number.parseInt(group, 16).toString(16))
+}
+
 export class InvalidCidrError extends Error {}
 
 /**

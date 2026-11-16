@@ -112,7 +112,7 @@ All of these run in the container and print to that terminal only:
 
 | Command | What it does |
 |---|---|
-| `node apps/server/dist/cli.mjs setup-code` | A new one time code, to register a passkey on the login page. Existing passkeys keep working. Wrong guesses lock only the code they were made against, so a new code works at once. |
+| `node apps/server/dist/cli.mjs setup-code` | A new one time code, to register a passkey on the login page. Existing passkeys keep working. Wrong guesses lock only the address they came from (or its IPv6 /64), never the code, so nobody can lock you out of recovery. |
 | `node apps/server/dist/cli.mjs reset` | Removes every passkey and ends every session, then prints a setup code. For a lost or stolen passkey. |
 | `node apps/server/dist/cli.mjs revoke-sessions` | Ends every session; everyone signs in again. |
 
@@ -126,8 +126,8 @@ Turning the login off (`HINOMI_AUTH` unset) and restarting also gets you back in
 - A session ends after 12 hours without a request, and after 7 days in any case. Signing in again replaces the old session of that browser.
 - Signing out, ending a session under Settings, Access, removing the passkey that started it, or running `revoke-sessions` ends it on the server at once.
 - Every change (any method but GET and HEAD) needs the session's CSRF token in the `x-hinomi-csrf` header, and an `Origin` equal to `HINOMI_AUTH_PUBLIC_URL` (or, without `Origin`, `Sec-Fetch-Site: same-origin`). The web app does this for you.
-- Failed sign ins back off per client address and per account (a passkey, or the setup code waiting now): five are free, then each waits twice as long as the last, up to 15 minutes. The answer is `429` with a `Retry-After` header. A failed passkey sign in counts against that passkey only when its challenge was issued to the same client address.
-- Anonymous starts (passkey challenges, provider redirects) have their own budget per address: 30 free, then the same doubling, up to 5 minutes; a successful sign in clears it. Each address may have at most 10 of them open at once, and they are kept apart from setup and add passkey challenges, so a flood cannot push those out.
+- Failed sign ins back off per client: five are free, then each waits twice as long as the last, up to 15 minutes. The answer is `429` with a `Retry-After` header. A client is its IPv4 address, or its whole /64 for IPv6, since one host usually holds a /64 and could otherwise rotate through fresh addresses. Nothing locks a passkey or the setup code itself, so knowing a credential id or flooding the setup form cannot lock the owner out; guessing stays out of reach (a setup code carries about 59 bits and lives 15 minutes, a passkey needs its private key).
+- Anonymous starts (passkey challenges, provider redirects) have their own budget per client (the same address or /64): 30 free, then the same doubling, up to 5 minutes; a successful sign in clears it. Each client may have at most 10 of them open at once, and they are kept apart from setup and add passkey challenges, so a flood cannot push those out.
 - A sign in that cannot be written to the audit log fails, and no cookie is set.
 
 ## What stays public

@@ -23,7 +23,7 @@ export {
   type AuthCore,
   type CoreOptions,
 } from './service.js'
-export { consumeSetupCode, issueSetupCode, SETUP_CODE_TTL_MS, setupCodeId } from './setup-code.js'
+export { consumeSetupCode, issueSetupCode, SETUP_CODE_TTL_MS } from './setup-code.js'
 export { createThrottle, type Throttle } from './throttle.js'
 export {
   CEREMONY_TIMEOUT_MS,

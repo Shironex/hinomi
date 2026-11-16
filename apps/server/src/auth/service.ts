@@ -10,7 +10,13 @@ import {
 } from '@hinomi/shared'
 import type { Context, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { clientAddress, remoteAddress, type AccessOptions } from '../access/index.js'
+import {
+  clientAddress,
+  rateLimitKey,
+  remoteAddress,
+  type AccessOptions,
+  type ParsedIp,
+} from '../access/index.js'
 import type { AuthConfig } from '../config.js'
 import type { AuthPasskeyRow, AuthSessionRow } from '../db/schema.js'
 import { silentLogger, type Logger } from '../log.js'
@@ -107,7 +113,7 @@ export function createAuthCore({
 
   let warnedUntrustedForward = false
 
-  function ipOf(c: Context): string | null {
+  function clientIp(c: Context): ParsedIp | null {
     const client = clientAddress(
       { remoteAddress: remoteAddress(c), header: (name) => c.req.header(name) },
       access,
@@ -121,7 +127,22 @@ export function createAuthCore({
         { peer: client.ip?.address ?? null },
       )
     }
-    return client.ip?.address ?? null
+    return client.ip
+  }
+
+  /** The client address, as the audit log and the session list show it. */
+  function ipOf(c: Context): string | null {
+    return clientIp(c)?.address ?? null
+  }
+
+  /**
+   * What the backoff and the start budgets count for this client: its address, or its /64 for
+   * IPv6. Clients whose address is unknown (never the case behind the Node server) share one
+   * key, so they are still counted.
+   */
+  function clientKey(c: Context): string {
+    const ip = clientIp(c)
+    return ip ? `ip:${rateLimitKey(ip)}` : 'ip:unknown'
   }
 
   /** Writes the audit row or throws: for logins, which must not happen unrecorded. */
@@ -208,10 +229,8 @@ export function createAuthCore({
     }
     setCookie(c, cookieName, token, cookieOptions(SESSION_ABSOLUTE_MS / 1000))
     sessions.set(c.req.raw, row)
-    if (ip) {
-      throttle.succeed([`ip:${ip}`])
-      starts.succeed([`ip:${ip}`])
-    }
+    throttle.succeed([clientKey(c)])
+    starts.succeed([clientKey(c)])
     return row
   }
 
@@ -355,6 +374,7 @@ export function createAuthCore({
     sameOrigin,
     csrfOk,
     ipOf,
+    clientKey,
     audit,
     tokenHashOf: (c: Context) => {
       const token = tokenOf(c)

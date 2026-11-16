@@ -50,12 +50,3 @@ export function consumeSetupCode(settings: SettingsRepository, code: string, now
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false
   return settings.remove(SETUP_CODE_KEY)
 }
-
-/**
- * A short name for the code waiting now (the first 8 hex of its digest), or null when none is.
- * The per account backoff is keyed to it, so a code issued after a lockout starts clean and
- * nobody can lock recovery for good by guessing.
- */
-export function setupCodeId(settings: SettingsRepository): string | null {
-  return settings.get(SETUP_CODE_KEY, storedSchema)?.hash.slice(0, 8) ?? null
-}

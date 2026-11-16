@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createIpMatcher, isLoopback, isPrivate, isTailscale, parseIp } from './ip.js'
+import { createIpMatcher, isLoopback, isPrivate, isTailscale, parseIp, rateLimitKey } from './ip.js'
 
 describe('parseIp', () => {
   it('reads IPv4 and IPv6', () => {
@@ -64,5 +64,23 @@ describe('createIpMatcher', () => {
     expect(() => createIpMatcher(['10.0.0.0/33'])).toThrow('"10.0.0.0/33"')
     expect(() => createIpMatcher(['proxy.example.dev'])).toThrow('"proxy.example.dev"')
     expect(() => createIpMatcher(['10.0.0.0/8/1'])).toThrow(/not an IP address/)
+  })
+})
+
+describe('rateLimitKey', () => {
+  const key = (raw: string) => rateLimitKey(parseIp(raw) as NonNullable<ReturnType<typeof parseIp>>)
+
+  it('keeps an IPv4 address as is', () => {
+    expect(key('203.0.113.9')).toBe('203.0.113.9')
+  })
+
+  it('counts an IPv6 address by its /64, however it is written', () => {
+    expect(key('2001:db8:aa:bb:1:2:3:4')).toBe('2001:db8:aa:bb::/64')
+    expect(key('2001:db8:aa:bb::9')).toBe('2001:db8:aa:bb::/64')
+    expect(key('2001:0DB8:00aa:00bb:ffff::1')).toBe('2001:db8:aa:bb::/64')
+    expect(key('2001:db8::1')).toBe('2001:db8:0:0::/64')
+    expect(key('::1')).toBe('0:0:0:0::/64')
+    expect(key('64:ff9b::198.51.100.7')).toBe('64:ff9b:0:0::/64')
+    expect(key('2001:db8:aa:bc::1')).not.toBe(key('2001:db8:aa:bb::1'))
   })
 })

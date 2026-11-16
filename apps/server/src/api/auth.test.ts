@@ -90,7 +90,15 @@ function browser(app: ReturnType<typeof createTestApi>['app'], ip?: string) {
     if (body !== undefined) h.set('content-type', 'application/json')
     // The socket peer, as the Node server would hand it to getConnInfo.
     const env = ip
-      ? { incoming: { socket: { remoteAddress: ip, remoteFamily: 'IPv4', remotePort: 40000 } } }
+      ? {
+          incoming: {
+            socket: {
+              remoteAddress: ip,
+              remoteFamily: ip.includes(':') ? 'IPv6' : 'IPv4',
+              remotePort: 40000,
+            },
+          },
+        }
       : undefined
     const res = await app.request(
       path,
@@ -337,14 +345,11 @@ describe('built in login on', () => {
       expect(locked.status).toBe(429)
       expect(locked.json).toMatchObject({ error: { code: 'rate_limited' } })
       expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0)
-      // The lock is per account too: another address is refused as well.
-      const other = browser(w.app)
-      const fromElsewhere = await other.call('POST', '/api/auth/setup/verify', { body: { code } })
-      expect(fromElsewhere.status).toBe(429)
-      w.clock.now += 2000
-      expect((await w.b.call('POST', '/api/auth/setup/verify', { body: { code } })).status).toBe(
-        200,
-      )
+      // The lock is on the guessing client only: the operator elsewhere is not locked out.
+      const operator = browser(w.app, '192.0.2.10')
+      expect(
+        (await operator.call('POST', '/api/auth/setup/verify', { body: { code } })).status,
+      ).toBe(200)
     })
 
     it('a code issued after a lockout can be redeemed at once', async () => {
@@ -357,11 +362,40 @@ describe('built in login on', () => {
         (await w.b.call('POST', '/api/auth/setup/verify', { body: { code: 'AAAA-BBBB-CCCC' } }))
           .status,
       ).toBe(429)
-      // The operator runs setup-code again: the lock was on the old code, not on recovery.
+      // The operator runs setup-code again and types it in from their own browser.
       const { code } = issueSetupCode(w.repos.settings, new Date(w.clock.now))
-      expect((await w.b.call('POST', '/api/auth/setup/verify', { body: { code } })).status).toBe(
-        200,
-      )
+      const operator = browser(w.app, '192.0.2.10')
+      expect(
+        (await operator.call('POST', '/api/auth/setup/verify', { body: { code } })).status,
+      ).toBe(200)
+    })
+
+    it('guesses from rotating IPv6 addresses lock their /64, never the operator', async () => {
+      const w = setup()
+      const operator = browser(w.app, '192.0.2.10')
+      let guesses = 0
+      const guess = () => {
+        guesses++
+        // A fresh address in the same /64 for every guess.
+        return browser(w.app, `2001:db8:aa:bb::${guesses.toString(16)}`).call(
+          'POST',
+          '/api/auth/setup/verify',
+          { body: { code: 'AAAA-BBBB-CCCC' } },
+        )
+      }
+      const rounds: number[][] = []
+      for (let round = 0; round < 3; round++) {
+        const { code } = issueSetupCode(w.repos.settings, new Date(w.clock.now))
+        const statuses: number[] = []
+        for (let i = 0; i < 8; i++) statuses.push((await guess()).status)
+        rounds.push(statuses)
+        w.clock.now += 500
+        const res = await operator.call('POST', '/api/auth/setup/verify', { body: { code } })
+        expect(res.status).toBe(200)
+      }
+      // The /64 counts as one client: five failures, then it waits, round after round.
+      expect(rounds[0]?.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
+      expect(rounds.map((statuses) => statuses.at(-1))).toEqual([429, 429, 429])
     })
 
     it('register only with the enrollment they started', async () => {
@@ -892,36 +926,30 @@ describe('built in login on', () => {
     record.mockRestore()
   })
 
-  it('counts a passkey failure against the passkey only for a challenge issued to that client', async () => {
+  it('counts passkey failures against the client, never against the passkey', async () => {
     const w = setup()
     const authenticator = await enroll(w)
     const forger = createSoftAuthenticator({ origin: ORIGIN })
-    // Each attempt comes from a new address with a challenge another address asked for.
+    // Forged assertions from many addresses in one /64, each with its own challenge.
+    const statuses: number[] = []
     for (let i = 1; i <= 8; i++) {
-      const asker = browser(w.app, `198.51.100.${i}`)
-      const options = passkeyRequestOptionsSchema.parse(
-        (await asker.call('POST', '/api/auth/passkey/login/options')).json,
-      )
-      const res = await browser(w.app, `203.0.113.${i}`).call('POST', '/api/auth/passkey/login', {
+      const attacker = browser(w.app, `2001:db8:cc:dd::${i}`)
+      const asked = await attacker.call('POST', '/api/auth/passkey/login/options')
+      if (asked.status !== 200) {
+        statuses.push(asked.status)
+        continue
+      }
+      const options = passkeyRequestOptionsSchema.parse(asked.json)
+      const res = await attacker.call('POST', '/api/auth/passkey/login', {
         body: { credential: authenticator.assert(options, { signWith: forger.privateKey }) },
       })
-      expect(res.status).toBe(401)
+      statuses.push(res.status)
     }
-    // The owner, from yet another address, is not locked out of their passkey.
+    // The /64 is one client: five failures, then it waits.
+    expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
+    expect(statuses.at(-1)).toBe(429)
+    // The owner, from anywhere else, is not locked out of their passkey.
     expect((await passkeyLogin(w, authenticator, browser(w.app, '192.0.2.10'))).status).toBe(204)
-  })
-
-  it('locks a passkey after failures on challenges issued to the failing client', async () => {
-    const w = setup()
-    const authenticator = await enroll(w)
-    const forger = createSoftAuthenticator({ origin: ORIGIN })
-    for (let i = 1; i <= 6; i++) {
-      const res = await passkeyLogin(w, authenticator, browser(w.app, `203.0.113.${i}`), {
-        signWith: forger.privateKey,
-      })
-      expect(res.status).toBe(401)
-    }
-    expect((await passkeyLogin(w, authenticator, browser(w.app, '192.0.2.10'))).status).toBe(429)
   })
 
   it('caps anonymous starts per address and warns once about an untrusted X-Forwarded-For', async () => {
@@ -943,6 +971,17 @@ describe('built in login on', () => {
     // Another address is not affected.
     expect(
       (await browser(w.app, '198.51.100.7').call('POST', '/api/auth/passkey/login/options')).status,
+    ).toBe(200)
+    // Rotating through one IPv6 /64 is one client.
+    const rotating: number[] = []
+    for (let i = 1; i <= 32; i++) {
+      const b = browser(w.app, `2001:db8:ee:ff::${i.toString(16)}`)
+      rotating.push((await b.call('POST', '/api/auth/passkey/login/options')).status)
+    }
+    expect(rotating.at(-1)).toBe(429)
+    expect(
+      (await browser(w.app, '2001:db8:ee:100::1').call('POST', '/api/auth/passkey/login/options'))
+        .status,
     ).toBe(200)
     expect(
       w.logger.lines.filter((l) => l.message.includes('X-Forwarded-For came from a peer')),

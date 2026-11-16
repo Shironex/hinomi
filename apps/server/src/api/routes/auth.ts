@@ -32,7 +32,6 @@ import {
   readGithubPins,
   requestOptions,
   safeEqual,
-  setupCodeId,
   verifyAssertion,
   verifyRegistration,
   WebAuthnError,
@@ -116,7 +115,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   })
   // Anyone may ask for these, so they get stores of their own (a flood cannot push out a pending
   // setup or add passkey challenge) and a cap per client address.
-  const loginChallenges = createPendingStore<string | null>({
+  const loginChallenges = createPendingStore<true>({
     ttlMs: CEREMONY_TIMEOUT_MS + 60_000,
     maxPerOwner: MAX_OPEN_PER_ADDRESS,
     now: () => core.now().getTime(),
@@ -155,8 +154,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   }
 
   function ipKeys(c: Context): string[] {
-    const ip = core.ipOf(c)
-    return ip ? [`ip:${ip}`] : []
+    return [core.clientKey(c)]
   }
 
   /**
@@ -269,7 +267,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       })
       return c.redirect('/login?error=failed', 302)
     }
-    flows.put(flowId, flow, core.ipOf(c))
+    flows.put(flowId, flow, core.clientKey(c))
     setCookie(c, flowCookie, flowId, {
       httpOnly: true,
       secure: config?.secure ?? false,
@@ -355,8 +353,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       throw new HttpError(429, 'rate_limited', 'Too many attempts, wait a moment and try again')
     }
     const challenge = randomToken()
-    const ip = core.ipOf(c)
-    loginChallenges.put(challenge, ip, ip)
+    loginChallenges.put(challenge, true, core.clientKey(c))
     return send(c, passkeyRequestOptionsSchema, requestOptions({ rp, challenge }))
   })
 
@@ -364,39 +361,35 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
     const keys = ipKeys(c)
     checkThrottle(c, keys)
     const { credential } = await readJson(c, passkeyLoginRequestSchema)
-    let issuedHere = false
     try {
       const clientData = readClientData(rp, credential.response.clientDataJSON, 'webauthn.get')
-      const issuedTo = loginChallenges.take(clientData.challenge)
-      if (issuedTo === undefined) throw new WebAuthnError('unknown or expired challenge')
-      issuedHere = issuedTo === core.ipOf(c)
+      if (!loginChallenges.take(clientData.challenge)) {
+        throw new WebAuthnError('unknown or expired challenge')
+      }
     } catch (error) {
       if (!(error instanceof WebAuthnError)) throw error
       loginFailed(c, keys, `passkey: ${error.message}`)
     }
     const passkey = store.passkeys.byCredentialId(credential.id)
     if (!passkey) loginFailed(c, keys, 'passkey: unknown credential')
-    const accountKey = `account:passkey:${passkey.id}`
-    checkThrottle(c, [...keys, accountKey])
-    // A failure counts against the passkey only when its challenge was issued to this client;
-    // otherwise only against the address.
-    const accountKeys = issuedHere ? [...keys, accountKey] : keys
+    // Failures count against the client (its address, or its /64), never against the passkey:
+    // a per passkey lock would let anyone who knows a credential id lock its owner out.
     let signCount: number
     try {
       signCount = verifyAssertion(rp, credential, passkey, userHandle()).signCount
     } catch (error) {
       if (!(error instanceof WebAuthnError)) throw error
-      loginFailed(c, accountKeys, `passkey: ${error.message}`, passkey.ownerSubject)
+      loginFailed(c, keys, `passkey: ${error.message}`, passkey.ownerSubject)
     }
     // A passkey registered through a provider is only as good as its owner's place on the list.
     if (!core.ownerAdmitted(passkey)) {
       core.prunePasskey(c, passkey)
-      loginFailed(c, accountKeys, 'passkey: its owner is no longer allowed', passkey.ownerSubject)
+      loginFailed(c, keys, 'passkey: its owner is no longer allowed', passkey.ownerSubject)
     }
     if (!store.passkeys.recordUse(passkey.id, passkey.signCount, signCount, core.now())) {
-      loginFailed(c, accountKeys, 'passkey: counter changed during the login', passkey.ownerSubject)
+      loginFailed(c, keys, 'passkey: counter changed during the login', passkey.ownerSubject)
     }
-    throttle.succeed([...keys, accountKey])
+    throttle.succeed(keys)
     // The session is the owner's, whatever the passkey was named.
     core.startSession(c, {
       method: 'passkey',
@@ -410,10 +403,9 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   // Setup codes: the first passkey, or a new one after `hinomi-auth reset`
 
   app.post('/setup/verify', async (c) => {
-    // Keyed to the code waiting now: guesses lock that code (and the guessing address), and a new
-    // code from the container is never locked out by them.
-    const codeId = setupCodeId(core.settings)
-    const keys = [...ipKeys(c), ...(codeId ? [`account:setup:${codeId}`] : [])]
+    // Per client only (its address, or its /64): a lock on the code itself would let anyone lock
+    // the operator out. The code carries about 59 bits and lives 15 minutes, too many to guess.
+    const keys = ipKeys(c)
     checkThrottle(c, keys)
     const { code } = await readJson(c, setupCodeRequestSchema)
     if (!consumeSetupCode(core.settings, code, core.now())) {

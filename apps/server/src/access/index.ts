@@ -12,5 +12,5 @@ export {
   type AccessOptions,
   type AccessRequest,
 } from './detect.js'
-export { createIpMatcher, InvalidCidrError, parseIp, type ParsedIp } from './ip.js'
+export { createIpMatcher, InvalidCidrError, parseIp, rateLimitKey, type ParsedIp } from './ip.js'
 export { remoteAddress } from './request.js'
