@@ -15,12 +15,14 @@ import type {
 import type { CoolifyClient } from './client.js'
 import { CoolifyError } from './errors.js'
 
-// Coolify's own image scan results (newer Coolify builds only):
+// Coolify's own image scan results (Coolify v4.7.0 and newer):
 //   GET /vulnerabilities                       every resource with its stored security status
 //   GET /{applications|services|databases}/{uuid}/vulnerabilities   one resource's images and findings
-// Both need only the read ability (Coolify 4.7.0 and newer). The response is untrusted input: every field is checked with
-// zod, entries that do not parse are counted and dropped, and names from it are only ever used as
-// Map keys or plain values, never as keys of a plain object.
+// Both need only the read ability. GET /servers/{uuid}/image-scanning is not used: it needs a team
+// admin token, and each 403 would count toward Coolify's failed request limit. The response is
+// untrusted input: every field is checked with zod, entries that do not parse are counted and
+// dropped, and names from it are only ever used as Map keys or plain values, never as keys of a
+// plain object.
 
 /** Findings asked per page; Coolify allows at most 200. */
 const PER_PAGE = 200
