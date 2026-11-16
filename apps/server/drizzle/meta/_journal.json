@@ -134,6 +134,13 @@
       "when": 1794800000000,
       "tag": "0023_registry_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1794846846467,
+      "tag": "0069_auth",
+      "breakpoints": true
     }
   ]
 }

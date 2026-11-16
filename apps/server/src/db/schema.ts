@@ -1,4 +1,6 @@
 import {
+  AUDIT_ACTIONS,
+  AUTH_METHODS,
   BLIND_SPOT_TYPES,
   DEPLOYMENT_REACHES,
   FINDING_KINDS,
@@ -618,6 +620,74 @@ export const httpCache = sqliteTable('http_cache', {
   body: blob('body', { mode: 'buffer' }).notNull(),
 })
 
+/**
+ * Sessions of the built in login (HINOMI_AUTH). The cookie holds a random token; only its SHA-256
+ * is stored, so a copy of the database cannot be replayed as a cookie.
+ */
+export const authSessions = sqliteTable(
+  'auth_sessions',
+  {
+    /** SHA-256 hex of the cookie token. */
+    tokenHash: text('token_hash').primaryKey(),
+    /** A random handle the UI revokes by, never the token. */
+    publicId: text('public_id').notNull(),
+    /** Random, compared in constant time with the x-hinomi-csrf header on every change. */
+    csrfToken: text('csrf_token').notNull(),
+    method: text('method', { enum: AUTH_METHODS }).notNull(),
+    /** The verified email, `github:<login>`, `oidc:<sub>` or the passkey's name. */
+    subject: text('subject').notNull(),
+    /** The passkey that signed in, so removing it ends its sessions. */
+    passkeyId: integer('passkey_id'),
+    createdAt: createdAt(),
+    lastSeenAt: timestamp('last_seen_at').notNull(),
+    /** The absolute end; the idle limit is counted from last_seen_at. */
+    expiresAt: timestamp('expires_at').notNull(),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+  },
+  (t) => [uniqueIndex('auth_sessions_public_id_unique').on(t.publicId)],
+)
+
+/** Passkeys (WebAuthn credentials) that can sign in. The public key only; nothing secret. */
+export const authPasskeys = sqliteTable(
+  'auth_passkeys',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The credential id, base64url. */
+    credentialId: text('credential_id').notNull(),
+    /** SPKI DER of the public key, base64. */
+    publicKey: text('public_key').notNull(),
+    /** COSE algorithm: -7 ES256, -8 EdDSA, -257 RS256. */
+    algorithm: integer('algorithm').notNull(),
+    signCount: integer('sign_count').notNull().default(0),
+    name: text('name').notNull(),
+    transports: text('transports', { mode: 'json' }).$type<string[]>(),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp('last_used_at'),
+  },
+  (t) => [uniqueIndex('auth_passkeys_credential_unique').on(t.credentialId)],
+)
+
+/**
+ * Who did what: logins (failed ones too), logouts, passkeys and sessions, and every change made
+ * through the API. Kept to the newest rows (repository/audit.ts); never a request body.
+ */
+export const auditEvents = sqliteTable(
+  'audit_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    at: timestamp('at').notNull(),
+    action: text('action', { enum: AUDIT_ACTIONS }).notNull(),
+    actor: text('actor'),
+    ip: text('ip'),
+    method: text('method'),
+    path: text('path'),
+    status: integer('status'),
+    detail: text('detail'),
+  },
+  (t) => [index('audit_events_at_idx').on(t.at)],
+)
+
 export type SourceRow = typeof sources.$inferSelect
 export type RegistryCredentialRow = typeof registryCredentials.$inferSelect
 export type RepoRow = typeof repos.$inferSelect
@@ -637,6 +707,9 @@ export type ScanRunRow = typeof scanRuns.$inferSelect
 export type SettingRow = typeof settings.$inferSelect
 export type RuntimePinRow = typeof runtimePins.$inferSelect
 export type HttpCacheRow = typeof httpCache.$inferSelect
+export type AuthSessionRow = typeof authSessions.$inferSelect
+export type AuthPasskeyRow = typeof authPasskeys.$inferSelect
+export type AuditEventRow = typeof auditEvents.$inferSelect
 export type FixPlanRow = typeof fixPlans.$inferSelect
 export type FixRunRow = typeof fixRuns.$inferSelect
 export type NewFixRunRow = typeof fixRuns.$inferInsert

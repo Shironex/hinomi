@@ -9,6 +9,9 @@ import { createTestDatabase } from './test-db.js'
 
 const TABLES = [
   'advisories',
+  'audit_events',
+  'auth_passkeys',
+  'auth_sessions',
   'check_overrides',
   'deployment_repo_overrides',
   'deployments',
