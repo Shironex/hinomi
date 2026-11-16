@@ -23,6 +23,7 @@ import type { Repositories, Source } from '../../repository/index.js'
 import {
   isExposed,
   isImageOnly,
+  isTurnedOff,
   listRankedFindings,
   loadOverrideIndex,
   needsRepoMapping,
@@ -90,6 +91,13 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
         .map((f) => f.finding.blindSpotType as BlindSpotType),
     ),
   ]
+  const archivedRepo = open.some(
+    (f) =>
+      f.kind === 'guard' &&
+      f.guardCheck === 'archived_deployed' &&
+      f.guardLevel === 'fail' &&
+      !isTurnedOff(f.finding),
+  )
   const source = ctx.sources.get(deployment.sourceId)
   const mapped = repos.length > 0 || !needsRepoMapping(deployment)
   const imageOnly = repos.length === 0 && isImageOnly(deployment)
@@ -113,7 +121,8 @@ function toItem(ctx: JoinContext, deployment: DeploymentRow): DeploymentItem {
     coverage: {
       alerts: alertsCoverage(repos),
       blindSpots,
-      covered: mapped && !imageOnly && blindSpots.length === 0,
+      covered: mapped && !imageOnly && blindSpots.length === 0 && !archivedRepo,
+      archivedRepo,
       imageOnly,
     },
     imageSecurity: deployment.imageSecurity ?? null,

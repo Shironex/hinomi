@@ -31,7 +31,8 @@ function seen(id: number, alertsReadable: boolean): RepoSourceSeen {
 }
 
 interface Placement {
-  current: number
+  /** Null: no source reads it now. */
+  current: number | null
   override: number | null
   seenBy: RepoSourceSeen[]
 }
@@ -48,6 +49,13 @@ const PLACEMENTS: Partial<Record<number, Placement>> = {
     seenBy: [seen(APP, true), seen(TOKEN, true)],
   },
   [REPOS.cli.id]: { current: TOKEN, override: null, seenBy: [seen(TOKEN, true)] },
+  // The app lost access to status in the last scan (permission refused): nothing reads it now,
+  // its findings keep what the last good scan said, and archived_deployed is unknown.
+  [REPOS.status.id]: {
+    current: null,
+    override: null,
+    seenBy: [{ ...seen(APP, true), lastSeenAt: ago(26) }],
+  },
 }
 
 /** Every fixture repo: the scanned ones and those that only have a fix plan. */
@@ -135,11 +143,16 @@ export function repoDetailFor(id: number): RepoDetail | null {
   const repo = ALL_REPOS.find((r) => r.id === id)
   if (!repo) return null
   const placement = PLACEMENTS[id] ?? { current: APP, override: null, seenBy: [seen(APP, true)] }
-  const { name, auth, enabled } = github(placement.current)
+  const reader = placement.current === null ? null : github(placement.current)
   return {
     ...repo,
     source: {
-      current: { id: placement.current, name, auth, enabled },
+      current: reader && {
+        id: reader.id,
+        name: reader.name,
+        auth: reader.auth,
+        enabled: reader.enabled,
+      },
       mode: placement.override === null ? 'auto' : 'override',
       overrideId: placement.override,
       seenBy: placement.seenBy,

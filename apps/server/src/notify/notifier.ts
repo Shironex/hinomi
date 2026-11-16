@@ -3,7 +3,9 @@ import type { FindingEventRow, FixRunRow } from '../db/schema.js'
 import type { SecretBox } from '../crypto/secret-box.js'
 import type { Repositories } from '../repository/index.js'
 import {
+  CARRIED_OVER_EVENT,
   findingChangesSince,
+  isMovedToGuard,
   listRankedFindings,
   tierOf,
   type RankedFinding,
@@ -94,10 +96,15 @@ const DIGEST_EVENTS: Record<string, ItemEvent> = {
 }
 
 /**
- * Not reported, but they end a story: a finding dismissed upstream, or one whose check was turned
- * off, must not be announced as new.
+ * Not reported, but they end a story: a finding dismissed upstream, one whose check was turned
+ * off, or a guard row that took the snooze or acceptance of the blind spot row it replaced, must
+ * not be announced as new.
  */
-const SILENCING_EVENTS: ReadonlySet<string> = new Set(['dismissed_upstream', 'turned_off'])
+const SILENCING_EVENTS: ReadonlySet<string> = new Set([
+  'dismissed_upstream',
+  'turned_off',
+  CARRIED_OVER_EVENT,
+])
 
 /** Events a message announces right away: a new or reopened finding, or a guard escalation. */
 const isAnnouncement = (type: string) =>
@@ -364,6 +371,8 @@ export function createNotifier(options: NotifierOptions) {
       if (!first || !last || !found || !isMessageFinding(found)) continue
       if (found.patchedInLockfile) continue
       if (SILENCING_EVENTS.has(last.type)) continue
+      // A blind spot row the archived_deployed guard took over was not fixed: nothing to report.
+      if (last.type === 'resolved' && isMovedToGuard(last.data)) continue
       const event = DIGEST_EVENTS[last.type] as ItemEvent
       // Opened and gone again within the window: nothing changed on net.
       if (first.type === 'opened' && (event === 'fixed' || event === 'resolved')) continue

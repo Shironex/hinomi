@@ -195,6 +195,9 @@ export async function collectPins(
   }
 }
 
+/** Why repo health is skipped when no GitHub source is connected (the checks tell it apart). */
+export const GITHUB_NOT_CONNECTED = 'GitHub is not connected'
+
 export interface GithubRepoScan {
   health: SourceOutcome<RepoHealth>
   alerts: SourceOutcome<DependabotAlertsResult>
@@ -214,7 +217,7 @@ export async function collectGithub(
   listed?: ReadonlyMap<number, ReadonlySet<string>>,
 ): Promise<GithubRepoScan> {
   if (sources.github.length === 0) {
-    const skipped = { status: 'skipped', reason: 'GitHub is not connected' } as const
+    const skipped = { status: 'skipped', reason: GITHUB_NOT_CONNECTED } as const
     return { health: skipped, alerts: skipped, sourceId: null, probes: [] }
   }
   const owner = await resolveOwnership(sources, repo, listed)

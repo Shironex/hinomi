@@ -13,7 +13,10 @@ import { coveredByImageScan, type ImageCoverage } from './image-scan.js'
 import { loadOverrideIndex, reconcileOverride, type OverrideIndex } from './overrides.js'
 import { lastDetails, markFixed, reopenIfFixed } from './state.js'
 
-/** Blind spots about a repo, as opposed to `no_repo_mapping`, which is about a deployment. */
+/**
+ * Blind spots about a repo, as opposed to `no_repo_mapping`, which is about a deployment.
+ * `archived_deployed` is never opened again: the guard check answers it (scan/guards/archived-handover.ts).
+ */
 export const REPO_BLIND_SPOTS = [
   'alerts_disabled',
   'alerts_unknown',
@@ -49,7 +52,13 @@ export function repoBlindSpotChecks(
   scan: RepoScan | undefined,
 ): BlindSpotCheck[] {
   const subject = { repoId }
-  if (!deployed) return REPO_BLIND_SPOTS.map((type) => ({ type, subject, present: false }))
+  // The archived_deployed guard check answers it now; old rows hand over in archived-handover.ts.
+  const archived: BlindSpotCheck = { type: 'archived_deployed', subject, present: null }
+  if (!deployed) {
+    return REPO_BLIND_SPOTS.map((type) =>
+      type === 'archived_deployed' ? archived : { type, subject, present: false },
+    )
+  }
   const health = scan?.health.status === 'ok' ? scan.health.value : null
   const osv = scan?.osv.status === 'ok' ? scan.osv.value : null
   // OSV switched off: nothing reads lockfiles, so these resolve as "not checked" instead of going stale.
@@ -63,9 +72,9 @@ export function repoBlindSpotChecks(
     ...(osvOff && { resolvedData: NOT_CHECKED }),
   })
   return [
+    archived,
     { type: 'alerts_disabled', subject, present: health ? health.alertsEnabled === false : null },
     { type: 'alerts_unknown', subject, present: health ? health.alertsEnabled === null : null },
-    { type: 'archived_deployed', subject, present: health ? health.archived : null },
     lockfile(
       'lockfile_missing',
       osv ? osv.lockfiles.length === 0 && osv.unparseable.length === 0 : null,
@@ -248,7 +257,7 @@ function applyCheck(
 
 /**
  * Opens, reopens and resolves blind spots and coverage notes, and applies check overrides to
- * blind spots (Q5: `archived_deployed` can be turned off). Repos checked are the ones scanned
+ * blind spots (Q5). Repos checked are the ones scanned
  * this run plus every repo that already has a blind spot (so one that is no
  * longer deployed resolves).
  */

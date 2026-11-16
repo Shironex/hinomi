@@ -342,6 +342,36 @@ export const actionRuntimeEvidenceSchema = z.object({
 export type ActionRuntimeEvidence = z.infer<typeof actionRuntimeEvidenceSchema>
 
 // ---------------------------------------------------------------------------
+// Repo state
+
+/** One repo a deployment runs, in the archived check. */
+export const archivedRepoEntrySchema = z.object({
+  repoId: z.number().int().positive(),
+  /** `owner/name` as the deployment (or its manual mapping) names it. */
+  repo: z.string(),
+  /** `owner/name` GitHub answered with when it differs: the repo was renamed or moved. */
+  renamedTo: z.string().nullable(),
+  /** What GitHub said, null when it could not be asked (result `unknown`). */
+  archived: z.boolean().nullable(),
+  /** Last push GitHub reports, a hint of when the repo went quiet. */
+  pushedAt: z.iso.datetime({ offset: true }).nullable(),
+  result: guardResultSchema,
+  /** Why this entry is `unknown`. */
+  reason,
+  /** The check is turned off for this repo: its result does not count toward the level. */
+  turnedOff: z.boolean().default(false),
+})
+export type ArchivedRepoEntry = z.infer<typeof archivedRepoEntrySchema>
+
+export const archivedDeployedEvidenceSchema = z.object({
+  check: z.literal('archived_deployed'),
+  /** Every repo the deployment runs; the finding's level is the worst result. Empty: it runs none. */
+  repos: z.array(archivedRepoEntrySchema),
+  reason,
+})
+export type ArchivedDeployedEvidence = z.infer<typeof archivedDeployedEvidenceSchema>
+
+// ---------------------------------------------------------------------------
 
 /** Evidence of any guard finding, told apart by `check`. */
 export const guardEvidenceSchema = z.discriminatedUnion('check', [
@@ -353,6 +383,7 @@ export const guardEvidenceSchema = z.discriminatedUnion('check', [
   runtimeSupportEvidenceSchema,
   runtimePinsDisagreeEvidenceSchema,
   actionRuntimeEvidenceSchema,
+  archivedDeployedEvidenceSchema,
 ])
 export type GuardEvidence = z.infer<typeof guardEvidenceSchema>
 /** Evidence as a producer writes it (`reason` may be left out). */

@@ -215,6 +215,17 @@ export function evidenceSummary(evidence: GuardEvidence, level?: GuardResult | n
       const more = bad.length > 1 ? ` and ${bad.length - 1} more` : ''
       return `${first.action} runs ${first.using}${more}`
     }
+    case 'archived_deployed': {
+      const bad = evidence.repos.filter((r) => r.result === 'fail' && !r.turnedOff)
+      const first = bad[0] ?? evidence.repos[0]
+      if (!first) return evidence.reason ?? 'Runs no repo'
+      const name = first.renamedTo ?? first.repo
+      const more = bad.length > 1 ? ` and ${bad.length - 1} more` : ''
+      if (first.result === 'fail') return `${name} is archived${more}`
+      if (first.result === 'unknown') return first.reason ?? `${name} cannot be read`
+      const repos = evidence.repos.length
+      return repos > 1 ? `${repos} repos, none archived` : `${name} is not archived`
+    }
   }
 }
 

@@ -191,9 +191,10 @@ function evidenceOf(ranked: RankedFinding | undefined): DeploymentGuard['evidenc
 
 /**
  * The deployment's guards panel: one entry per guard check (findings on the deployment or on a
- * repo it runs), then `archived_deployed` and any other blind spot type that is open on it or
- * turned off for it. A registered check with no open finding is a pass; a check no scan runs yet
- * is null.
+ * repo it runs), then any blind spot type that is open on it or turned off for it. A registered
+ * check with no open finding is a pass; a check no scan runs yet is null. `archived_deployed` is
+ * a guard check now; an open blind spot row of it from before is shown as its result (`fail`)
+ * until the guard takes it over, and never listed twice.
  */
 export function deploymentGuards(
   ranked: readonly RankedFinding[],
@@ -213,9 +214,30 @@ export function deploymentGuards(
       r.finding.repoId !== null &&
       repoIds.includes(r.finding.repoId))
 
+  const openBlindSpot = (type: string) =>
+    ranked.find(
+      (r) =>
+        r.kind === 'blind_spot' &&
+        r.finding.blindSpotType === type &&
+        r.state !== 'fixed' &&
+        r.deployments.some((d) => d.id === deployment.id),
+    )
+
   const guards = GUARD_CHECKS.map((check): DeploymentGuard => {
     const mine = ranked.filter((r) => r.kind === 'guard' && r.guardCheck === check && onThis(r))
     const open = worstOpen(mine)
+    // A blind spot row from before the check became a guard (archived_deployed) stays open until
+    // the guard took it over: it is the answer until then, never a pass.
+    const legacy = open ? undefined : openBlindSpot(check)
+    if (legacy) {
+      return {
+        check,
+        result: 'fail',
+        evidence: null,
+        findingId: legacy.finding.id,
+        override: overrideRef(check),
+      }
+    }
     if (open) {
       return {
         check,
@@ -235,19 +257,21 @@ export function deploymentGuards(
     }
   })
 
+  const listed: ReadonlySet<string> = new Set(GUARD_CHECKS)
   const blindSpots = BLIND_SPOT_TYPES.flatMap((type): DeploymentGuard[] => {
-    const open = ranked.find(
-      (r) =>
-        r.kind === 'blind_spot' &&
-        r.finding.blindSpotType === type &&
-        r.state !== 'fixed' &&
-        r.deployments.some((d) => d.id === deployment.id),
-    )
+    if (listed.has(type)) return []
+    const open = openBlindSpot(type)
     const override = overrideRef(type)
-    const always = type === 'archived_deployed'
-    if (!open && !override && !always) return []
-    const result = open ? 'fail' : always && repoIds.length > 0 ? 'pass' : null
-    return [{ check: type, result, evidence: null, findingId: open?.finding.id ?? null, override }]
+    if (!open && !override) return []
+    return [
+      {
+        check: type,
+        result: open ? 'fail' : null,
+        evidence: null,
+        findingId: open?.finding.id ?? null,
+        override,
+      },
+    ]
   })
 
   return [...guards, ...blindSpots]

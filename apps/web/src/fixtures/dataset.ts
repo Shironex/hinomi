@@ -50,7 +50,8 @@ export const REPOS = {
   docs: repo(3, 'docs', { alertsEnabled: false }),
   billing: repo(4, 'billing'),
   search: repo(5, 'search'),
-  status: repo(6, 'status'),
+  // The GitHub App lost access to it in the last scan (see ./repo-sources).
+  status: repo(6, 'status', { lastScannedAt: ago(26) }),
   admin: repo(7, 'admin'),
   ingest: repo(8, 'ingest'),
   marketing: repo(9, 'marketing', { archived: true }),
@@ -739,6 +740,8 @@ export const DEPLOYMENTS: DeploymentItem[] = [
     deployedHours: 90 * 24,
     status: 'exited:unhealthy',
     mapping: 'override',
+    // The archived_deployed guard fails on it (./guards), so it is not covered.
+    coverage: { covered: false, archivedRepo: true },
   }),
   deployment({
     ref: APPS.admin,
@@ -1000,8 +1003,9 @@ export const SOURCES: SourceDto[] = [
     auth: 'github_app',
     appId: '1048576',
     installationId: '52428800',
-    // Eight scanned repos and the thirteen that only have fix plans (see ./repo-sources).
-    repoCount: 22,
+    // The repos it reads (all but kestrel-cli, and status since it lost access) and the ones
+    // that only have fix plans (see ./repo-sources).
+    repoCount: 21,
   }),
   source({
     id: 3,

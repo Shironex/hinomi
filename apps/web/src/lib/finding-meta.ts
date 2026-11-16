@@ -441,7 +441,10 @@ export function eventSentence(event: FindingEvent): string {
     case 'reporters_changed':
       return 'The sources reporting it changed'
     case 'escalated':
-      return 'The level got worse'
+      // A level change reads `warn -> fail`; worse news at the same level says what changed.
+      return event.reason && !event.reason.includes('->')
+        ? `It got worse: ${event.reason}`
+        : 'The level got worse'
     case 'level_changed':
       return 'The level got better'
     case 'turned_off':

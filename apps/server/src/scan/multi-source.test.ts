@@ -1,9 +1,12 @@
 import type { AccountRepo, DependabotAlertsResult, RepoHealth } from '@hinomi/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import type { DatabaseHandle } from '../db/client.js'
 import { createTestRepositories } from '../db/test-db.js'
 import type { Repositories } from '../repository/index.js'
 import { GithubError } from '../sources/github/index.js'
+import { guardFindingKey } from '../repository/index.js'
+import { archivedDeployedGuard } from './guards/archived-deployed.js'
 import { runRepoScan, runScan } from './run.js'
 import type { GithubScanSource, ScanSources } from './sources.js'
 
@@ -15,6 +18,9 @@ const AT = new Date('2026-11-07T06:00:00Z')
 interface Sight {
   /** What GET /vulnerability-alerts tells this source: on, off, or no permission. */
   alerts: boolean | null
+  archived?: boolean
+  /** The repo was renamed from this name: GitHub answers a request for it under the new name. */
+  renamedFrom?: string
 }
 
 interface FakeSource {
@@ -81,11 +87,12 @@ function source(name: string, sees: Record<string, Sight>): FakeSource {
     failWith: null,
   }
   const fake = state as FakeSource
-  const sight = (repo: string): Sight => {
+  const sight = (repo: string): Sight & { as: string } => {
     if (fake.failWith) throw fake.failWith
     const found = fake.sees.get(repo)
-    if (!found) throw new GithubError('not_found', `${name} cannot see ${repo}`, { status: 404 })
-    return found
+    if (found) return { ...found, as: repo }
+    for (const [current, s] of fake.sees) if (s.renamedFrom === repo) return { ...s, as: current }
+    throw new GithubError('not_found', `${name} cannot see ${repo}`, { status: 404 })
   }
   fake.github = {
     sourceId: row.id,
@@ -93,11 +100,11 @@ function source(name: string, sees: Record<string, Sight>): FakeSource {
     fetchRepoHealth: (owner, repo): Promise<RepoHealth> => {
       fake.calls.push(`health ${owner}/${repo}`)
       try {
-        const { alerts } = sight(repo)
+        const { alerts, archived, as } = sight(repo)
         return Promise.resolve({
           owner,
-          name: repo,
-          archived: false,
+          name: as,
+          archived: archived ?? false,
           defaultBranch: 'main',
           visibility: 'private',
           alertsEnabled: alerts,
@@ -131,11 +138,12 @@ function source(name: string, sees: Record<string, Sight>): FakeSource {
 }
 
 function scanSources(...github: FakeSource[]): ScanSources {
+  const includeAccountRepos = repos.settings.get('scan.includeAccountRepos', z.boolean()) ?? true
   return {
     deployments: [],
     github: github.map((g) => g.github),
     osv: null,
-    settings: { osvEnabled: false, includeAccountRepos: true, imageScan: 'off' },
+    settings: { osvEnabled: false, includeAccountRepos, imageScan: 'off' },
     fetchLockfiles: () => Promise.resolve([]),
   }
 }
@@ -289,4 +297,41 @@ describe('several GitHub sources', () => {
     expect(readerOf('harbor-web')).toBeNull()
     expect(findingsOf('harbor-web')).toHaveLength(1)
   })
+
+  it.each([true, false])(
+    'follows a deployed repo that was renamed (account repos listed: %s)',
+    async (listed) => {
+      repos.settings.set('scan.includeAccountRepos', listed)
+      const co = source('kestrel-co', {
+        'harbor-legacy': { alerts: true, archived: true, renamedFrom: 'harbor' },
+      })
+      const manual = repos.sources.create({ kind: 'manual', name: 'legacy hosts' })
+      const harbor = repos.repos.upsert({ owner: 'kestrel-co', name: 'harbor' })
+      const deployment = repos.deployments.upsert(
+        {
+          sourceId: manual.id,
+          externalId: 'manual-1',
+          kind: 'application',
+          name: 'harbor-web',
+          reach: 'internal',
+          server: 'legacy-1',
+          gitRepository: 'kestrel-co/harbor',
+          repoId: harbor.id,
+        },
+        AT,
+      )
+      await runScan({ repositories: repos }, scanSources(co), {
+        now: () => AT,
+        guards: [archivedDeployedGuard],
+      })
+      expect(co.calls).toContain('health kestrel-co/harbor')
+      const row = repos.findings.getByKey(
+        guardFindingKey('archived_deployed', { deploymentId: deployment.id }),
+      )
+      expect(row).toMatchObject({
+        guardLevel: 'fail',
+        evidence: { repos: [{ repo: 'kestrel-co/harbor', renamedTo: 'kestrel-co/harbor-legacy' }] },
+      })
+    },
+  )
 })

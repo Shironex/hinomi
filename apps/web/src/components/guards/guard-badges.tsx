@@ -1,6 +1,7 @@
 import type { GuardCheck, GuardLevel, GuardResult } from '@hinomi/shared'
 import {
   IconActivityHeartbeat,
+  IconArchive,
   IconBrandDocker,
   IconCircleDashed,
   IconEyeOff,
@@ -30,6 +31,7 @@ export const GUARD_CHECK_ICON: Record<GuardCheck, Icon> = {
   runtime_support: IconActivityHeartbeat,
   runtime_pins_disagree: IconGitCompare,
   action_runtime: IconBolt,
+  archived_deployed: IconArchive,
 }
 
 /**

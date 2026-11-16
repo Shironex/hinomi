@@ -33,6 +33,7 @@ const PER_CHECK: { id: number; check: string; list: string }[] = [
   { id: 112, check: 'runtime_support', list: 'Runtimes' },
   { id: 115, check: 'runtime_pins_disagree', list: 'Node pins' },
   { id: 116, check: 'action_runtime', list: 'Actions' },
+  { id: 122, check: 'archived_deployed', list: 'Repos' },
 ]
 
 describe('guard evidence', () => {
@@ -70,6 +71,13 @@ describe('guard evidence', () => {
     const section = await openEvidence(106)
     expect(within(section).getAllByText('Skipped, no deploy').length).toBeGreaterThan(0)
     expect(within(section).getAllByText('Triggers a deploy').length).toBeGreaterThan(0)
+  })
+
+  it('says an archived repo is archived on GitHub and when it was last pushed', async () => {
+    const section = await openEvidence(122)
+    expect(within(section).getByText('kestrel-co/marketing')).toBeInTheDocument()
+    expect(within(section).getByText('Archived on GitHub')).toBeInTheDocument()
+    expect(within(section).getByText(/^Last push /)).toBeInTheDocument()
   })
 
   it('lists the edits to make for a runtime past its support', async () => {

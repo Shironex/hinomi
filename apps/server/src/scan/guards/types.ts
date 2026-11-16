@@ -11,6 +11,7 @@ import type { GuardSubject } from '../../repository/index.js'
 import type { SupportIndex } from '../../support/index.js'
 import type { RepoScan } from '../collect.js'
 import type { DeploymentIndex } from '../deployments.js'
+import type { OverrideIndex } from '../overrides.js'
 import type { RepoFileReader } from './repo-files.js'
 
 export type { GuardSubject }
@@ -57,6 +58,11 @@ export interface GuardContext {
    * releases behind (settings rustBehindReleases and bunBehindReleases).
    */
   behindReleases: { rust: number; bun: number }
+  /**
+   * The check overrides, filled by `runGuards`. A check that judges each repo of a deployment
+   * on its own (PER_REPO_CHECKS) reads it to leave a turned off repo out of the level.
+   */
+  overrides?: OverrideIndex
   now: Date
 }
 
