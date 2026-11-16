@@ -123,6 +123,8 @@ Every name, host and advisory in these images is invented. They are captured fro
 | **GitHub** | Repos, whether Dependabot alerts are switched on, and the Dependabot alerts themselves (severity, CVSS, runtime or development scope, vulnerable range, first patched version). Connect with a personal access token or a GitHub App, one source per account or organization, see [docs/github.md](docs/github.md). |
 | **OSV.dev** | An independent check of the lockfiles in each repo, which also covers repos where Dependabot is off. Only package names and versions are sent. It can be switched off in Settings. |
 
+Deployments that run an image with no repo (a service from a template, an app deployed from a registry image) are covered by the image scan, off by default. On Coolify v4.7.0 and newer, Hinomi uses Coolify's own scanner (Syft and Grype on your server) when image scanning is on there, and reads its findings and verdict through the API. The registry SBOM path stays for the other deploy sources and for what Coolify does not scan. See [Image scan](docs/self-hosting.md#image-scan).
+
 A scan runs on a schedule (every 6 hours by default, from 15 minutes to 7 days) and whenever you press Scan now. Repos are mapped to deployments from the Coolify git repository field, with manual overrides in Settings for monorepos and renamed repos.
 
 ### Ranking
