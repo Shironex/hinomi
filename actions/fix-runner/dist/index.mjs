@@ -7313,7 +7313,8 @@ const NOTIFY_CHANNEL_KINDS = [
 	"slack",
 	"ntfy",
 	"gotify",
-	"telegram"
+	"telegram",
+	"webpush"
 ];
 const CHANNEL_KIND_FIELDS = {
 	discord: {
@@ -7351,6 +7352,12 @@ const CHANNEL_KIND_FIELDS = {
 		secret: "required",
 		chatId: true,
 		allowPrivate: false
+	},
+	webpush: {
+		url: "required",
+		secret: "required",
+		chatId: false,
+		allowPrivate: false
 	}
 };
 const TELEGRAM_CHAT_ID = /^(-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/;
@@ -7379,7 +7386,8 @@ const notifyChannelSchema = object({
 	email: emailChannelViewSchema.optional(),
 	allowPrivate: boolean(),
 	secretSet: boolean().optional(),
-	chatId: string().optional()
+	chatId: string().optional(),
+	disabledReason: string().optional()
 });
 const notifyChannelsResponseSchema = object({ items: array(notifyChannelSchema) });
 const channelParamSchema = object({ id: uuid() });
@@ -7461,6 +7469,7 @@ const updateNotifyChannelRequestSchema = strictObject({
 	enabled: boolean().optional(),
 	minSeverity: severitySchema.optional()
 }).refine((value) => Object.keys(value).length > 0, "Nothing to update");
+const webPushKeySchema = object({ publicKey: string() });
 const notifyChannelTestResultSchema = object({
 	ok: boolean(),
 	error: string().optional()

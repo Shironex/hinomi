@@ -1543,6 +1543,7 @@ export const NOTIFY_CHANNEL_KINDS = [
   'ntfy',
   'gotify',
   'telegram',
+  'webpush',
 ] as const
 export type NotifyChannelKind = (typeof NOTIFY_CHANNEL_KINDS)[number]
 
@@ -1550,7 +1551,7 @@ export type NotifyChannelKind = (typeof NOTIFY_CHANNEL_KINDS)[number]
  * What each kind of channel is configured with, apart from email (SMTP settings, see below).
  * `url`: the webhook, topic or server URL. `secret`: a second secret beside the URL (the signing
  * secret of a generic webhook, the access token of ntfy, the app token of Gotify, the bot token
- * of Telegram). `chatId`: the Telegram chat. `allowPrivate`: the channel may be allowed to post
+ * of Telegram, the keys of a web push subscription). `chatId`: the Telegram chat. `allowPrivate`: the channel may be allowed to post
  * to a private address (a self-hosted server on the same network); the other kinds post to one
  * fixed public service.
  */
@@ -1569,6 +1570,8 @@ export const CHANNEL_KIND_FIELDS: Record<
   ntfy: { url: 'required', secret: 'optional', chatId: false, allowPrivate: true },
   gotify: { url: 'required', secret: 'required', chatId: false, allowPrivate: true },
   telegram: { url: 'none', secret: 'required', chatId: true, allowPrivate: false },
+  /** A browser's push subscription: `url` is its endpoint, `secret` is `<p256dh>.<auth>`, optionally followed by `.<applicationServerKey>` it was made under (refused when that is not the current key). */
+  webpush: { url: 'required', secret: 'required', chatId: false, allowPrivate: false },
 }
 
 /** A Telegram chat: a numeric id (negative for groups and channels) or a public `@channelname`. */
@@ -1613,6 +1616,8 @@ export const notifyChannelSchema = z.object({
   secretSet: z.boolean().optional(),
   /** Telegram only. */
   chatId: z.string().optional(),
+  /** Why Hinomi turned the channel off by itself (a web push subscription that is gone). */
+  disabledReason: z.string().optional(),
 })
 export type NotifyChannel = z.infer<typeof notifyChannelSchema>
 
@@ -1728,6 +1733,13 @@ export const updateNotifyChannelRequestSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateNotifyChannelRequest = z.infer<typeof updateNotifyChannelRequestSchema>
+
+/** The VAPID public key a browser subscribes to push with (its applicationServerKey). */
+export const webPushKeySchema = z.object({
+  /** Uncompressed P-256 public key, base64url. */
+  publicKey: z.string(),
+})
+export type WebPushKey = z.infer<typeof webPushKeySchema>
 
 export const notifyChannelTestResultSchema = z.object({
   ok: z.boolean(),

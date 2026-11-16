@@ -4,6 +4,7 @@ import {
   IconBrandDiscord,
   IconBrandSlack,
   IconBrandTelegram,
+  IconBrowser,
   IconDeviceMobileMessage,
   IconMail,
   IconWebhook,
@@ -97,6 +98,15 @@ export const KIND_COPY: Record<NotifyChannelKind, KindCopy> = {
     secretLabel: 'Signing secret',
     secretHelp: 'Optional. Signs every request in the X-Hinomi-Signature header.',
   },
+  webpush: {
+    label: 'This browser',
+    word: 'browser push',
+    icon: IconBrowser,
+    name: 'This browser',
+    namePlaceholder: 'Work laptop',
+    ...NO_URL,
+    ...NO_SECRET,
+  },
   email: {
     label: 'Email',
     word: 'email',
@@ -117,4 +127,5 @@ export const KIND_ORDER: NotifyChannelKind[] = [
   'gotify',
   'email',
   'webhook',
+  'webpush',
 ]

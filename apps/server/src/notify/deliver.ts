@@ -96,7 +96,7 @@ type Outcome =
 
 async function attemptOnce(
   target: DeliveryTarget,
-  payload: string,
+  payload: string | Uint8Array,
   options: DeliverOptions,
 ): Promise<Outcome> {
   let response: Response
@@ -162,6 +162,7 @@ async function attemptOnce(
  */
 export async function deliver(
   target: DeliveryTarget,
+  /** JSON, or the raw bytes of an encrypted web push message. */
   body: unknown,
   options: DeliverOptions,
 ): Promise<void> {
@@ -170,7 +171,8 @@ export async function deliver(
   const maxAttempts = options.maxAttempts ?? 5
   const base = options.baseDelayMs ?? 1000
   const maxBackoff = options.maxBackoffMs ?? 30_000
-  const payload = JSON.stringify(body)
+  // Bytes (an encrypted web push message) go as they are, anything else as JSON.
+  const payload = body instanceof Uint8Array ? body : JSON.stringify(body)
 
   for (let attempt = 1; ; attempt++) {
     const outcome = await attemptOnce(target, payload, options)

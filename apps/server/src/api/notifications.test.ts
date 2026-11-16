@@ -1,5 +1,6 @@
 import { notifyChannelsResponseSchema } from '@hinomi/shared'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { connectNotifier, startDigestTimer } from '../scheduler/index.js'
 import { createTestApi, seedWorld } from './testing.js'
 
@@ -383,5 +384,34 @@ describe('Slack, ntfy, Gotify and Telegram channels', () => {
     })
     expect(allowed.status).toBe(201)
     expect(allowed.json).toMatchObject({ allowPrivate: true })
+  })
+})
+
+describe('web push key', () => {
+  it('hands out one VAPID public key, made on first use', async () => {
+    const { call } = createTestApi()
+    const first = await call('GET', '/notifications/push-key')
+    expect(first.status).toBe(200)
+    const { publicKey } = first.json as { publicKey: string }
+    expect(Buffer.from(publicKey, 'base64url')).toHaveLength(65)
+    expect((await call('GET', '/notifications/push-key')).json).toEqual({ publicKey })
+  })
+
+  it('answers 409 secret_key_missing for a sealed key without HINOMI_SECRET_KEY, and keeps it', async () => {
+    const { call, repos } = createTestApi({ withSecret: false })
+    const sealed = {
+      publicKey: 'BPub',
+      x: 'x',
+      y: 'y',
+      privateKey: 'v1:sealed',
+      privateKeyEncrypted: true,
+    }
+    repos.settings.set('notify.vapid', sealed)
+    const answer = await call('GET', '/notifications/push-key')
+    expect(answer.status).toBe(409)
+    const { error } = answer.json as { error: { code: string; message: string } }
+    expect(error.code).toBe('secret_key_missing')
+    expect(error.message).toMatch(/HINOMI_SECRET_KEY/)
+    expect(repos.settings.get('notify.vapid', z.unknown())).toEqual(sealed)
   })
 })

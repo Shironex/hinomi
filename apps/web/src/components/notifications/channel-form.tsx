@@ -17,8 +17,9 @@ import { Field, FieldError } from '@/components/form/field'
 import { Button } from '@/components/ui/button'
 import { Input, NativeSelect } from '@/components/ui/input'
 import { checkField, isInputError, mutationMessage } from '@/lib/form'
-import { createChannel, settingsKeys, updateChannel } from '@/lib/settings-api'
+import { createChannel, getWebPushKey, settingsKeys, updateChannel } from '@/lib/settings-api'
 import { cn } from '@/lib/utils'
+import { subscribeThisBrowser, webPushProblem } from '@/lib/web-push'
 import { KIND_COPY, KIND_ORDER } from './channel-kinds'
 import { EmailFields } from './email-fields'
 import { SEVERITY_OPTIONS } from './severity-options'
@@ -76,7 +77,10 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
   }
   const emailFields = useEmailFields(channel?.email)
   const copy = KIND_COPY[kind]
-  const fields = kind === 'email' ? null : CHANNEL_KIND_FIELDS[kind]
+  // A browser push channel is made by subscribing, not by typing a URL and keys.
+  const browserPush = kind === 'webpush'
+  const fields = kind === 'email' || browserPush ? null : CHANNEL_KIND_FIELDS[kind]
+  const pushProblem = browserPush && !editing ? webPushProblem() : null
 
   function clearError(field: FieldName) {
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }))
@@ -119,9 +123,14 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
   }
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const trimmedName = name.trim() || copy.name
       if (channel) return updateChannel(channel.id, editPatch(channel, trimmedName))
+      if (browserPush) {
+        const { publicKey } = await getWebPushKey()
+        const subscription = await subscribeThisBrowser(publicKey)
+        return createChannel({ kind, name: trimmedName, minSeverity, ...subscription })
+      }
       return createChannel(createBody(trimmedName))
     },
     onSuccess: async (saved) => {
@@ -261,6 +270,13 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
       </div>
       {kind === 'email' ? (
         <EmailFields controller={emailFields} stored={channel?.email} fieldRefs={emailRefs} />
+      ) : browserPush ? (
+        <p className={cn('text-sm', pushProblem ? 'text-wait' : 'text-muted-foreground')}>
+          {editing
+            ? 'Notifications go to the browser that was added. Remove the channel to stop them.'
+            : (pushProblem ??
+              'Your browser asks to allow notifications, then alerts arrive here even with Hinomi closed.')}
+        </p>
       ) : (
         <>
           {fields?.url === 'required' ? (
@@ -366,7 +382,7 @@ export function ChannelForm({ channel, onDone, onCancel, submitLabel }: ChannelF
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={mutation.isPending}>
+        <Button type="submit" disabled={mutation.isPending || pushProblem !== null}>
           {mutation.isPending ? <IconLoader2 aria-hidden="true" className="animate-spin" /> : null}
           {submitLabel ?? (editing ? 'Save changes' : 'Add channel')}
         </Button>

@@ -7,6 +7,7 @@ import {
   notifySettingsSchema,
   updateNotifyChannelRequestSchema,
   updateNotifySettingsRequestSchema,
+  webPushKeySchema,
 } from '@hinomi/shared'
 import { Hono } from 'hono'
 import {
@@ -78,6 +79,20 @@ export function notificationsRoutes(deps: ApiDeps, options: NotificationsApiOpti
       if (error instanceof ChannelNotFoundError) throw notFound('Channel')
       throw error
     }
+  })
+
+  /** The VAPID public key a browser subscribes to web push with. Made on first use; 409 without the secret key that opens it. */
+  app.get('/push-key', (c) => {
+    const key = notifier.webPushKey()
+    if ('problem' in key) {
+      // A missing secret key leaves the stored key alone: it can be read again once it is set.
+      throw new HttpError(
+        409,
+        key.code === 'secret_key_missing' ? key.code : 'conflict',
+        key.problem,
+      )
+    }
+    return send(c, webPushKeySchema, { publicKey: key.publicKey })
   })
 
   app.get('/settings', (c) => send(c, notifySettingsSchema, readNotifySettings(settings)))

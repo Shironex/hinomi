@@ -1,5 +1,6 @@
 /*
- * Hinomi service worker: caches the app shell only. API calls are never cached.
+ * Hinomi service worker: caches the app shell only. API calls are never cached. It also shows
+ * web push notifications (a "This browser" notification channel) and opens their link on a click.
  * The build (vite.config.ts) fills in BUILD_ID and PRECACHE; in dev this file is never registered.
  */
 const BUILD_ID = '__BUILD_ID__'
@@ -33,6 +34,48 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
+// A push message is `{ title, body, url, tag }` (see apps/server/src/notify/outbound.ts).
+self.addEventListener('push', (event) => {
+  const message = readPushMessage(event)
+  const title = typeof message.title === 'string' ? message.title : 'Hinomi'
+  const url =
+    typeof message.url === 'string' && /^https?:\/\//i.test(message.url) ? message.url : '/'
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof message.body === 'string' ? message.body : '',
+      icon: '/icon-192.png',
+      badge: '/favicon-32.png',
+      tag: typeof message.tag === 'string' ? message.tag : undefined,
+      renotify: true,
+      data: { url },
+    }),
+  )
+})
+
+function readPushMessage(event) {
+  try {
+    return (event.data && event.data.json()) || {}
+  } catch {
+    return {}
+  }
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || '/'
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      const target = new URL(url, self.location.origin)
+      // An open Hinomi tab goes to the finding; any other link opens a new window.
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin)
+      if (open && target.origin === self.location.origin) {
+        return open.navigate(target.href).then((w) => (w || open).focus())
+      }
+      return self.clients.openWindow(target.href)
+    }),
+  )
 })
 
 self.addEventListener('fetch', (event) => {

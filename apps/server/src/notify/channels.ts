@@ -16,6 +16,7 @@ import type { SecretBox } from '../crypto/secret-box.js'
 import { isPublicAddress } from '../net/public-address.js'
 import type { SettingsRepository } from '../repository/index.js'
 import { NOTIFY_SETTING_KEYS } from './settings.js'
+import { parsePushKeys, splitSubscription } from './web-push.js'
 
 export const CHANNEL_KINDS = NOTIFY_CHANNEL_KINDS
 export type ChannelKind = (typeof CHANNEL_KINDS)[number]
@@ -53,6 +54,8 @@ const storedChannelSchema = z.object({
   chatId: z.string().optional(),
   allowPrivate: z.boolean().optional(),
   enabled: z.boolean(),
+  /** Why Hinomi turned the channel off by itself. Cleared when it is turned on again. */
+  disabledReason: z.string().optional(),
   minSeverity: severitySchema,
 })
 const storedChannelsSchema = z.array(storedChannelSchema)
@@ -77,6 +80,8 @@ export interface ChannelView {
   secretSet?: boolean
   /** Telegram only. */
   chatId?: string
+  /** Why Hinomi turned the channel off by itself, when it did. */
+  disabledReason?: string
 }
 
 /** SMTP settings with the password in clear text. Internal: never log or return it. */
@@ -233,6 +238,9 @@ export function assertValidChannelUrl(kind: UrlKind, url: string, allowPrivate =
     if (parsed.protocol !== 'https:' || !SLACK_HOSTS.has(parsed.hostname))
       throw new ChannelValidationError(SLACK_SHAPE)
   }
+  if (kind === 'webpush' && parsed.protocol !== 'https:') {
+    throw new ChannelValidationError('A push subscription endpoint is an https URL')
+  }
   if (kind === 'ntfy') {
     const topic = parsed.pathname.replace(/\/+$/, '').split('/').at(-1) ?? ''
     if (!NTFY_TOPIC.test(topic) || parsed.search !== '') {
@@ -255,6 +263,9 @@ function assertValidSecret(kind: UrlKind, secret: string): void {
     throw new ChannelValidationError(
       'A Telegram bot token looks like 123456789:AA... (ask @BotFather for it)',
     )
+  }
+  if (kind === 'webpush' && !parsePushKeys(secret)) {
+    throw new ChannelValidationError('The push subscription keys are not valid')
   }
 }
 
@@ -308,7 +319,33 @@ function cleanName(name: string): string {
  * clear text and `urlEncrypted` says so, because notifications must still
  * work on a setup that has no sources to protect.
  */
-export function createChannelStore(settings: SettingsRepository, secretBox: SecretBox | null) {
+export interface ChannelStoreOptions {
+  /** The VAPID public key browsers subscribe with now, or null when it cannot be read. */
+  webPushKey?: () => string | null
+}
+
+export function createChannelStore(
+  settings: SettingsRepository,
+  secretBox: SecretBox | null,
+  options: ChannelStoreOptions = {},
+) {
+  /** Validates a secret and returns what is stored (a subscription without its server key). */
+  function acceptSecret(kind: UrlKind, secret: string): string {
+    if (kind !== 'webpush') {
+      assertValidSecret(kind, secret)
+      return secret
+    }
+    const { keys, serverKey } = splitSubscription(secret)
+    const current = options.webPushKey?.() ?? null
+    if (serverKey !== null && serverKey !== current) {
+      throw new ChannelValidationError(
+        'This browser subscribed under an old web push key. Reload the page and add it again.',
+      )
+    }
+    assertValidSecret(kind, keys)
+    return keys
+  }
+
   function load(): StoredChannel[] {
     return settings.get(NOTIFY_SETTING_KEYS.channels, storedChannelsSchema) ?? []
   }
@@ -413,6 +450,7 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
         url: `${email.host}:${email.port}`,
         urlEncrypted: email.password === null || email.passwordEncrypted,
         allowPrivate: false,
+        ...(channel.disabledReason !== undefined && { disabledReason: channel.disabledReason }),
         email: {
           host: email.host,
           port: email.port,
@@ -440,6 +478,7 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
       allowPrivate: allowsPrivate(channel),
       ...(fields && fields.secret !== 'none' && { secretSet: hasSecret }),
       ...(channel.chatId !== undefined && { chatId: channel.chatId }),
+      ...(channel.disabledReason !== undefined && { disabledReason: channel.disabledReason }),
     }
   }
 
@@ -476,8 +515,8 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
         const allowPrivate = fields.allowPrivate && (input.allowPrivate ?? false)
         const url = input.url?.trim() ?? ''
         if (fields.url === 'required') assertValidChannelUrl(input.kind, url, allowPrivate)
-        const secret = input.secret?.trim() || null
-        if (secret !== null) assertValidSecret(input.kind, secret)
+        const given = input.secret?.trim() || null
+        const secret = given === null ? null : acceptSecret(input.kind, given)
         channel = {
           ...base,
           ...(fields.url === 'required' ? seal(url) : { url: '', urlEncrypted: false }),
@@ -492,6 +531,16 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
 
     /** Changes name, URL, secret, chat, private flag, enabled flag or minimum severity. Omitted fields stay as they are. */
     update(id: string, patch: ChannelPatch): ChannelView {
+      // Checking a web push subscription can replace the VAPID key, which turns the web push
+      // channels off and saves the list: so the secret is checked first and the list read after.
+      const kindBefore = load().find((c) => c.id === id)?.kind
+      const given = patch.secret?.trim() || null
+      const accepted =
+        kindBefore && kindBefore !== 'email' && given !== null
+          ? CHANNEL_KIND_FIELDS[kindBefore].secret === 'none'
+            ? null
+            : acceptSecret(kindBefore, given)
+          : null
       const channels = load()
       const index = channels.findIndex((c) => c.id === id)
       const current = channels[index]
@@ -499,6 +548,7 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
       const next: StoredChannel = { ...current }
       if (patch.name !== undefined) next.name = cleanName(patch.name)
       if (patch.enabled !== undefined) next.enabled = patch.enabled
+      if (patch.enabled) delete next.disabledReason
       if (patch.minSeverity !== undefined) next.minSeverity = patch.minSeverity
       if (current.kind === 'email') {
         if (patch.url !== undefined) throw new ChannelValidationError('An email channel has no URL')
@@ -542,11 +592,9 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
       if (patch.secret !== undefined) {
         if (fields.secret === 'none')
           throw new ChannelValidationError('This channel has no token or secret')
-        const secret = patch.secret.trim() || null
-        if (secret === null && fields.secret === 'required')
+        if (given === null && fields.secret === 'required')
           throw new ChannelValidationError('The token is required')
-        if (secret !== null) assertValidSecret(kind, secret)
-        Object.assign(next, sealSecret(secret))
+        Object.assign(next, sealSecret(given === null ? null : accepted))
       }
       if (patch.url !== undefined) {
         if (fields.url === 'none') throw new ChannelValidationError('This channel has no URL')
@@ -562,6 +610,30 @@ export function createChannelStore(settings: SettingsRepository, secretBox: Secr
       channels[index] = next
       save(channels)
       return view(next)
+    },
+
+    /** Turns a channel off and says why. Throws ChannelNotFoundError for an unknown id. */
+    disable(id: string, reason: string): ChannelView {
+      const channels = load()
+      const index = channels.findIndex((c) => c.id === id)
+      const current = channels[index]
+      if (!current) throw new ChannelNotFoundError(id)
+      const next = { ...current, enabled: false, disabledReason: reason }
+      channels[index] = next
+      save(channels)
+      return view(next)
+    },
+
+    /** Turns off every enabled channel of a kind and says why. Returns how many. */
+    disableKind(kind: ChannelKind, reason: string): number {
+      let count = 0
+      const channels = load().map((c) => {
+        if (c.kind !== kind || !c.enabled) return c
+        count++
+        return { ...c, enabled: false, disabledReason: reason }
+      })
+      if (count > 0) save(channels)
+      return count
     },
 
     remove(id: string): boolean {

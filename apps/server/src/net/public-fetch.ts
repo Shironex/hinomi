@@ -60,7 +60,7 @@ function plainHeaders(init: RequestInit['headers']): Record<string, string> {
 
 /**
  * Sends one request like fetch, but only to public addresses. Supports what the notification
- * delivery uses: method, headers, a string body and an abort signal. Rejects on network errors,
+ * delivery uses: method, headers, a string or bytes body and an abort signal. Rejects on network errors,
  * on a refused address and when the signal aborts.
  */
 export const publicFetch = ((input: string | URL, init: RequestInit = {}) =>
@@ -75,7 +75,7 @@ export const publicFetch = ((input: string | URL, init: RequestInit = {}) =>
       reject(notPublicError(host))
       return
     }
-    const body = typeof init.body === 'string' ? init.body : ''
+    const body = typeof init.body === 'string' || init.body instanceof Uint8Array ? init.body : ''
     const send = url.protocol === 'https:' ? httpsRequest : httpRequest
     const request = send(
       url,
@@ -83,7 +83,7 @@ export const publicFetch = ((input: string | URL, init: RequestInit = {}) =>
         method: init.method ?? 'GET',
         headers: {
           ...plainHeaders(init.headers),
-          ...(body !== '' && { 'content-length': String(Buffer.byteLength(body)) }),
+          ...(body.length > 0 && { 'content-length': String(Buffer.byteLength(body)) }),
         },
         lookup: publicOnlyLookup,
         agent: directAgent(url),
@@ -102,5 +102,5 @@ export const publicFetch = ((input: string | URL, init: RequestInit = {}) =>
       },
     )
     request.on('error', reject)
-    request.end(body === '' ? undefined : body)
+    request.end(body.length > 0 ? body : undefined)
   })) as typeof fetch

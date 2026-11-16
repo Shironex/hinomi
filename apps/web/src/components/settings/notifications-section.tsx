@@ -114,6 +114,14 @@ export function NotificationsSection() {
   )
 }
 
+/** What to do again once HINOMI_SECRET_KEY is set, so every secret of the channel gets encrypted. */
+function unencryptedFix(channel: NotifyChannel): string {
+  if (channel.kind === 'email') return 'save the password again.'
+  if (channel.kind === 'webpush') return 'add this browser again.'
+  if (channel.kind === 'telegram') return 'save the token again.'
+  return channel.secretSet ? 'save the URL and the token or secret again.' : 'save the URL again.'
+}
+
 function ChannelRow({ channel }: { channel: NotifyChannel }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
@@ -174,15 +182,16 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
       {channel.urlEncrypted ? null : (
         <p className="flex items-start gap-2 text-xs text-wait">
           <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
-          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and save the{' '}
-          {channel.kind === 'email'
-            ? 'password'
-            : channel.kind === 'telegram'
-              ? 'token'
-              : 'URL'}{' '}
-          again.
+          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and{' '}
+          {unencryptedFix(channel)}
         </p>
       )}
+      {channel.disabledReason && !channel.enabled ? (
+        <p className="flex items-start gap-2 text-xs text-wait">
+          <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
+          {channel.disabledReason}
+        </p>
+      ) : null}
       {editing ? (
         <div className="border-t border-border pt-3.5">
           <ChannelForm
