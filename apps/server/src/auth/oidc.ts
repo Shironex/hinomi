@@ -22,6 +22,11 @@ export interface OidcClientOptions {
   clientSecret: string
   /** `<public url>/api/auth/oidc/callback`. */
   redirectUri: string
+  /**
+   * HINOMI_AUTH_OIDC_TOKEN_ORIGIN: another origin the token endpoint may be on (Google's is
+   * oauth2.googleapis.com). Null: it must be on the issuer's origin.
+   */
+  tokenOrigin?: string | null
   fetch?: typeof fetch
   now?: () => number
 }
@@ -40,6 +45,8 @@ const DISCOVERY_TTL_MS = 60 * 60 * 1000
 const KEYS_TTL_MS = 60 * 60 * 1000
 const REFETCH_MIN_MS = 60 * 1000
 const CLOCK_SKEW_S = 60
+/** An ID token older than this when it arrives was not issued for this login. */
+const MAX_TOKEN_AGE_S = 10 * 60
 const MAX_TOKEN_LENGTH = 16 * 1024
 
 const ALGORITHMS = {
@@ -58,8 +65,6 @@ type Alg = keyof typeof ALGORITHMS
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const trimSlash = (value: string) => value.replace(/\/+$/, '')
 
 /** True when `a` and `b` are equal, in time that does not depend on where they differ. */
 export function safeEqual(a: string, b: string): boolean {
@@ -98,6 +103,7 @@ export function createOidcClient({
   clientId,
   clientSecret,
   redirectUri,
+  tokenOrigin = null,
   fetch: fetchImpl = fetch,
   now = Date.now,
 }: OidcClientOptions) {
@@ -132,8 +138,22 @@ export function createOidcClient({
     if (discovery && now() - discovery.fetchedAt < DISCOVERY_TTL_MS) return discovery
     const body = await getJson(`${issuer}/.well-known/openid-configuration`)
     if (!isRecord(body)) throw new OidcError('discovery is not an object')
-    if (typeof body.issuer !== 'string' || trimSlash(body.issuer) !== trimSlash(issuer)) {
+    // The configured issuer has its trailing slash removed; the discovered one is kept as is and
+    // ID tokens must name it exactly.
+    if (
+      typeof body.issuer !== 'string' ||
+      (body.issuer !== issuer && body.issuer !== `${issuer}/`)
+    ) {
       throw new OidcError('discovery issuer does not match HINOMI_AUTH_OIDC_ISSUER')
+    }
+    const tokenEndpoint = endpoint(body.token_endpoint, issuer, 'token_endpoint')
+    // The client secret goes to the token endpoint, so a discovery document that names one on
+    // another host is refused unless that host was named in the configuration.
+    const tokenAt = new URL(tokenEndpoint).origin
+    if (tokenAt !== new URL(issuer).origin && tokenAt !== tokenOrigin) {
+      throw new OidcError(
+        `discovery token_endpoint is on ${tokenAt}, not the issuer's origin; set HINOMI_AUTH_OIDC_TOKEN_ORIGIN to allow it`,
+      )
     }
     const methods = Array.isArray(body.token_endpoint_auth_methods_supported)
       ? body.token_endpoint_auth_methods_supported
@@ -145,7 +165,7 @@ export function createOidcClient({
         issuer,
         'authorization_endpoint',
       ),
-      tokenEndpoint: endpoint(body.token_endpoint, issuer, 'token_endpoint'),
+      tokenEndpoint,
       jwksUri: endpoint(body.jwks_uri, issuer, 'jwks_uri'),
       basicAuth: methods.includes('client_secret_basic') || !methods.includes('client_secret_post'),
       fetchedAt: now(),
@@ -235,7 +255,8 @@ export function createOidcClient({
     if (!signed) throw new OidcError('ID token signature does not verify')
 
     const seconds = now() / 1000
-    if (typeof claims.iss !== 'string' || trimSlash(claims.iss) !== trimSlash(issuer)) {
+    // Exactly the issuer the discovery document named, trailing slash and all.
+    if (typeof claims.iss !== 'string' || claims.iss !== d.issuer) {
       throw new OidcError('ID token issuer does not match')
     }
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
@@ -246,8 +267,12 @@ export function createOidcClient({
     if (typeof claims.exp !== 'number' || claims.exp + CLOCK_SKEW_S < seconds) {
       throw new OidcError('ID token expired')
     }
-    if (typeof claims.iat === 'number' && claims.iat - CLOCK_SKEW_S > seconds) {
-      throw new OidcError('ID token issued in the future')
+    if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) {
+      throw new OidcError('ID token has no iat')
+    }
+    if (claims.iat - CLOCK_SKEW_S > seconds) throw new OidcError('ID token issued in the future')
+    if (claims.iat + MAX_TOKEN_AGE_S + CLOCK_SKEW_S < seconds) {
+      throw new OidcError('ID token issued too long ago')
     }
     if (typeof claims.nonce !== 'string' || !safeEqual(claims.nonce, nonce)) {
       throw new OidcError('ID token nonce does not match')

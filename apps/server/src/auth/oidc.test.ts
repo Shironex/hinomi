@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { nowMs } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { createOidcClient, OidcError, safeEqual } from './oidc.js'
 import {
@@ -9,14 +10,36 @@ import {
   recordAuthorization,
 } from './testing.js'
 
-function client(fetchImpl: typeof fetch) {
+function client(fetchImpl: typeof fetch, tokenOrigin: string | null = null) {
   return createOidcClient({
     issuer: IDP_ISSUER,
     clientId: IDP_CLIENT_ID,
     clientSecret: IDP_CLIENT_SECRET,
     redirectUri: 'https://hinomi.example.dev/api/auth/oidc/callback',
+    tokenOrigin,
     fetch: fetchImpl,
   })
+}
+
+/** One full login against the fake provider, with the claims of the ID token changed. */
+async function loginWith(claims: Record<string, unknown>) {
+  const idp = createFakeIdp()
+  idp.claims = claims
+  const oidc = client(idp.fetch)
+  const url = await oidc.authorizationUrl({ state: 's1', nonce: 'n1', codeChallenge: 'pkce' })
+  recordAuthorization(idp, url.replace('code_challenge=pkce', `code_challenge=${s256('v1')}`))
+  return oidc.exchange({ code: 's1', codeVerifier: 'v1', nonce: 'n1' })
+}
+
+/** The fake provider, with its discovery document changed. */
+function rediscover(change: Record<string, unknown>): typeof fetch {
+  const idp = createFakeIdp()
+  return async (input, init) => {
+    const res = await idp.fetch(input, init)
+    if (!urlOf(input).includes('openid-configuration')) return res
+    const body = (await res.json()) as Record<string, unknown>
+    return new Response(JSON.stringify({ ...body, ...change }))
+  }
 }
 
 const urlOf = (input: string | URL | Request) =>
@@ -64,6 +87,38 @@ describe('createOidcClient', () => {
     await expect(
       client(downgrade).authorizationUrl({ state: 's', nonce: 'n', codeChallenge: 'c' }),
     ).rejects.toThrow(OidcError)
+  })
+
+  it('compares the ID token issuer exactly as discovered', async () => {
+    // Discovery says ".../hinomi/" (trailing slash); a token without it is another issuer.
+    await expect(loginWith({ iss: IDP_ISSUER })).rejects.toThrow('ID token issuer does not match')
+    await expect(loginWith({ iss: `${IDP_ISSUER}//` })).rejects.toThrow(
+      'ID token issuer does not match',
+    )
+  })
+
+  it.each([
+    ['no iat', { iat: undefined }, 'ID token has no iat'],
+    ['an iat in the future', { iat: Math.floor(nowMs() / 1000) + 600 }, 'issued in the future'],
+    ['an iat an hour old', { iat: Math.floor(nowMs() / 1000) - 3600 }, 'issued too long ago'],
+  ])('refuses an ID token with %s', async (_why, claims, message) => {
+    await expect(loginWith(claims)).rejects.toThrow(message)
+  })
+
+  it('refuses a token endpoint off the issuer origin unless it is configured', async () => {
+    const elsewhere = rediscover({ token_endpoint: 'https://oauth2.example.net/token' })
+    await expect(
+      client(elsewhere).authorizationUrl({ state: 's', nonce: 'n', codeChallenge: 'c' }),
+    ).rejects.toThrow(
+      "discovery token_endpoint is on https://oauth2.example.net, not the issuer's origin; set HINOMI_AUTH_OIDC_TOKEN_ORIGIN to allow it",
+    )
+    await expect(
+      client(elsewhere, 'https://oauth2.example.net').authorizationUrl({
+        state: 's',
+        nonce: 'n',
+        codeChallenge: 'c',
+      }),
+    ).resolves.toMatch(/^https:\/\/id\.example\.dev\/authorize\?/)
   })
 
   it('fails closed when the provider cannot be reached', async () => {
