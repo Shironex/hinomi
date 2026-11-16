@@ -179,6 +179,26 @@ describe('previewPlan with go, uv, pip or composer steps', () => {
     const taken = previewPlan(mixed, { newerPackageManagers: true })
     expect(taken.sent.map((s) => s.id)).toContain(go.id)
     expect(taken.files.map((f) => f.path)).toContain('go.mod')
+    expect(taken.withheld).toEqual([])
+  })
+
+  it('holds back a risky go major from the majors agent too', () => {
+    const major = {
+      ...go,
+      id: 'lockfile_update:Go:example.dev/heron/codec:2.0.0:go.mod',
+      to: '2.0.0',
+      level: 'major' as const,
+      risk: 'risky' as const,
+      riskReasons: ['semver_major' as const],
+      apply: { ...go.apply, to: '2.0.0' },
+    }
+    const both = { ...plan, steps: [...plan.steps, go, major] }
+    const held = previewPlan(both)
+    expect(held.withheld.map((s) => s.id)).toEqual([go.id, major.id])
+    expect(held.majors.map((s) => s.id)).not.toContain(major.id)
+    expect(previewPlan(both, { newerPackageManagers: true }).majors.map((s) => s.id)).toContain(
+      major.id,
+    )
   })
 
   it('knows which runners take them', () => {

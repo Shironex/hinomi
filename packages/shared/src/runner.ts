@@ -533,8 +533,9 @@ export interface FixDispatchOptions {
   /** Overrides the checks mode the visibility picks. */
   checks?: FixChecksMode
   /**
-   * The runner takes steps of the NEWER_PACKAGE_MANAGERS. Default false: those steps are left
-   * out, because a runner from before them refuses the whole dispatch on its first such step.
+   * The runner takes steps of the NEWER_PACKAGE_MANAGERS. Default false: those steps and risky
+   * entries are left out, because a runner from before them refuses the whole dispatch on the
+   * first one, in `steps` or in `risky`.
    */
   newerPackageManagers?: boolean
   now?: Date
@@ -549,9 +550,12 @@ export const NEWER_PACKAGE_MANAGERS: readonly PackageManager[] = ['go', 'uv', 'p
 
 /** The plan's safe steps a runner from before NEWER_PACKAGE_MANAGERS would refuse. */
 export function newerPackageManagerSteps(plan: FixPlan): FixPlanStep[] {
-  return plan.steps.filter(
-    (step) => step.risk === 'safe' && NEWER_PACKAGE_MANAGERS.includes(step.packageManager),
-  )
+  return plan.steps.filter((step) => step.risk === 'safe' && isNewerPackageManagerStep(step))
+}
+
+/** A step of one of the NEWER_PACKAGE_MANAGERS, safe or risky. */
+export function isNewerPackageManagerStep(step: Pick<FixPlanStep, 'packageManager'>): boolean {
+  return NEWER_PACKAGE_MANAGERS.includes(step.packageManager)
 }
 
 /** Most urgent tier with findings in a tier count record, `not_deployed` when none. */
@@ -641,15 +645,16 @@ export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDi
   const sorted = [...checked.steps].sort((a, b) => a.order - b.order)
   const sendable = options.newerPackageManagers
     ? sorted
-    : sorted.filter((s) => !NEWER_PACKAGE_MANAGERS.includes(s.packageManager))
+    : sorted.filter((s) => !isNewerPackageManagerStep(s))
   const steps = majors
     ? []
     : sendable.map(toDispatchStep).filter((s): s is FixDispatchStep => s !== null)
   const maxRisky = majors ? FIX_MAJORS_MAX_STEPS : FIX_DISPATCH_MAX_STEPS
+  // `risky` too: an old runner validates its entries as strictly as the steps.
   const risky = majors
-    ? majorsRisky(sorted)
+    ? majorsRisky(sendable)
     : agent
-      ? sorted
+      ? sendable
           .filter((s) => s.risk === 'risky' && !isUnsupportedPackageManager(s.packageManager))
           .map(toDispatchRisky)
           .filter((s): s is FixDispatchRisky => s !== null)

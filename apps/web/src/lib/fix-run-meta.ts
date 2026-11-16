@@ -2,6 +2,7 @@ import {
   FIX_MAJORS_MAX_STEPS,
   MAJORS_BRANCH,
   isMajorStep,
+  isNewerPackageManagerStep,
   toFixDispatch,
   type FixAgentOutcome,
   type FixCheckResult,
@@ -644,6 +645,11 @@ export interface PlanPreview {
   notSent: FixPlanStep[]
   /** Risky steps: never in the fix PR, always listed in its body. */
   risky: FixPlanStep[]
+  /**
+   * go, uv, pip and composer steps, safe or risky, held back because the runner is not known to
+   * take them (takesNewerPackageManagers). Also in `notSent` or `risky`.
+   */
+  withheld: FixPlanStep[]
   files: DiffFile[]
   /** Findings the sent steps clear. */
   findings: number
@@ -726,8 +732,13 @@ export function previewPlan(plan: FixPlan, { newerPackageManagers = false } = {}
     })
   }
   const findings = new Set(sent.flatMap((s) => s.findingIds)).size
-  const majors = ordered.filter(isMajorStep).slice(0, FIX_MAJORS_MAX_STEPS)
-  return { sent, majors, notSent, risky, files: [...files.values()], findings }
+  // Steps of the newer package managers a runner not known to take them never receives,
+  // safe or risky (an old runner would refuse the whole dispatch over one).
+  const withheld = newerPackageManagers ? [] : ordered.filter(isNewerPackageManagerStep)
+  const majors = ordered
+    .filter((s) => isMajorStep(s) && !withheld.includes(s))
+    .slice(0, FIX_MAJORS_MAX_STEPS)
+  return { sent, majors, notSent, risky, withheld, files: [...files.values()], findings }
 }
 
 export const RISK_REASON_LABEL: Record<string, string> = {

@@ -423,6 +423,54 @@ describe('toFixDispatch', () => {
     expect(mixed.steps.filter(isMajorStep).map((s) => s.packageManager)).toEqual(['pnpm'])
   })
 
+  it('leaves go, uv, pip and composer out of risky too, in the shape the base runner accepts', () => {
+    const goMajor = step({
+      id: 'lockfile_update:Go:example.dev/heron/codec:2.0.0:go.mod',
+      order: 5,
+      ecosystem: 'Go',
+      packageName: 'example.dev/heron/codec',
+      lockfile: 'go.mod',
+      packageManager: 'go',
+      workspaces: [],
+      from: ['1.4.0'],
+      to: '2.0.0',
+      level: 'major',
+      risk: 'risky',
+      riskReasons: ['semver_major'],
+      note: 'Semver major: read the changelog',
+      apply: {
+        type: 'lockfile_update',
+        tool: 'go',
+        packageName: 'example.dev/heron/codec',
+        from: ['1.4.0'],
+        to: '2.0.0',
+      },
+    })
+    const mixed = plan([...harborSteps, goMajor])
+    const base = { runId: 'run-0001', baseBranch: 'main', visibility: 'public' as const, now: NOW }
+    // What the runner at the base commit (before go, uv, pip, composer) validates against.
+    const BASE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'unknown']
+    const acceptedByBase = (dispatch: FixDispatchV1) =>
+      dispatch.risky.every((entry) => BASE_MANAGERS.includes(entry.packageManager)) &&
+      dispatch.steps.every(
+        (entry) =>
+          BASE_MANAGERS.includes(entry.packageManager) &&
+          (entry.apply.type !== 'lockfile_update' || entry.apply.tool === 'cargo'),
+      )
+    for (const dispatch of [
+      toFixDispatch(mixed, { ...base, agent: true }),
+      toFixDispatch(mixed, { ...base, kind: 'majors' }),
+    ]) {
+      expect(dispatch.risky.map((s) => s.packageName)).toEqual(['heron-ui'])
+      expect(acceptedByBase(dispatch)).toBe(true)
+    }
+    const newer = { ...base, newerPackageManagers: true }
+    expect(
+      toFixDispatch(mixed, { ...newer, kind: 'majors' }).risky.map((s) => s.packageName),
+    ).toEqual(['heron-ui', 'example.dev/heron/codec'])
+    expect(acceptedByBase(toFixDispatch(mixed, { ...newer, kind: 'majors' }))).toBe(false)
+  })
+
   it('refuses a plan version it does not know', () => {
     const future = { ...harbor, version: 2 } as unknown as FixPlan
     expectPayloadError(

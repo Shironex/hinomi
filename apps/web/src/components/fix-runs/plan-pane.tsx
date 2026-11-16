@@ -32,7 +32,7 @@ const RUNNER_WHERE = {
 const number = new Intl.NumberFormat('en-US')
 const plural = (n: number, word: string) => `${number.format(n)} ${word}${n === 1 ? '' : 's'}`
 
-type StepFate = 'sent' | 'not_sent' | 'risky' | 'majors'
+type StepFate = 'sent' | 'not_sent' | 'risky' | 'majors' | 'withheld'
 
 const FATE: Record<
   StepFate,
@@ -42,9 +42,11 @@ const FATE: Record<
   not_sent: { label: 'Not sent', variant: 'default' },
   risky: { label: 'Risky, listed only', variant: 'high' },
   majors: { label: 'Majors agent, draft PR', variant: 'accent' },
+  withheld: { label: 'Held back: runner too old', variant: 'default' },
 }
 
 function fateOf(step: FixPlanStep, preview: PlanPreview, agent: boolean): StepFate {
+  if (preview.withheld.includes(step)) return 'withheld'
   if (agent && preview.majors.includes(step)) return 'majors'
   if (step.risk === 'risky') return 'risky'
   return preview.sent.includes(step) ? 'sent' : 'not_sent'
