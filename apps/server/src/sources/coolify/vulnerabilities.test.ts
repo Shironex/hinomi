@@ -196,6 +196,25 @@ describe('fetchResourceScan', () => {
     })
   })
 
+  it('says why Coolify does not scan the resource, for both 4.7.0 off reasons', async () => {
+    const off = fixture('vulnerabilities-off-server') as Record<string, unknown>
+    for (const reason of ['server', 'application']) {
+      const { client, asked } = clientFor(() => json({ ...off, off_reason: reason }))
+      const result = await fetchResourceScan(client, 'application', 'app-docs')
+      if (result.status !== 'ok') throw new Error('expected ok')
+      expect(result.scan).toMatchObject({
+        offReason: reason,
+        images: [],
+        findings: [],
+        capped: false,
+        unreadable: 0,
+      })
+      expect(result.scan.security).toMatchObject({ status: 'not_checked', checkedAt: null })
+      // An empty first page with a total of 0 is the whole answer.
+      expect(asked).toHaveLength(1)
+    }
+  })
+
   it('has no verdict for a status it does not know', async () => {
     const body = { ...(FIXTURE as object), security: { status: 'brand_new_state' } }
     const { client } = clientFor(() => json(body))

@@ -1,0 +1,27 @@
+{
+  "uuid": "app-docs",
+  "type": "application",
+  "off_reason": "server",
+  "security": {
+    "status": "not_checked",
+    "label": "Not checked",
+    "action": null,
+    "check_reason": "Image scanning is off for this server.",
+    "problem_count": 0,
+    "exploited_count": 0,
+    "any_exploited": false,
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "eol": null,
+    "checked_at": null,
+    "actions": []
+  },
+  "images": [],
+  "findings": [],
+  "pagination": {
+    "page": 1,
+    "per_page": 200,
+    "total": 0
+  }
+}
