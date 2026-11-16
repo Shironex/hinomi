@@ -18,7 +18,8 @@ export function readGithubPins(settings: SettingsRepository): GithubPins {
 
 export function pinGithubLogin(settings: SettingsRepository, login: string, id: string): void {
   const pins = settings.get(GITHUB_PINS_KEY, pinsSchema) ?? {}
-  // First pin wins; never move a pin to another account.
-  if (pins[login] !== undefined) return
+  // First pin wins; never move a pin to another account. Own keys only: a login such as
+  // `constructor` must not find Object.prototype's members.
+  if (Object.hasOwn(pins, login)) return
   settings.set(GITHUB_PINS_KEY, { ...pins, [login]: id })
 }
