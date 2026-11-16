@@ -53,11 +53,25 @@ export type TargetChoice =
 export const packageKey = (ecosystem: string, packageName: string) =>
   `${ecosystem}\u0000${packageName}`
 
-/** OSV's name for a stored ecosystem; null for ecosystems a plan does not apply. */
+/**
+ * OSV's name for a stored ecosystem (GitHub's lowercase word or OSV's own spelling); null for
+ * ecosystems a plan does not apply. RubyGems is left out: the fix runner never updates
+ * Gemfile.lock (UNSUPPORTED_PACKAGE_MANAGERS).
+ */
+const OSV_ECOSYSTEMS: Record<string, OsvEcosystem> = {
+  npm: 'npm',
+  rust: 'crates.io',
+  'crates.io': 'crates.io',
+  go: 'Go',
+  Go: 'Go',
+  pip: 'PyPI',
+  PyPI: 'PyPI',
+  composer: 'Packagist',
+  Packagist: 'Packagist',
+}
+
 export function osvEcosystemOf(ecosystem: string): OsvEcosystem | null {
-  if (ecosystem === 'npm') return 'npm'
-  if (ecosystem === 'rust' || ecosystem === 'crates.io') return 'crates.io'
-  return null
+  return OSV_ECOSYSTEMS[ecosystem] ?? null
 }
 
 const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/

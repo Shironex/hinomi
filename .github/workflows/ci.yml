@@ -30,6 +30,11 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      # uv for the real uv lock test; go, php and composer come with the runner image.
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.2
+          enable-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint
@@ -58,6 +63,29 @@ jobs:
       - run: .github/scripts/lint-workflows.sh
       # The release notes script, against a throwaway repo and a stub gh.
       - run: .github/scripts/release-notes.test.sh
+
+  toolchain:
+    name: Fix toolchain leaves no token
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The composite's own check fails the job if setup-php left the job token in composer's
+      # global auth.json or in COMPOSER_AUTH.
+      - uses: $/actions/fix-toolchain
+        with:
+          setup_node: 'false'
+          setup_pnpm: 'false'
+          setup_yarn: 'false'
+          setup_bun: 'false'
+          setup_rust: 'false'
+          setup_php: 'true'
+          php_version: '8.4'
+          composer_version: '2.11.1'
+      - name: Composer runs at the pinned version
+        run: composer --version --no-plugins | grep -F 'Composer version 2.11.1'
 
   docker:
     name: Docker build

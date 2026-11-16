@@ -1,4 +1,9 @@
-import { decodeFixDispatch, encodeFixDispatch, type FixDispatchV1 } from '@hinomi/shared'
+import {
+  decodeFixDispatch,
+  encodeFixDispatch,
+  renderCallerWorkflow,
+  type FixDispatchV1,
+} from '@hinomi/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DatabaseHandle } from '../db/client.js'
 import type { FixRunState } from '@hinomi/shared'
@@ -11,6 +16,7 @@ import { openRunnerGithub } from './github.js'
 import {
   connectGithubToken,
   fakeGithub,
+  fileReply,
   repoReply,
   saveRunnerPlan,
   type FakeRequest,
@@ -217,6 +223,107 @@ describe('GithubActionsRunner.dispatch', () => {
       created: false,
       code: 'nothing_to_send',
     })
+  })
+})
+
+describe('GithubActionsRunner.dispatch with go, uv, pip or composer steps', () => {
+  const LATEST = { sha: 'b'.repeat(40), version: 'v0.4.0' }
+  const CALLER = '/repos/Kestrel-Co/Harbor/contents/.github/workflows/hinomi-fix.yml?ref=main'
+
+  /** The runner plan plus a safe go step. */
+  function mixedPlan(goOnly = false, major = false) {
+    const scan = repos.scanRuns.start('manual', T0)
+    const saved = saveRunnerPlan(repos, harbor, T0)
+    const apply = {
+      type: 'lockfile_update' as const,
+      tool: 'go' as const,
+      packageName: 'example.dev/heron/codec',
+      from: ['1.4.0'],
+      to: major ? '2.0.0' : '1.4.3',
+    }
+    const go = {
+      ...saved.plan.steps[0]!,
+      id: `lockfile_update:Go:example.dev/heron/codec:${apply.to}:go.mod`,
+      order: 9,
+      ecosystem: 'Go',
+      packageName: apply.packageName,
+      lockfile: 'go.mod',
+      packageManager: 'go' as const,
+      workspaces: [],
+      from: apply.from,
+      to: apply.to,
+      level: major ? ('major' as const) : ('patch' as const),
+      risk: major ? ('risky' as const) : ('safe' as const),
+      riskReasons: major ? ['semver_major' as const] : [],
+      apply,
+    }
+    const steps = goOnly ? [go] : [...saved.plan.steps, go]
+    return repos.fixPlans.save({ ...saved.plan, scanRunId: scan.id, steps }, T0)
+  }
+
+  function runnerWith(caller: string | null, latest: typeof LATEST | null) {
+    const github = fakeGithub([
+      { path: '/repos/kestrel-co/harbor', reply: repoReply('Kestrel-Co', 'Harbor', 'private') },
+      ...(caller === null ? [] : [{ path: CALLER, reply: fileReply(caller) }]),
+      { method: 'POST', path: DISPATCHES, reply: accepted },
+    ])
+    const runner = new GithubActionsRunner({
+      repositories: repos,
+      github: (repoId) => openRunnerGithub(repos, repoId, { fetch: github.fetch }),
+      now: () => T0,
+      correlationId: () => RUN_ID,
+      latest,
+    })
+    return { runner, requests: github.requests }
+  }
+
+  it('sends them to a caller pinned to the latest release', async () => {
+    const { runner, requests } = runnerWith(renderCallerWorkflow({ sha: LATEST.sha }), LATEST)
+    await runner.dispatch({ repo: harbor, plan: mixedPlan() })
+    const sent = await sentDispatch(requests)
+    expect(sent.steps.map((s) => s.packageManager)).toEqual(['pnpm', 'pnpm', 'go'])
+  })
+
+  it.each([
+    ['an older commit', renderCallerWorkflow({ sha: 'a'.repeat(40) }), LATEST],
+    ['a moving ref', renderCallerWorkflow({ sha: 'main' }), LATEST],
+    ['no release known', renderCallerWorkflow({ sha: 'a'.repeat(40) }), null],
+    ['a caller it cannot read', null, LATEST],
+  ] as const)(
+    'leaves them out for %s and still sends the npm steps',
+    async (_label, caller, latest) => {
+      const { runner, requests } = runnerWith(caller, latest)
+      const outcome = await runner.dispatch({ repo: harbor, plan: mixedPlan() })
+      expect(outcome).toMatchObject({ created: true })
+      const sent = await sentDispatch(requests)
+      expect(sent.steps.map((s) => s.packageManager)).toEqual(['pnpm', 'pnpm'])
+    },
+  )
+
+  it('says how to get them sent when they are all the plan has', async () => {
+    const { runner, requests } = runnerWith(renderCallerWorkflow({ sha: 'a'.repeat(40) }), LATEST)
+    const outcome = await runner.dispatch({ repo: harbor, plan: mixedPlan(true) })
+    expect(outcome).toMatchObject({ created: false, code: 'nothing_to_send' })
+    expect(outcome.created === false && outcome.message).toContain('go steps need a runner')
+    expect(requests.some((r) => r.method === 'POST')).toBe(false)
+  })
+
+  it('holds a go major back from the majors agent of an older caller, and says why', async () => {
+    const older = runnerWith(renderCallerWorkflow({ sha: 'a'.repeat(40) }), LATEST)
+    const outcome = await older.runner.dispatch({
+      repo: harbor,
+      plan: mixedPlan(true, true),
+      kind: 'majors',
+    })
+    expect(outcome).toMatchObject({ created: false, code: 'nothing_to_send' })
+    expect(outcome.created === false && outcome.message).toContain(
+      'go major upgrades need a runner',
+    )
+    expect(older.requests.some((r) => r.method === 'POST')).toBe(false)
+    const current = runnerWith(renderCallerWorkflow({ sha: LATEST.sha }), LATEST)
+    await current.runner.dispatch({ repo: harbor, plan: mixedPlan(true, true), kind: 'majors' })
+    const sent = await sentDispatch(current.requests)
+    expect(sent.risky.map((s) => s.packageManager)).toEqual(['go'])
   })
 })
 

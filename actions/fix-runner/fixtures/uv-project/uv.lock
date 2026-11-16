@@ -1,0 +1,38 @@
+version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[[package]]
+name = "heron-web"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "plover-sig" },
+]
+wheels = [
+    { url = "https://files.example.dev/heron_web-2.3.0-py3-none-any.whl", hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000", size = 1200 },
+]
+
+[[package]]
+name = "kestrel-api"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "heron-web" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "heron-web", specifier = ">=2.3" }]
+
+[[package]]
+name = "plover-sig"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.example.dev/plover_sig-1.0.2-py3-none-any.whl", hash = "sha256:1111111111111111111111111111111111111111111111111111111111111111", size = 800 },
+]
+
+[[package]]
+name = "wren-dom"
+version = "0.4.0"
+source = { registry = "https://pypi.internal.example.dev/simple" }

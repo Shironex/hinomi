@@ -3,9 +3,13 @@ import {
   FixPayloadError,
   currentTime,
   encodeFixDispatch,
+  isMajorStep,
+  isNewerPackageManagerStep,
+  newerPackageManagerSteps,
   toFixDispatch,
   type EncodedFixDispatch,
   type FixPayloadCompressor,
+  type FixPlanStep,
   type FixRunnerKind,
 } from '@hinomi/shared'
 import type { FixRunRow } from '../db/schema.js'
@@ -44,6 +48,12 @@ export interface PrepareDispatchOptions {
   now?: () => Date
   /** The correlation id. Random by default. */
   correlationId?: () => string
+  /**
+   * Whether this runner takes steps of the NEWER_PACKAGE_MANAGERS (go, uv, pip, composer).
+   * Absent means no: a runner from before them refuses the whole dispatch, so those steps are
+   * left out and the npm and Cargo steps still go.
+   */
+  newerPackageManagers?: (source: GithubSource, meta: RunnerRepoMeta) => Promise<boolean>
 }
 
 /** A pending run with its encoded payload, ready to hand over. */
@@ -86,25 +96,36 @@ export async function prepareDispatch(
       ...plan.plan,
       repo: { ...plan.plan.repo, owner: meta.owner, name: meta.name, fullName: meta.fullName },
     }
+    const newer = (await options.newerPackageManagers?.(source, meta)) ?? false
     const dispatch = toFixDispatch(fixPlan, {
       runId: correlationId,
       baseBranch: meta.defaultBranch,
       visibility: meta.visibility,
       now: now(),
       kind,
+      newerPackageManagers: newer,
     })
+    // What a runner not known to take the newer package managers did not get, if anything.
+    const heldFor = (held: FixPlanStep[], what: string) =>
+      newer || held.length === 0
+        ? null
+        : `The plan's ${[...new Set(held.map((s) => s.packageManager))].join(', ')} ${what} need a runner that takes them: pin the caller workflow to the latest Hinomi release, or use the local runner.`
     if (kind === 'majors' && dispatch.risky.length === 0) {
+      const held = fixPlan.steps.filter((s) => isMajorStep(s) && isNewerPackageManagerStep(s))
       return {
         created: false,
         code: 'nothing_to_send',
-        message: 'The plan has no major upgrade the agent can take.',
+        message:
+          heldFor(held, 'major upgrades') ?? 'The plan has no major upgrade the agent can take.',
       }
     }
     if (kind === 'fix' && dispatch.steps.length === 0) {
       return {
         created: false,
         code: 'nothing_to_send',
-        message: 'The plan has no safe step the runner can apply.',
+        message:
+          heldFor(newerPackageManagerSteps(fixPlan), 'steps') ??
+          'The plan has no safe step the runner can apply.',
       }
     }
     encoded = await encodeFixDispatch(dispatch, {

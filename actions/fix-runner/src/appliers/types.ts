@@ -24,6 +24,8 @@ export interface ProjectContext {
   publishTimes: PublishTimes
   exec: Exec
   now: Date
+  /** The PATH the runner's child processes get; none is searched when absent. */
+  searchPath?: string
 }
 
 /** What happened to one step's edit. */
@@ -54,6 +56,8 @@ export interface Applier {
   readonly lockfiles: readonly string[]
   /** Prints the tool version, e.g. `pnpm --version`. */
   readonly versionCommand: Command
+  /** Picks the version among the command's non empty lines; the last one when absent. */
+  readonly versionLine?: (lines: readonly string[]) => string | undefined
 
   /** Every version of `packageName` the lockfile resolves; empty when it is not there. */
   resolvedVersions(ctx: ProjectContext, packageName: string): Promise<string[]>
@@ -68,15 +72,20 @@ export interface Applier {
    */
   applyStep(ctx: ProjectContext, step: FixDispatchStep): Promise<EditOutcome>
   /**
-   * Updates only the lockfile after the edits. Must not run install scripts. Cargo returns
-   * one `cargo update` per step; no command at all counts as a passing install.
+   * Updates only the lockfile after the edits. Must not run install scripts or any other
+   * package code. Cargo returns one `cargo update` per step; no command at all counts as a
+   * passing install (pip, whose edit is the whole update).
    */
   lockfileInstall(
     ctx: ProjectContext,
     options: InstallOptions,
   ): InstallCommands | Promise<InstallCommands>
-  /** The frozen install that precedes the checks in `full` mode. */
-  fullInstall(ctx: ProjectContext): Command
+  /**
+   * The frozen install that precedes the checks in `full` mode; null when the tool has none
+   * that runs no package code (pip), and the install counts as passed. `refused` fails the
+   * install with that reason without running anything.
+   */
+  fullInstall(ctx: ProjectContext): Command | null | { refused: string }
   /** Checks the project defines, in the order they run. */
   checks(ctx: ProjectContext): Promise<CheckSpec[]>
 }

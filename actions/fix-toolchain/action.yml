@@ -46,6 +46,35 @@ inputs:
     description: detect output rust_root
     required: false
     default: ''
+  # Optional, so a fix.yml from before these ecosystems still calls this action unchanged.
+  setup_go:
+    description: detect output setup_go
+    required: false
+    default: 'false'
+  go_version_file:
+    description: detect output go_version_file
+    required: false
+    default: ''
+  setup_uv:
+    description: detect output setup_uv
+    required: false
+    default: 'false'
+  uv_version:
+    description: detect output uv_version
+    required: false
+    default: ''
+  setup_php:
+    description: detect output setup_php
+    required: false
+    default: 'false'
+  php_version:
+    description: detect output php_version
+    required: false
+    default: ''
+  composer_version:
+    description: detect output composer_version
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -119,3 +148,66 @@ runs:
           dir=$(dirname "$dir")
         done
         (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && cargo --version)
+
+    # Go from the project's go.mod (its go and toolchain lines). The fix runner runs every go
+    # command with GOTOOLCHAIN=local, so nothing downloads another toolchain after this step.
+    - name: Set up Go
+      if: inputs.setup_go == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ inputs.go_version_file }}
+        cache: false
+
+    # uv at the version the detect step pins. The fix runner only calls `uv lock --no-build`,
+    # which builds no downloaded package, and only for a project whose own metadata, and that
+    # of its workspace members and path sources, is static (so no build backend of the repo
+    # runs either).
+    - name: Set up uv
+      if: inputs.setup_uv == 'true'
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        version: ${{ inputs.uv_version }}
+        enable-cache: false
+
+    # PHP for composer at the version composer.json names, with composer at an exact version.
+    # The fix runner calls composer with --no-scripts and --no-plugins only. github-token is
+    # empty on purpose: by default setup-php writes the job's GITHUB_TOKEN into composer's
+    # global auth.json, where every later process (package managers, checks) could read it.
+    - name: Set up PHP and composer
+      if: inputs.setup_php == 'true'
+      uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+      with:
+        php-version: ${{ inputs.php_version }}
+        tools: composer:${{ inputs.composer_version }}
+        coverage: none
+        github-token: ''
+
+    # The empty github-token above is not enough: setup-php 2.40.0 still writes the job token
+    # into the global auth.json (seen in CI), so it is removed before anything else runs.
+    - name: Remove the GitHub token from composer
+      if: inputs.setup_php == 'true'
+      shell: bash
+      run: |
+        composer config --global --unset github-oauth.github.com --no-plugins --no-interaction || true
+        if [ -n "${COMPOSER_AUTH:-}" ]; then echo "COMPOSER_AUTH=" >> "$GITHUB_ENV"; fi
+
+    - name: Check composer holds no GitHub token
+      if: inputs.setup_php == 'true'
+      shell: bash
+      run: |
+        home=$(composer config --global home --no-plugins --no-interaction 2>/dev/null || true)
+        for file in "$home/auth.json" "$HOME/.composer/auth.json" "$HOME/.config/composer/auth.json"; do
+          if [ -f "$file" ] && grep -qE '"github\.com" *: *"[^"]+"|gh[pousr]_|github_pat_' "$file"; then
+            echo "::error::$file holds a GitHub token that every later process could read"
+            exit 1
+          fi
+        done
+        if composer config --global github-oauth.github.com --no-plugins --no-interaction >/dev/null 2>&1; then
+          echo "::error::composer still has a github-oauth token for github.com"
+          exit 1
+        fi
+        if [ -n "${COMPOSER_AUTH:-}" ]; then
+          echo "::error::COMPOSER_AUTH is set for every later step"
+          exit 1
+        fi
+        echo "composer has no GitHub token"

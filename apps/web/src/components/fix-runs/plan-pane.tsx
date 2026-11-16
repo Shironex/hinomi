@@ -11,7 +11,13 @@ import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
 import { Section } from '@/components/views/panel'
 import { PlanDiff } from '@/components/views/plan-diff'
 import { planQuery, runnerQuery } from '@/lib/fix-api'
-import { previewPlan, RISK_REASON_LABEL, runnerKindOf, type PlanPreview } from '@/lib/fix-run-meta'
+import {
+  previewPlan,
+  RISK_REASON_LABEL,
+  runnerKindOf,
+  takesNewerPackageManagers,
+  type PlanPreview,
+} from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { RunStateText } from './run-state-text'
@@ -26,7 +32,7 @@ const RUNNER_WHERE = {
 const number = new Intl.NumberFormat('en-US')
 const plural = (n: number, word: string) => `${number.format(n)} ${word}${n === 1 ? '' : 's'}`
 
-type StepFate = 'sent' | 'not_sent' | 'risky' | 'majors'
+type StepFate = 'sent' | 'not_sent' | 'risky' | 'majors' | 'withheld'
 
 const FATE: Record<
   StepFate,
@@ -36,9 +42,11 @@ const FATE: Record<
   not_sent: { label: 'Not sent', variant: 'default' },
   risky: { label: 'Risky, listed only', variant: 'high' },
   majors: { label: 'Majors agent, draft PR', variant: 'accent' },
+  withheld: { label: 'Held back: runner too old', variant: 'default' },
 }
 
 function fateOf(step: FixPlanStep, preview: PlanPreview, agent: boolean): StepFate {
+  if (preview.withheld.includes(step)) return 'withheld'
   if (agent && preview.majors.includes(step)) return 'majors'
   if (step.risk === 'risky') return 'risky'
   return preview.sent.includes(step) ? 'sent' : 'not_sent'
@@ -184,7 +192,9 @@ export function PlanPane({
   const agent =
     (runner.data?.settings.majorsAgent ?? 'off') !== 'off' && runnerKindOf(runner.data) !== 'local'
   const plan = query.data
-  const preview = plan ? previewPlan(plan) : null
+  const preview = plan
+    ? previewPlan(plan, { newerPackageManagers: takesNewerPackageManagers(runner.data) })
+    : null
   const latest = runs[0]
   return (
     <>

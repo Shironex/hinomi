@@ -93,6 +93,20 @@ outputs:
     description: true when a project uses cargo (detect).
   rust_root:
     description: Folder of the first cargo project, where a rust-toolchain file applies (detect).
+  setup_go:
+    description: true when a project uses Go modules (detect).
+  go_version_file:
+    description: go.mod setup-go reads the Go version from (detect).
+  setup_uv:
+    description: true when a project uses uv (detect).
+  uv_version:
+    description: uv version to install (detect).
+  setup_php:
+    description: true when a project uses composer (detect).
+  php_version:
+    description: PHP major.minor composer resolves with (detect).
+  composer_version:
+    description: composer version to install (detect).
   artifact_name:
     description: Name for the uploaded artifact, hinomi-<scope>-<run id> from the validated dispatch (detect).
   has_steps:

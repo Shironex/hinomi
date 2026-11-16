@@ -15,12 +15,14 @@ import {
   FIX_MAJORS_MAX_STEPS,
   fixDispatchStepSchema,
   isMajorStep,
+  newerPackageManagerSteps,
   isSafeRepoPath,
   parseFixDispatch,
   parseFixPlan,
   parseFixResult,
   toFixDispatch,
   truncateCheckOutput,
+  type FixDispatchStep,
   type FixDispatchV1,
   type FixResultV1,
 } from './runner.js'
@@ -366,6 +368,109 @@ describe('toFixDispatch', () => {
     expect(dispatch.steps.some((s) => s.packageName === 'heron-ui')).toBe(false)
   })
 
+  it('sends Go steps, and keeps poetry and bundler steps out of the agent and the majors job', () => {
+    const goStep = step({
+      id: 'lockfile_update:Go:example.dev/heron/codec:1.4.3:go.mod',
+      order: 5,
+      ecosystem: 'Go',
+      packageName: 'example.dev/heron/codec',
+      lockfile: 'go.mod',
+      packageManager: 'go',
+      workspaces: [],
+      from: ['1.4.0'],
+      to: '1.4.3',
+      level: 'patch',
+      apply: {
+        type: 'lockfile_update',
+        tool: 'go',
+        packageName: 'example.dev/heron/codec',
+        from: ['1.4.0'],
+        to: '1.4.3',
+      },
+    })
+    const unsupported = (manager: 'poetry' | 'bundler', order: number, lockfile: string) =>
+      step({
+        id: `manual:x:heron-web:3.0.0:${lockfile}`,
+        order,
+        packageName: 'heron-web',
+        lockfile,
+        packageManager: manager,
+        to: '3.0.0',
+        level: 'major',
+        risk: 'risky',
+        riskReasons: ['semver_major', 'unsupported_package_manager'],
+        apply: { type: 'manual' },
+      })
+    const mixed = plan([
+      ...harborSteps,
+      goStep,
+      unsupported('poetry', 6, 'poetry.lock'),
+      unsupported('bundler', 7, 'Gemfile.lock'),
+    ])
+    const base = { runId: 'run-0001', baseBranch: 'main', visibility: 'public' as const, now: NOW }
+    const fix = toFixDispatch(mixed, { ...base, agent: true, newerPackageManagers: true })
+    expect(fix.steps.find((s) => s.packageManager === 'go')?.apply).toEqual(goStep.apply)
+    // A runner not known to take Go gets the npm steps alone, not a dispatch it would refuse.
+    const legacy = toFixDispatch(mixed, base)
+    expect(legacy.steps.map((s) => s.packageManager)).toEqual(
+      toFixDispatch(harbor, base).steps.map((s) => s.packageManager),
+    )
+    expect(legacy.steps.some((s) => s.packageManager === 'go')).toBe(false)
+    expect(newerPackageManagerSteps(mixed).map((s) => s.id)).toEqual([goStep.id])
+    expect(fix.risky.map((s) => s.packageName)).toEqual(['heron-ui'])
+    const majors = toFixDispatch(mixed, { ...base, kind: 'majors' })
+    expect(majors.risky.map((s) => s.packageName)).toEqual(['heron-ui'])
+    expect(mixed.steps.filter(isMajorStep).map((s) => s.packageManager)).toEqual(['pnpm'])
+  })
+
+  it('leaves go, uv, pip and composer out of risky too, in the shape the base runner accepts', () => {
+    const goMajor = step({
+      id: 'lockfile_update:Go:example.dev/heron/codec:2.0.0:go.mod',
+      order: 5,
+      ecosystem: 'Go',
+      packageName: 'example.dev/heron/codec',
+      lockfile: 'go.mod',
+      packageManager: 'go',
+      workspaces: [],
+      from: ['1.4.0'],
+      to: '2.0.0',
+      level: 'major',
+      risk: 'risky',
+      riskReasons: ['semver_major'],
+      note: 'Semver major: read the changelog',
+      apply: {
+        type: 'lockfile_update',
+        tool: 'go',
+        packageName: 'example.dev/heron/codec',
+        from: ['1.4.0'],
+        to: '2.0.0',
+      },
+    })
+    const mixed = plan([...harborSteps, goMajor])
+    const base = { runId: 'run-0001', baseBranch: 'main', visibility: 'public' as const, now: NOW }
+    // What the runner at the base commit (before go, uv, pip, composer) validates against.
+    const BASE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'unknown']
+    const acceptedByBase = (dispatch: FixDispatchV1) =>
+      dispatch.risky.every((entry) => BASE_MANAGERS.includes(entry.packageManager)) &&
+      dispatch.steps.every(
+        (entry) =>
+          BASE_MANAGERS.includes(entry.packageManager) &&
+          (entry.apply.type !== 'lockfile_update' || entry.apply.tool === 'cargo'),
+      )
+    for (const dispatch of [
+      toFixDispatch(mixed, { ...base, agent: true }),
+      toFixDispatch(mixed, { ...base, kind: 'majors' }),
+    ]) {
+      expect(dispatch.risky.map((s) => s.packageName)).toEqual(['heron-ui'])
+      expect(acceptedByBase(dispatch)).toBe(true)
+    }
+    const newer = { ...base, newerPackageManagers: true }
+    expect(
+      toFixDispatch(mixed, { ...newer, kind: 'majors' }).risky.map((s) => s.packageName),
+    ).toEqual(['heron-ui', 'example.dev/heron/codec'])
+    expect(acceptedByBase(toFixDispatch(mixed, { ...newer, kind: 'majors' }))).toBe(false)
+  })
+
   it('refuses a plan version it does not know', () => {
     const future = { ...harbor, version: 2 } as unknown as FixPlan
     expectPayloadError(
@@ -434,6 +539,69 @@ describe('dispatch step validation', () => {
       .steps[1]!
     const bad = { ...override, apply: { ...override.apply, key: 'gull-log' } }
     expect(fixDispatchStepSchema.safeParse(bad).success).toBe(false)
+  })
+
+  function lockfileStep(
+    packageManager: FixDispatchStep['packageManager'],
+    packageName: string,
+    lockfile: string,
+  ): FixDispatchStep {
+    return {
+      ...valid,
+      packageManager,
+      packageName,
+      lockfile,
+      apply: {
+        type: 'lockfile_update',
+        tool: packageManager as 'go',
+        packageName,
+        from: ['1.2.0'],
+        to: '1.3.0',
+      },
+    }
+  }
+
+  it.each([
+    ['go', 'example.dev/heron/codec', 'go.mod'],
+    ['go', 'github.com/Kestrel/codec', 'svc/go.mod'],
+    ['uv', 'Plover_Sig', 'uv.lock'],
+    ['pip', 'zope.interface', 'requirements.txt'],
+    ['composer', 'kestrel/uri', 'web/composer.lock'],
+  ] as const)('accepts a %s lockfile update for %s', (manager, name, lockfile) => {
+    expect(fixDispatchStepSchema.safeParse(lockfileStep(manager, name, lockfile)).success).toBe(
+      true,
+    )
+  })
+
+  it.each([
+    ['a Go path with a dot dot element', lockfileStep('go', 'example.dev/../x', 'go.mod')],
+    ['a Go path that starts with a dash', lockfileStep('go', '-modfile=x', 'go.mod')],
+    ['a PyPI name with an option', lockfileStep('uv', '--index-url=x', 'uv.lock')],
+    ['a composer name without a vendor', lockfileStep('composer', 'uri', 'composer.lock')],
+    ['a composer name in capitals', lockfileStep('composer', 'Kestrel/Uri', 'composer.lock')],
+    [
+      'a lockfile update with another tool',
+      { ...lockfileStep('go', 'example.dev/a', 'go.mod'), packageManager: 'uv' },
+    ],
+    [
+      'a manifest bump for a lockfile only manager',
+      {
+        ...valid,
+        packageManager: 'go',
+        packageName: 'example.dev/a',
+        apply: { ...valid.apply, packageName: 'example.dev/a' },
+      },
+    ],
+    [
+      'a poetry step',
+      { ...lockfileStep('uv', 'heron-web', 'poetry.lock'), packageManager: 'poetry' },
+    ],
+    [
+      'a bundler step',
+      { ...lockfileStep('uv', 'rack', 'Gemfile.lock'), packageManager: 'bundler' },
+    ],
+  ])('rejects %s', (_label, candidate) => {
+    expect(fixDispatchStepSchema.safeParse(candidate).success).toBe(false)
   })
 
   it('knows safe repo paths', () => {

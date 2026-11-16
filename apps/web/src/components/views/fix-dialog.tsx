@@ -42,6 +42,7 @@ import {
   previewPlan,
   RUNNER_KIND_INFO,
   runnerKindOf,
+  takesNewerPackageManagers,
   type PlanPreview,
 } from '@/lib/fix-run-meta'
 import { closeFix, type FixRequest } from '@/lib/fix-request'
@@ -205,7 +206,9 @@ function DialogBody({ request }: { request: FixRequest }) {
     },
   })
 
-  const preview = plan.data ? previewPlan(plan.data) : null
+  const preview = plan.data
+    ? previewPlan(plan.data, { newerPackageManagers: takesNewerPackageManagers(runner.data) })
+    : null
   const notReady = runner.data && !runner.data.ready
   const kind = runnerKindOf(runner.data)
   // The local runner never takes the majors agent: its majors are left out, not dispatched.

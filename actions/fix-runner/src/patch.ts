@@ -18,6 +18,11 @@ export const DEPENDENCY_FILE_NAMES: readonly string[] = [
   'bun.lockb',
   'Cargo.toml',
   'Cargo.lock',
+  'go.mod',
+  'go.sum',
+  'uv.lock',
+  'requirements.txt',
+  'composer.lock',
 ]
 
 /** Config files a fix may change only when an applied step reported editing that exact path. */

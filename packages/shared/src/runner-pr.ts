@@ -4,6 +4,7 @@ import {
   type FixPlan,
   type FixPlanRiskReason,
   type FixPlanStep,
+  type LockfileUpdateTool,
 } from './api.js'
 import {
   CHECK_OUTPUT_MAX_CHARS,
@@ -70,14 +71,26 @@ const RISK_LABELS: Record<FixPlanRiskReason, string> = {
   unknown_version: 'Versions are not semver',
   unknown_relationship: 'Direct or transitive unknown',
   unknown_package_manager: 'No lockfile Hinomi reads',
+  unsupported_package_manager: 'Hinomi does not apply it',
 }
 
-const CHANGE_LABELS: Record<FixPlanStep['apply']['type'], string> = {
+const CHANGE_LABELS: Record<Exclude<FixPlanStep['apply']['type'], 'lockfile_update'>, string> = {
   manifest_bump: 'bump',
   override: 'override',
-  lockfile_update: 'cargo update',
   manual: 'manual',
 }
+
+/** The lockfile update each tool runs, as the Change column names it. */
+const UPDATE_LABELS: Record<LockfileUpdateTool, string> = {
+  cargo: 'cargo update',
+  go: 'go get',
+  uv: 'uv lock',
+  pip: 'pin edit',
+  composer: 'composer update',
+}
+
+const changeLabel = (apply: FixPlanStep['apply']) =>
+  apply.type === 'lockfile_update' ? UPDATE_LABELS[apply.tool] : CHANGE_LABELS[apply.type]
 
 function sumTiers(steps: FixPlanStep[]): Map<FindingTier, number> {
   const totals = new Map<FindingTier, number>()
@@ -178,7 +191,7 @@ function stepsSection({ plan, result }: RenderContext): string | null {
     code(step.packageName),
     cell(step.from.join(', ')),
     cell(step.to),
-    CHANGE_LABELS[step.apply.type],
+    changeLabel(step.apply),
     cell(step.lockfile ?? 'no lockfile'),
     stepStatus(entries.get(step.id), eligible.get(step.id)),
   ])

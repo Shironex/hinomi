@@ -415,6 +415,81 @@ describe('Fix with Hinomi', () => {
   })
 })
 
+describe('go, uv, pip and composer steps and the runner that would take them', () => {
+  const plan = PLANS[0]!
+  const repoId = plan.repo.id
+  const goApply = (to: string) => ({
+    type: 'lockfile_update' as const,
+    tool: 'go' as const,
+    packageName: 'example.dev/heron/codec',
+    from: ['1.4.0'],
+    to,
+  })
+  const goStep = (to: string, risky: boolean, order: number) => ({
+    ...plan.steps[0]!,
+    id: `lockfile_update:Go:example.dev/heron/codec:${to}:go.mod`,
+    order,
+    ecosystem: 'Go',
+    packageName: 'example.dev/heron/codec',
+    lockfile: 'go.mod',
+    packageManager: 'go' as const,
+    workspaces: [],
+    from: ['1.4.0'],
+    to,
+    level: risky ? ('major' as const) : ('patch' as const),
+    risk: risky ? ('risky' as const) : ('safe' as const),
+    riskReasons: risky ? ['semver_major' as const] : [],
+    note: risky ? 'Semver major: read the changelog' : null,
+    apply: goApply(to),
+  })
+  const withGo = {
+    ...plan,
+    steps: [...plan.steps, goStep('1.4.3', false, 98), goStep('2.0.0', true, 99)],
+  }
+  const rowOf = (name: string) =>
+    within(screen.getByRole('list', { name: 'Plan steps' }))
+      .getAllByRole('listitem')
+      .filter((row) => row.textContent?.includes(name))
+
+  it('holds them back, safe and risky, while the caller is on an older pin', async () => {
+    wideScreen()
+    fixtureApi({ [`GET /repos/${repoId}/plan`]: withGo })
+    await renderApp(`/fix-runs?sel=plan-${repoId}`)
+    await screen.findByRole('list', { name: 'Plan steps' })
+    await screen.findByText('Outdated pin', { selector: 'b' })
+    const rows = rowOf('example.dev/heron/codec')
+    expect(rows).toHaveLength(2)
+    for (const row of rows) expect(row).toHaveTextContent('Held back: runner too old')
+  })
+
+  it('puts the safe one in the fix PR once the caller is on the latest release', async () => {
+    wideScreen()
+    const runner = runnerFor(repoId)!
+    fixtureApi({
+      [`GET /repos/${repoId}/plan`]: withGo,
+      [`GET /repos/${repoId}/runner`]: {
+        ...runner,
+        caller: { ...runner.caller, state: 'current', outdated: false },
+      },
+    })
+    await renderApp(`/fix-runs?sel=plan-${repoId}`)
+    await screen.findByRole('list', { name: 'Plan steps' })
+    await waitFor(() =>
+      expect(rowOf('example.dev/heron/codec')[0]).toHaveTextContent('In the fix PR'),
+    )
+    expect(rowOf('example.dev/heron/codec')[1]).toHaveTextContent('Risky, listed only')
+  })
+
+  it('counts only what the runner takes in the fix dialog', async () => {
+    wideScreen()
+    fixtureApi({ [`GET /repos/${repoId}/plan`]: withGo })
+    const { user } = await setup(`/fix-runs?sel=plan-${repoId}`)
+    await user.click(await screen.findByRole('button', { name: /Fix with Hinomi/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Fix with Hinomi' })
+    expect(await within(dialog).findByText(/3 safe steps clear/)).toBeVisible()
+  })
+})
+
 describe('the majors agent', () => {
   const agentSwitch = () => screen.findByRole('switch', { name: 'Majors agent' })
 

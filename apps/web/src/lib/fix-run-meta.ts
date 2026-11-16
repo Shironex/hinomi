@@ -2,6 +2,7 @@ import {
   FIX_MAJORS_MAX_STEPS,
   MAJORS_BRANCH,
   isMajorStep,
+  isNewerPackageManagerStep,
   toFixDispatch,
   type FixAgentOutcome,
   type FixCheckResult,
@@ -209,6 +210,18 @@ export const RUNNER_KIND_INFO: Record<FixRunnerKind, RunnerKindInfo> = {
 /** The repo's runner kind; absent from an older server means GitHub Actions. */
 export const runnerKindOf = (status: Pick<RunnerStatus, 'settings'> | undefined): FixRunnerKind =>
   status?.settings.kind ?? 'github_actions'
+
+/**
+ * Whether the repo's runner takes go, uv, pip and composer steps, as the server decides it: the
+ * local runner always (it is this server's own action), a GitHub Actions caller only when it is
+ * pinned to the latest release, a webhook runner never. The others get those steps left out.
+ */
+export const takesNewerPackageManagers = (
+  status: Pick<RunnerStatus, 'settings' | 'caller'> | undefined,
+): boolean => {
+  const kind = runnerKindOf(status)
+  return kind === 'local' || (kind === 'github_actions' && status?.caller.state === 'current')
+}
 
 /** Where the runner kinds are described, for the settings and the runner panel. */
 export const RUNNERS_DOCS_URL = 'https://github.com/Shironex/hinomi/blob/main/docs/runners.md'
@@ -632,6 +645,11 @@ export interface PlanPreview {
   notSent: FixPlanStep[]
   /** Risky steps: never in the fix PR, always listed in its body. */
   risky: FixPlanStep[]
+  /**
+   * go, uv, pip and composer steps, safe or risky, held back because the runner is not known to
+   * take them (takesNewerPackageManagers). Also in `notSent` or `risky`.
+   */
+  withheld: FixPlanStep[]
   files: DiffFile[]
   /** Findings the sent steps clear. */
   findings: number
@@ -640,12 +658,13 @@ export interface PlanPreview {
 const RUN_ID_PREVIEW = 'preview'
 
 /** The step ids a dispatch would carry, computed by the same projection the server uses. */
-function sentIds(plan: FixPlan): Set<string> | null {
+function sentIds(plan: FixPlan, newerPackageManagers: boolean): Set<string> | null {
   try {
     const dispatch = toFixDispatch(plan, {
       runId: RUN_ID_PREVIEW,
       baseBranch: 'main',
       visibility: 'private',
+      newerPackageManagers,
     })
     return new Set(dispatch.steps.map((s) => s.id))
   } catch {
@@ -664,8 +683,8 @@ function addLines(files: Map<string, DiffFile>, path: string, lines: DiffLine[])
  * Cargo lockfile updates, then the lockfiles the install regenerates. Range prefixes are kept
  * by the runner, so a manifest line shows the version only.
  */
-export function previewPlan(plan: FixPlan): PlanPreview {
-  const ids = sentIds(plan)
+export function previewPlan(plan: FixPlan, { newerPackageManagers = false } = {}): PlanPreview {
+  const ids = sentIds(plan, newerPackageManagers)
   const ordered = [...plan.steps].sort((a, b) => a.order - b.order)
   const safe = ordered.filter((s) => s.risk === 'safe')
   const canSend = (s: FixPlanStep) =>
@@ -713,8 +732,13 @@ export function previewPlan(plan: FixPlan): PlanPreview {
     })
   }
   const findings = new Set(sent.flatMap((s) => s.findingIds)).size
-  const majors = ordered.filter(isMajorStep).slice(0, FIX_MAJORS_MAX_STEPS)
-  return { sent, majors, notSent, risky, files: [...files.values()], findings }
+  // Steps of the newer package managers a runner not known to take them never receives,
+  // safe or risky (an old runner would refuse the whole dispatch over one).
+  const withheld = newerPackageManagers ? [] : ordered.filter(isNewerPackageManagerStep)
+  const majors = ordered
+    .filter((s) => isMajorStep(s) && !withheld.includes(s))
+    .slice(0, FIX_MAJORS_MAX_STEPS)
+  return { sent, majors, notSent, risky, withheld, files: [...files.values()], findings }
 }
 
 export const RISK_REASON_LABEL: Record<string, string> = {
@@ -723,6 +747,7 @@ export const RISK_REASON_LABEL: Record<string, string> = {
   unknown_version: 'Version is not semver',
   unknown_relationship: 'Direct or transitive unknown',
   unknown_package_manager: 'No lockfile Hinomi reads',
+  unsupported_package_manager: 'Hinomi does not apply it',
 }
 
 // ---------------------------------------------------------------------------

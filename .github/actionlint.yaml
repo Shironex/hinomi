@@ -6,3 +6,6 @@ paths:
       # is newer than actionlint's parser.
       - '"\$/.+" at "uses" is not following the format'
       - 'specifying action "\$/.+" in invalid format because ref is missing'
+  .github/workflows/ci.yml:
+    ignore:
+      - 'specifying action "\$/.+" in invalid format because ref is missing'

@@ -5,7 +5,14 @@ import { describe, expect, it } from 'vitest'
 import { runDetect } from './pipeline.js'
 import { nodeRepoFs } from './repo-fs.js'
 import { FIXTURES, commitAll, dispatch, fixtureRepo, git, inputs, step } from './testing.js'
-import { planToolchains, toolchainOutputs } from './toolchain.js'
+import {
+  COMPOSER_VERSION,
+  DEFAULT_PHP_VERSION,
+  DEFAULT_UV_VERSION,
+  findPhpVersion,
+  planToolchains,
+  toolchainOutputs,
+} from './toolchain.js'
 
 // The detect step names every toolchain the dispatch's projects need, so the reusable workflow
 // sets each one up before the apply step.
@@ -62,6 +69,13 @@ describe('runDetect toolchains', () => {
       bun_version: '',
       setup_rust: 'true',
       rust_root: 'tools/cli',
+      setup_go: 'false',
+      go_version_file: '',
+      setup_uv: 'false',
+      uv_version: '',
+      setup_php: 'false',
+      php_version: '',
+      composer_version: '',
     })
   })
 
@@ -100,7 +114,47 @@ describe('runDetect toolchains', () => {
       yarn: { version: '' },
       bun: { version: 'latest' },
       rust: null,
+      go: null,
+      uv: null,
+      php: null,
     })
+  })
+
+  it('sets up Go, uv and PHP with composer for their projects, and nothing for pip', async () => {
+    const root = await fixtureRepo('npm-overrides')
+    const fs = nodeRepoFs(root)
+    mkdirSync(join(root, 'web'))
+    await fs.write('web/composer.json', JSON.stringify({ require: { php: '^8.2 || ^8.3' } }))
+    const toolchains = await planToolchains(fs, [
+      { root: 'svc', packageManager: 'go' },
+      { root: 'api', packageManager: 'uv' },
+      { root: 'tools', packageManager: 'pip' },
+      { root: 'web', packageManager: 'composer' },
+    ])
+    expect(toolchainOutputs(toolchains)).toMatchObject({
+      package_managers: 'go,uv,pip,composer',
+      setup_node: 'false',
+      setup_go: 'true',
+      go_version_file: 'svc/go.mod',
+      setup_uv: 'true',
+      uv_version: DEFAULT_UV_VERSION,
+      setup_php: 'true',
+      php_version: '8.2',
+      composer_version: COMPOSER_VERSION,
+    })
+  })
+
+  it('takes composer platform php over require.php, and the default without either', async () => {
+    const root = await fixtureRepo('npm-overrides')
+    const fs = nodeRepoFs(root)
+    await fs.write(
+      'composer.json',
+      JSON.stringify({ require: { php: '>=8.1' }, config: { platform: { php: '8.3.4' } } }),
+    )
+    expect(await findPhpVersion(fs, '.')).toBe('8.3')
+    expect(await findPhpVersion(fs, 'missing')).toBe(DEFAULT_PHP_VERSION)
+    await fs.write('composer.json', JSON.stringify({ require: { php: '*' } }))
+    expect(await findPhpVersion(fs, '.')).toBe(DEFAULT_PHP_VERSION)
   })
 
   it('reads engines.node from package.json when there is no version file', async () => {

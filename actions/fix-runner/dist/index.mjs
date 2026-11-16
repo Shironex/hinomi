@@ -1,9 +1,10 @@
 import { createRequire } from "node:module";
 import { access, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { accessSync, appendFileSync, constants, lstatSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 
@@ -6700,9 +6701,29 @@ const PACKAGE_MANAGERS = [
 	"yarn",
 	"bun",
 	"cargo",
+	"go",
+	"uv",
+	"pip",
+	"composer",
+	"poetry",
+	"bundler",
 	"unknown"
 ];
 const packageManagerSchema = _enum(PACKAGE_MANAGERS);
+const LOCKFILE_UPDATE_TOOLS = [
+	"cargo",
+	"go",
+	"uv",
+	"pip",
+	"composer"
+];
+const UNSUPPORTED_PACKAGE_MANAGERS = {
+	poetry: "Poetry builds source distributions to read their metadata while it locks, which runs package code, and has no option to turn that off, so Hinomi does not update poetry.lock.",
+	bundler: "Bundler runs the code of Gemfile plugins and of git gems while it locks, has no option to turn that off and cannot pin an exact version, so Hinomi does not update Gemfile.lock."
+};
+function isUnsupportedPackageManager(manager) {
+	return Object.hasOwn(UNSUPPORTED_PACKAGE_MANAGERS, manager);
+}
 const dependencyRelationshipSchema = _enum([
 	"direct",
 	"transitive",
@@ -6719,7 +6740,8 @@ const fixPlanRiskReasonSchema = _enum([
 	"pins_other_versions",
 	"unknown_version",
 	"unknown_relationship",
-	"unknown_package_manager"
+	"unknown_package_manager",
+	"unsupported_package_manager"
 ]);
 const releaseAgeSchema = _enum([
 	"clear",
@@ -6746,7 +6768,7 @@ const fixPlanApplySchema = discriminatedUnion("type", [
 	}),
 	object({
 		type: literal("lockfile_update"),
-		tool: literal("cargo"),
+		tool: _enum(LOCKFILE_UPDATE_TOOLS),
 		packageName: string(),
 		from: array(string()),
 		to: string()
@@ -13582,6 +13604,9 @@ const id$2 = number$1().int().positive();
 const count = number$1().int().nonnegative();
 const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
 const CRATE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const GO_MODULE = /^[A-Za-z0-9][A-Za-z0-9._~+-]*(?:\/[A-Za-z0-9._~+-]+)*$/;
+const PYPI_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+const COMPOSER_NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const PLAIN_TOKEN = /^[A-Za-z0-9@/._~+:-]+$/;
 const ADVISORY_KEY = /^[A-Za-z0-9._:-]+$/;
@@ -13591,7 +13616,46 @@ const SHA = /^[a-f0-9]{40}$/;
 const SHA256$1 = /^[a-f0-9]{64}$/;
 const exactVersion = string().max(64).regex(EXACT_VERSION);
 const looseVersion = string().max(64).regex(PLAIN_TOKEN);
-const packageName = string().max(214).refine((name) => NPM_NAME.test(name) || CRATE_NAME.test(name), "not a package name");
+const isGoModule = (name) => GO_MODULE.test(name) && !name.split("/").some((part) => part === "." || part === "..");
+const NAME_GRAMMARS = {
+	npm: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	pnpm: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	yarn: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	bun: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	cargo: {
+		test: (n) => CRATE_NAME.test(n),
+		what: "a crate name"
+	},
+	go: {
+		test: isGoModule,
+		what: "a Go module path"
+	},
+	uv: {
+		test: (n) => PYPI_NAME.test(n),
+		what: "a PyPI package name"
+	},
+	pip: {
+		test: (n) => PYPI_NAME.test(n),
+		what: "a PyPI package name"
+	},
+	composer: {
+		test: (n) => COMPOSER_NAME.test(n),
+		what: "a Packagist package name"
+	}
+};
+const packageName = string().max(214).refine((name) => Object.values(NAME_GRAMMARS).some((grammar) => grammar.test(name)), "not a package name");
 const loosePackageName = string().max(214).regex(PLAIN_TOKEN);
 const advisoryKey = string().max(64).regex(ADVISORY_KEY);
 const ecosystem = string().max(32).regex(PLAIN_TOKEN);
@@ -13627,7 +13691,7 @@ function applySchema(version, name) {
 		}),
 		object({
 			type: literal("lockfile_update"),
-			tool: literal("cargo"),
+			tool: _enum(LOCKFILE_UPDATE_TOOLS),
 			packageName: name,
 			from: array(version).min(1).max(20),
 			to: version
@@ -13641,6 +13705,11 @@ const NPM_FAMILY = /* @__PURE__ */ new Set([
 	"yarn",
 	"bun"
 ]);
+const stepPackageManagerSchema = packageManagerSchema.exclude([
+	"unknown",
+	"poetry",
+	"bundler"
+]);
 const dispatchStepFields = object({
 	id: string().min(1).max(512),
 	order: number$1().int().positive(),
@@ -13649,7 +13718,7 @@ const dispatchStepFields = object({
 	packageName,
 	relationship: dependencyRelationshipSchema,
 	lockfile: repoPath,
-	packageManager: packageManagerSchema.exclude(["unknown"]),
+	packageManager: stepPackageManagerSchema,
 	workspaces: array(repoPath).max(200),
 	from: array(exactVersion).min(1).max(20),
 	to: exactVersion,
@@ -13664,8 +13733,9 @@ function stepProblems(step) {
 	const problems = [];
 	const npmFamily = NPM_FAMILY.has(step.packageManager);
 	if (apply.type !== "override" && apply.packageName !== step.packageName) problems.push("apply.packageName differs from packageName");
-	if (npmFamily && !NPM_NAME.test(step.packageName)) problems.push("not an npm package name");
-	if (!npmFamily && !CRATE_NAME.test(step.packageName)) problems.push("not a crate name");
+	const grammar = NAME_GRAMMARS[step.packageManager];
+	if (grammar && !grammar.test(step.packageName)) problems.push(`not ${grammar.what}`);
+	if (!npmFamily && step.packageManager !== "cargo" && apply.type !== "lockfile_update") problems.push(`${step.packageManager} steps are lockfile updates`);
 	if (apply.type === "manifest_bump") {
 		if (npmFamily && apply.manifests.length === 0) problems.push("manifest_bump lists no manifest");
 		if (!npmFamily && apply.manifests.length > 0) problems.push("cargo bumps name crates instead");
@@ -13675,7 +13745,7 @@ function stepProblems(step) {
 		const { key } = apply;
 		if (key !== step.packageName && !key.startsWith(`${step.packageName}@`)) problems.push("override key is not for this package");
 	}
-	if (apply.type === "lockfile_update" && step.packageManager !== "cargo") problems.push("lockfile_update is cargo only");
+	if (apply.type === "lockfile_update" && apply.tool !== step.packageManager) problems.push(`lockfile_update with ${apply.tool} for a ${step.packageManager} step`);
 	return problems;
 }
 const fixDispatchStepSchema = dispatchStepFields.superRefine((step, ctx) => {
@@ -14974,7 +15044,12 @@ const DEPENDENCY_FILE_NAMES = [
 	"bun.lock",
 	"bun.lockb",
 	"Cargo.toml",
-	"Cargo.lock"
+	"Cargo.lock",
+	"go.mod",
+	"go.sum",
+	"uv.lock",
+	"requirements.txt",
+	"composer.lock"
 ];
 const STEP_ONLY_FILE_NAMES = [".npmrc", ".yarnrc.yml"];
 function basename(path) {
@@ -15346,11 +15421,80 @@ function cratesPublishTimes(fetchImpl, options = {}) {
 		return pending;
 	} };
 }
+const GO_PROXY = "https://proxy.golang.org/";
+const PYPI_API = "https://pypi.org/pypi/";
+const PACKAGIST_API = "https://repo.packagist.org/p2/";
+const toDate = (value) => {
+	if (typeof value !== "string") return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+};
+function jsonDocuments(fetchImpl) {
+	const cache = /* @__PURE__ */ new Map();
+	return (url) => {
+		let pending = cache.get(url);
+		if (!pending) {
+			pending = (async () => {
+				try {
+					const response = await fetchImpl(url, {
+						headers: { accept: "application/json" },
+						signal: AbortSignal.timeout(TIMEOUT_MS)
+					});
+					return response.ok ? await response.json() : null;
+				} catch {
+					return null;
+				}
+			})();
+			cache.set(url, pending);
+		}
+		return pending;
+	};
+}
+function goProxyEscape(text) {
+	return text.replace(/[A-Z]/g, (letter) => `!${letter.toLowerCase()}`);
+}
+function goPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(modulePath, version) {
+		const url = `${GO_PROXY}${goProxyEscape(modulePath)}/@v/${goProxyEscape(`v${version}`)}.info`;
+		const body = await document(url);
+		return toDate(body?.Time);
+	} };
+}
+function pypiPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(packageName, version) {
+		const url = `${PYPI_API}${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`;
+		const body = await document(url);
+		if (!Array.isArray(body?.urls)) return null;
+		return body.urls.map((file) => toDate(file.upload_time_iso_8601)).filter((date) => date !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+	} };
+}
+function packagistPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(packageName, version) {
+		const [vendor, name] = packageName.split("/");
+		if (!vendor || !name) return null;
+		const url = `${PACKAGIST_API}${encodeURIComponent(vendor)}/${encodeURIComponent(name)}.json`;
+		const versions = (await document(url))?.packages?.[packageName];
+		if (!Array.isArray(versions)) return null;
+		const entry = versions.find((item) => {
+			const v = item.version;
+			return typeof v === "string" && v.replace(/^v(?=\d)/i, "") === version;
+		});
+		return toDate(entry?.time);
+	} };
+}
 function registryPublishTimes(fetchImpl) {
 	const npm = npmPublishTimes(fetchImpl);
-	const crates = cratesPublishTimes(fetchImpl);
+	const byRegistry = /* @__PURE__ */ new Map([
+		[CRATES_IO_API, cratesPublishTimes(fetchImpl)],
+		[GO_PROXY, goPublishTimes(fetchImpl)],
+		[PYPI_API, pypiPublishTimes(fetchImpl)],
+		[PACKAGIST_API, packagistPublishTimes(fetchImpl)]
+	]);
 	return { publishedAt(packageName, version, registry) {
-		return (registry === "https://crates.io/api/v1/crates/" ? crates : npm).publishedAt(packageName, version, registry);
+		return (byRegistry.get(registry) ?? npm).publishedAt(packageName, version, registry);
 	} };
 }
 
@@ -16377,6 +16521,279 @@ const cargoApplier = {
 	}
 };
 
+// src/appliers/composer.ts
+const COMPOSER_SAFE_FLAGS = [
+	"--no-scripts",
+	"--no-plugins",
+	"--no-interaction",
+	"--no-progress",
+	"--ignore-platform-req=ext-*"
+];
+const COMPOSER_ENV = {
+	COMPOSER_NO_AUDIT: "1",
+	COMPOSER_VENDOR_DIR: "vendor",
+	COMPOSER_BIN_DIR: "vendor/bin"
+};
+let cache = null;
+function composerEnv() {
+	cache ??= mkdtempSync(join(tmpdir(), "hinomi-composer-"));
+	return {
+		...COMPOSER_ENV,
+		COMPOSER_CACHE_DIR: cache
+	};
+}
+const VENDOR_DEPTH = 2;
+function vendorSymlink(fs, root) {
+	const isLink = (path) => {
+		try {
+			return lstatSync(fs.absolute(path)).isSymbolicLink();
+		} catch {
+			return false;
+		}
+	};
+	const vendor = repoJoin(root, COMPOSER_ENV.COMPOSER_VENDOR_DIR ?? "vendor");
+	const bin = repoJoin(root, COMPOSER_ENV.COMPOSER_BIN_DIR ?? "vendor/bin");
+	for (const path of [vendor, bin]) if (isLink(path)) return path;
+	let level = [vendor];
+	for (let depth = 0; depth < VENDOR_DEPTH; depth++) {
+		const next = [];
+		for (const dir of level) {
+			let names;
+			try {
+				names = readdirSync(fs.absolute(dir));
+			} catch {
+				continue;
+			}
+			for (const name of names) {
+				const path = repoJoin(dir, name);
+				if (isLink(path)) return path;
+				next.push(path);
+			}
+		}
+		level = next;
+	}
+	return null;
+}
+const PACKAGIST_NOTIFY = "https://packagist.org/downloads/";
+function composerLockPackages(text) {
+	const { data } = parseJsonFile(text);
+	if (!isJsonObject(data)) return [];
+	const out = [];
+	for (const key of ["packages", "packages-dev"]) {
+		const list = data[key];
+		if (!Array.isArray(list)) continue;
+		for (const pkg of list) {
+			if (!isJsonObject(pkg) || typeof pkg.name !== "string" || typeof pkg.version !== "string") continue;
+			out.push({
+				name: pkg.name.toLowerCase(),
+				version: pkg.version.trim().replace(/^v(?=\d)/i, ""),
+				fromPackagist: pkg["notification-url"] === PACKAGIST_NOTIFY
+			});
+		}
+	}
+	return out;
+}
+async function onlyPackagist(ctx) {
+	const text = await ctx.fs.read(repoJoin(ctx.root, "composer.json"));
+	if (text === null) return false;
+	try {
+		const { data } = parseJsonFile(text);
+		if (!isJsonObject(data)) return false;
+		const repositories = data.repositories;
+		if (repositories === void 0) return true;
+		if (Array.isArray(repositories)) return repositories.length === 0;
+		return isJsonObject(repositories) && Object.keys(repositories).length === 0;
+	} catch {
+		return false;
+	}
+}
+async function lockedPackages$1(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return [];
+	try {
+		const wanted = name.toLowerCase();
+		return composerLockPackages(text).filter((pkg) => pkg.name === wanted);
+	} catch {
+		return [];
+	}
+}
+function composerUpdateCommand(steps) {
+	const targets = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? [`${apply.packageName}:${apply.to}`] : []);
+	if (targets.length === 0) return null;
+	return {
+		file: "composer",
+		args: [
+			"update",
+			...targets,
+			"--no-install",
+			"--minimal-changes",
+			"--no-audit",
+			...COMPOSER_SAFE_FLAGS
+		],
+		env: composerEnv()
+	};
+}
+function checkStep$2(step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "composer") return Promise.resolve({
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a composer update`
+	});
+	return Promise.resolve({
+		status: "edited",
+		files: []
+	});
+}
+const composerApplier = {
+	packageManager: "composer",
+	lockfiles: ["composer.lock"],
+	versionCommand: {
+		file: "composer",
+		args: [
+			"--version",
+			"--no-plugins",
+			"--no-interaction"
+		]
+	},
+	versionLine: (lines) => lines.find((line) => line.startsWith("Composer version")),
+	async resolvedVersions(ctx, name) {
+		return [...new Set((await lockedPackages$1(ctx, name)).map((pkg) => pkg.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		const locked = await lockedPackages$1(ctx, name);
+		if (locked.length === 0 || !locked.every((pkg) => pkg.fromPackagist)) return null;
+		if (!await onlyPackagist(ctx)) return null;
+		return ctx.publishTimes.publishedAt(name.toLowerCase(), version, PACKAGIST_API);
+	},
+	applyStep: (_ctx, step) => checkStep$2(step),
+	lockfileInstall(_ctx, { steps }) {
+		return composerUpdateCommand(steps) ?? [];
+	},
+	fullInstall(ctx) {
+		const link = vendorSymlink(ctx.fs, ctx.root);
+		if (link) return { refused: `${link} is a symlink, so composer install could write outside the repo` };
+		return {
+			file: "composer",
+			args: ["install", ...COMPOSER_SAFE_FLAGS],
+			env: composerEnv()
+		};
+	},
+	checks: () => Promise.resolve([])
+};
+
+// src/appliers/go.ts
+const GO_ENV = {
+	GOTOOLCHAIN: "local",
+	GOWORK: "off"
+};
+const stripV = (version) => version.replace(/^v/, "");
+function tokens(line) {
+	const at = line.indexOf("//");
+	return {
+		words: (at === -1 ? line : line.slice(0, at)).trim().split(/\s+/).filter(Boolean).map((word) => word.replace(/^["`]|["`]$/g, "")),
+		comment: at === -1 ? "" : line.slice(at + 2)
+	};
+}
+function parseGoMod(text) {
+	const requires = [];
+	const replaced = /* @__PURE__ */ new Set();
+	let block = null;
+	for (const raw of text.split(/\r?\n/)) {
+		const { words, comment } = tokens(raw);
+		if (words.length === 0) continue;
+		if (block !== null) {
+			if (words[0] === ")") {
+				block = null;
+				continue;
+			}
+			directive(block, words, comment);
+			continue;
+		}
+		const [verb, ...rest] = words;
+		if ((verb === "require" || verb === "replace") && rest[0] === "(") {
+			block = verb;
+			continue;
+		}
+		if (verb) directive(verb, rest, comment);
+	}
+	return {
+		requires,
+		replaced
+	};
+	function directive(verb, args, comment) {
+		if (verb === "require" && args.length >= 2) requires.push({
+			path: args[0] ?? "",
+			version: stripV(args[1] ?? ""),
+			indirect: /^\s*indirect\b/.test(comment)
+		});
+		else if (verb === "replace" && args[0]) replaced.add(args[0]);
+	}
+}
+async function readGoMod(ctx) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	return text === null ? null : parseGoMod(text);
+}
+function goCommand(args) {
+	return {
+		file: "go",
+		args,
+		env: { ...GO_ENV }
+	};
+}
+function goGetCommand(steps) {
+	const targets = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? [`${apply.packageName}@v${apply.to}`] : []);
+	return targets.length === 0 ? null : goCommand(["get", ...targets]);
+}
+async function checkStep$1(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "go") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a go get`
+	};
+	if ((await readGoMod(ctx))?.replaced.has(apply.packageName)) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `${ctx.lockfile} replaces ${apply.packageName}: update the replace directive by hand`
+	};
+	return {
+		status: "edited",
+		files: []
+	};
+}
+const goApplier = {
+	packageManager: "go",
+	lockfiles: ["go.mod"],
+	versionCommand: goCommand(["version"]),
+	async resolvedVersions(ctx, modulePath) {
+		const versions = ((await readGoMod(ctx))?.requires ?? []).filter((r) => r.path === modulePath).map((r) => r.version);
+		return [...new Set(versions)];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	publishedAt(ctx, modulePath, version) {
+		return ctx.publishTimes.publishedAt(modulePath, version, GO_PROXY);
+	},
+	applyStep: checkStep$1,
+	lockfileInstall(_ctx, { steps }) {
+		const command = goGetCommand(steps);
+		return command === null ? [] : command;
+	},
+	fullInstall() {
+		return goCommand(["mod", "download"]);
+	},
+	checks() {
+		return Promise.resolve([{
+			name: "go build",
+			command: goCommand(["build", "./..."])
+		}, {
+			name: "go test",
+			command: goCommand(["test", "./..."])
+		}]);
+	}
+};
+
 // src/appliers/npm.ts
 const NPM_MIN_RELEASE_AGE_SINCE = "11.10.0";
 function npmLockVersions(text, packageName) {
@@ -16495,6 +16912,500 @@ const npmApplier = {
 	checks(ctx) {
 		return scriptChecks(ctx, "npm");
 	}
+};
+
+// src/appliers/uv-project.ts
+const MAX_FILES = 200;
+const REQUIREMENT_TABLES = /* @__PURE__ */ new Set([
+	"project.dependencies",
+	"project.optional-dependencies",
+	"dependency-groups",
+	"tool.uv.dev-dependencies",
+	"tool.uv.override-dependencies",
+	"tool.uv.constraint-dependencies"
+]);
+const GROUP_TABLES = ["project.optional-dependencies", "dependency-groups"];
+function arrayStrings(raw) {
+	const out = [];
+	for (const match of raw.matchAll(/"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)'/g)) out.push(match[1] ?? match[2] ?? "");
+	return out;
+}
+function isDirectUrlRequirement(requirement) {
+	return /^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*@/.test(requirement);
+}
+function requirementsOf(file) {
+	return file.entries.flatMap((entry) => {
+		const table = entry.table.join(".");
+		const full = [...entry.table, ...entry.key].join(".");
+		return REQUIREMENT_TABLES.has(full) || GROUP_TABLES.some((group) => table === group || full.startsWith(`${group}.`)) ? arrayStrings(file.text.slice(entry.start, entry.end)) : [];
+	});
+}
+function sourcesOf(file) {
+	const out = [];
+	for (const entry of file.entries) if (entry.table.join(".") === "tool.uv.sources" && entry.key[0]) out.push({
+		name: entry.key[0],
+		raw: file.text.slice(entry.start, entry.end)
+	});
+	else if (entry.table.length === 4 && entry.table.slice(0, 3).join(".") === "tool.uv.sources" && entry.table[3]) {
+		const field = entry.key.join(".");
+		out.push({
+			name: entry.table[3],
+			raw: `{ ${field} = ${file.text.slice(entry.start, entry.end)} }`
+		});
+	}
+	return out;
+}
+function stringField(raw, field) {
+	const out = [];
+	const pattern = new RegExp(`(?:^|[{,\\s])${field}\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)')`, "g");
+	for (const match of raw.matchAll(pattern)) out.push(match[1] ?? match[2] ?? "");
+	return out;
+}
+function dynamicProblem(file, virtualAllowed) {
+	const project = file.entries.filter((e) => e.table[0] === "project" && e.table.length === 1);
+	if (!(file.entries.some((e) => e.table[0] === "project") || /^\s*\[\s*project\s*\]/m.test(file.text))) return virtualAllowed ? null : `${file.path} has no [project] table, so uv would build it`;
+	const field = (name) => project.find((e) => e.key.join(".") === name);
+	const dynamic = field("dynamic");
+	if (dynamic && !/^\[\s*\]$/.test(file.text.slice(dynamic.start, dynamic.end).trim())) return `${file.path} declares dynamic metadata, which uv gets by running its build backend`;
+	for (const name of ["name", "version"]) {
+		const entry = field(name);
+		if (!entry || typeof scalarValue(file.text, entry) !== "string") return `${file.path} has no static project ${name}, which uv gets by running its build backend`;
+	}
+	return null;
+}
+function expandMembers(fs, root, pattern) {
+	if (!/^[A-Za-z0-9._*/-]+$/.test(pattern) || pattern.includes("**")) return null;
+	let dirs = [root];
+	for (const segment of pattern.split("/").filter((part) => part !== "" && part !== ".")) {
+		if (segment === "..") return null;
+		if (!segment.includes("*")) {
+			dirs = dirs.map((dir) => repoJoin(dir, segment));
+			continue;
+		}
+		const match = new RegExp(`^${segment.replace(/[.]/g, "\\.").replace(/\*/g, "[^/]*")}$`);
+		dirs = dirs.flatMap((dir) => {
+			try {
+				return readdirSync(fs.absolute(dir), { withFileTypes: true }).filter((item) => item.isDirectory() && match.test(item.name)).map((item) => repoJoin(dir, item.name));
+			} catch {
+				return [];
+			}
+		});
+	}
+	return dirs;
+}
+async function readUvProject(fs, root) {
+	const files = [];
+	const queue = [{
+		path: repoJoin(root, "pyproject.toml"),
+		virtualAllowed: true,
+		members: true
+	}];
+	const seen = /* @__PURE__ */ new Set();
+	const fail = (problem) => ({
+		ok: false,
+		problem
+	});
+	while (queue.length > 0) {
+		const next = queue.shift();
+		if (!next || seen.has(next.path)) continue;
+		seen.add(next.path);
+		if (seen.size > MAX_FILES) return fail(`more than ${MAX_FILES} pyproject.toml files`);
+		const text = await fs.read(next.path).catch(() => null);
+		if (text === null) return fail(`${repoDirname(next.path)} has no pyproject.toml, so uv would build it`);
+		let entries;
+		try {
+			entries = scanToml(text);
+		} catch {
+			return fail(`${next.path} could not be read`);
+		}
+		const file = {
+			path: next.path,
+			text,
+			entries
+		};
+		const problem = dynamicProblem(file, next.virtualAllowed);
+		if (problem) return fail(problem);
+		const url = requirementsOf(file).find(isDirectUrlRequirement);
+		if (url) return fail(`${next.path} requires a direct URL (${url.slice(0, 80)}), which uv would build`);
+		const dir = repoDirname(next.path);
+		for (const source of sourcesOf(file)) {
+			if (/(?:^|[{,\s])(?:git|url)\s*=/.test(source.raw)) return fail(`${next.path} takes ${source.name} from a git or URL source, which uv would build`);
+			for (const target of stringField(source.raw, "path")) {
+				const joined = posix.normalize(posix.join(dir, target));
+				if (posix.isAbsolute(target) || joined === ".." || joined.startsWith("../")) return fail(`${next.path} takes ${source.name} from a path outside the repo`);
+				if (joined.endsWith(".whl")) continue;
+				if (/\.(?:tar\.gz|tgz|zip|tar\.bz2|tar\.xz)$/.test(joined)) return fail(`${next.path} takes ${source.name} from a source archive, which uv would build`);
+				queue.push({
+					path: repoJoin(joined, "pyproject.toml"),
+					virtualAllowed: false,
+					members: false
+				});
+			}
+		}
+		if (next.members) {
+			const workspace = entries.filter((e) => e.table.join(".") === "tool.uv.workspace");
+			const globs = (key) => workspace.filter((e) => e.key.join(".") === key).flatMap((e) => arrayStrings(text.slice(e.start, e.end)));
+			const excluded = /* @__PURE__ */ new Set();
+			for (const pattern of globs("exclude")) {
+				const dirs = expandMembers(fs, dir, pattern);
+				if (dirs === null) return fail(`${next.path} has a workspace exclude Hinomi does not expand`);
+				for (const member of dirs) excluded.add(member);
+			}
+			for (const pattern of globs("members")) {
+				const dirs = expandMembers(fs, dir, pattern);
+				if (dirs === null) return fail(`${next.path} has a workspace member glob Hinomi does not expand`);
+				for (const member of dirs) {
+					if (excluded.has(member) || !await fs.exists(repoJoin(member, "pyproject.toml"))) continue;
+					queue.push({
+						path: repoJoin(member, "pyproject.toml"),
+						virtualAllowed: false,
+						members: false
+					});
+				}
+			}
+		}
+		files.push(file);
+	}
+	return {
+		ok: true,
+		files
+	};
+}
+
+// src/appliers/uv.ts
+const normalizePypiName = (name) => name.toLowerCase().replace(/[-_.]+/g, "-");
+const PYPI_INDEXES = /* @__PURE__ */ new Set(["https://pypi.org/simple", "https://pypi.org/simple/"]);
+function uvLockPackages(text) {
+	const blocks = /* @__PURE__ */ new Map();
+	for (const entry of scanToml(text)) {
+		if (!entry.arrayTable || entry.table.join(".") !== "package" || entry.key.length !== 1) continue;
+		const block = blocks.get(entry.tableIndex) ?? { registry: null };
+		const field = entry.key[0];
+		if (field === "name" || field === "version") {
+			const value = scalarValue(text, entry);
+			if (typeof value === "string") block[field] = field === "name" ? normalizePypiName(value) : value;
+		} else if (field === "source") {
+			const registry = scanInlineTable(text, entry.start, entry.end).find((inner) => inner.key.join(".") === "registry");
+			const value = registry ? scalarValue(text, registry) : null;
+			block.registry = typeof value === "string" ? value : null;
+		}
+		blocks.set(entry.tableIndex, block);
+	}
+	return [...blocks.values()].flatMap((block) => block.name && block.version ? [{
+		name: block.name,
+		version: block.version,
+		registry: block.registry ?? null
+	}] : []);
+}
+async function lockedPackages(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return [];
+	try {
+		const wanted = normalizePypiName(name);
+		return uvLockPackages(text).filter((pkg) => pkg.name === wanted);
+	} catch {
+		return [];
+	}
+}
+function insideCheckout(checkout, path) {
+	try {
+		const rel = relative(realpathSync(checkout), realpathSync(path));
+		return rel === "" || !rel.startsWith("..") && !isAbsolute(rel);
+	} catch {
+		return true;
+	}
+}
+function runnerPython(checkout, path) {
+	for (const dir of path.split(delimiter)) {
+		if (!isAbsolute(dir)) continue;
+		const candidate = join(dir, "python3");
+		try {
+			accessSync(candidate, constants.X_OK);
+		} catch {
+			continue;
+		}
+		if (!insideCheckout(checkout, candidate)) return candidate;
+	}
+	return null;
+}
+let scratch = null;
+function uvScratch() {
+	scratch ??= mkdtempSync(join(tmpdir(), "hinomi-uv-"));
+	return scratch;
+}
+function uvEnv(checkout, python) {
+	const dir = uvScratch();
+	return {
+		UV_PYTHON: python ?? join(dir, "no-python3-on-path"),
+		UV_PYTHON_DOWNLOADS: "never",
+		UV_PROJECT_ENVIRONMENT: join(dir, "venv"),
+		UV_CACHE_DIR: join(dir, "cache"),
+		UV_KEYRING_PROVIDER: "disabled",
+		UV_NO_PROGRESS: "1"
+	};
+}
+function uvLockCommand(steps, env = {}) {
+	const upgrades = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? ["--upgrade-package", `${apply.packageName}==${apply.to}`] : []);
+	if (upgrades.length === 0) return null;
+	return {
+		file: "uv",
+		args: [
+			"lock",
+			"--no-build",
+			...upgrades
+		],
+		env
+	};
+}
+const UV_INDEX_SETTINGS = /* @__PURE__ */ new Set([
+	"index",
+	"index-url",
+	"default-index",
+	"extra-index-url",
+	"find-links",
+	"no-index"
+]);
+function entriesUnder(entries, table) {
+	return entries.filter((entry) => entry.table.join(".") === table);
+}
+function otherIndex({ text, entries }) {
+	if (entriesUnder(entries, "tool.uv").some((e) => UV_INDEX_SETTINGS.has(e.key[0] ?? ""))) return true;
+	const indexes = /* @__PURE__ */ new Map();
+	for (const entry of entriesUnder(entries, "tool.uv.index")) {
+		const index = indexes.get(entry.tableIndex) ?? {
+			url: null,
+			explicit: false
+		};
+		if (entry.key.join(".") === "url") index.url = scalarValue(text, entry);
+		if (entry.key.join(".") === "explicit") index.explicit = scalarValue(text, entry);
+		indexes.set(entry.tableIndex, index);
+	}
+	return [...indexes.values()].some(({ url, explicit }) => explicit !== true && !PYPI_INDEXES.has(typeof url === "string" ? url : ""));
+}
+async function sourceIsPypi(fs, root, name) {
+	for (let dir = root;; dir = repoDirname(dir)) {
+		if (await fs.exists(repoJoin(dir, "uv.toml"))) return false;
+		if (dir === ".") break;
+	}
+	const project = await readUvProject(fs, root);
+	if (!project.ok) return false;
+	const wanted = normalizePypiName(name);
+	return !project.files.some((file) => otherIndex(file) || sourcesOf(file).some((source) => normalizePypiName(source.name) === wanted));
+}
+async function checkStep(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "uv") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a uv lock update`
+	};
+	const project = await readUvProject(ctx.fs, ctx.root);
+	if (!project.ok) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `Not locked by Hinomi: ${project.problem}`.slice(0, 500)
+	};
+	return {
+		status: "edited",
+		files: []
+	};
+}
+const uvApplier = {
+	packageManager: "uv",
+	lockfiles: ["uv.lock"],
+	versionCommand: {
+		file: "uv",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, name) {
+		return [...new Set((await lockedPackages(ctx, name)).map((pkg) => pkg.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		const locked = await lockedPackages(ctx, name);
+		if (locked.length === 0 || !locked.every((pkg) => PYPI_INDEXES.has(pkg.registry ?? ""))) return null;
+		if (!await sourceIsPypi(ctx.fs, ctx.root, name)) return null;
+		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
+	},
+	applyStep: checkStep,
+	lockfileInstall(ctx, { steps }) {
+		return uvLockCommand(steps, uvEnv(ctx.fs.root, runnerPython(ctx.fs.root, ctx.searchPath ?? ""))) ?? [];
+	},
+	fullInstall(ctx) {
+		return {
+			file: "uv",
+			args: [
+				"lock",
+				"--check",
+				"--no-build"
+			],
+			env: uvEnv(ctx.fs.root, runnerPython(ctx.fs.root, ctx.searchPath ?? ""))
+		};
+	},
+	checks: () => Promise.resolve([])
+};
+
+// src/appliers/pip.ts
+const PIN = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==(?!=)\s*([^\s;#\\]+)/;
+const PYPI_SIMPLE = /* @__PURE__ */ new Set(["https://pypi.org/simple", "https://pypi.org/simple/"]);
+const MAX_INCLUDED_FILES = 20;
+function logicalLines(text) {
+	const out = [];
+	const lines = text.split("\n");
+	let offset = 0;
+	let current = null;
+	for (const line of lines) {
+		const start = offset;
+		offset += line.length + 1;
+		const comment = /^\s*#/.test(line);
+		if (current) current.text += `\n${line}`;
+		else current = {
+			text: line,
+			start
+		};
+		if (comment || !line.trimEnd().endsWith("\\")) {
+			out.push(current);
+			current = null;
+		}
+	}
+	if (current) out.push(current);
+	return out;
+}
+function withoutComment(line) {
+	return line.replace(/\\\n/g, " ").replace(/(?:^|\s)#.*$/gm, "").trim();
+}
+function requirementPins(text) {
+	const pins = [];
+	for (const { text: logical, start } of logicalLines(text)) {
+		const lead = logical.length - logical.trimStart().length;
+		const match = PIN.exec(logical.slice(lead));
+		if (!match?.[1] || !match[2]) continue;
+		const versionAt = start + lead + match[0].length - match[2].length;
+		pins.push({
+			name: normalizePypiName(match[1]),
+			version: match[2],
+			start: versionAt,
+			end: versionAt + match[2].length,
+			hashed: /(?:^|\s)--hash[=\s]/.test(withoutComment(logical))
+		});
+	}
+	return pins;
+}
+function optionOf(line) {
+	const long = /^(--[a-z-]+)(?:[=\s]\s*(.*))?$/.exec(line);
+	if (long?.[1]) return {
+		name: long[1],
+		value: (long[2] ?? "").trim()
+	};
+	const short = /^(-[a-zA-Z])\s*(.*)$/.exec(line);
+	if (short?.[1]) return {
+		name: short[1],
+		value: (short[2] ?? "").trim()
+	};
+	return null;
+}
+const INCLUDE_OPTIONS = /* @__PURE__ */ new Set([
+	"-r",
+	"--requirement",
+	"-c",
+	"--constraint"
+]);
+const INDEX_URL_OPTIONS = /* @__PURE__ */ new Set(["-i", "--index-url"]);
+const OTHER_INDEX_OPTIONS = /* @__PURE__ */ new Set([
+	"--extra-index-url",
+	"-f",
+	"--find-links",
+	"--no-index"
+]);
+async function onlyPypi(fs, file) {
+	const queue = [file];
+	const seen = /* @__PURE__ */ new Set();
+	while (queue.length > 0) {
+		const path = queue.shift() ?? "";
+		if (seen.has(path)) continue;
+		seen.add(path);
+		if (seen.size > MAX_INCLUDED_FILES) return false;
+		const text = await fs.read(path).catch(() => null);
+		if (text === null) return false;
+		for (const { text: logical } of logicalLines(text)) {
+			const line = withoutComment(logical);
+			if (!line.startsWith("-")) continue;
+			const option = optionOf(line);
+			if (!option) return false;
+			if (OTHER_INDEX_OPTIONS.has(option.name)) return false;
+			if (INDEX_URL_OPTIONS.has(option.name) && !PYPI_SIMPLE.has(option.value)) return false;
+			if (INCLUDE_OPTIONS.has(option.name)) {
+				const target = option.value;
+				if (!target || posix.isAbsolute(target) || target.includes("\\") || /^[a-z][a-z0-9+.-]*:/i.test(target)) return false;
+				const joined = posix.normalize(posix.join(repoDirname(path), target));
+				if (joined === ".." || joined.startsWith("../")) return false;
+				queue.push(joined);
+			}
+		}
+	}
+	return true;
+}
+async function pinsOf(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return null;
+	const wanted = normalizePypiName(name);
+	return {
+		text,
+		pins: requirementPins(text).filter((pin) => pin.name === wanted)
+	};
+}
+async function editPins(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "pip") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a pin edit`
+	};
+	const found = await pinsOf(ctx, apply.packageName);
+	if (!found) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${ctx.lockfile} is missing`
+	};
+	const moving = found.pins.filter((pin) => apply.from.includes(pin.version) || compareVersions(pin.version, apply.to) < 0);
+	if (moving.length === 0) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${ctx.lockfile} pins no version of ${apply.packageName} below ${apply.to}`
+	};
+	if (moving.some((pin) => pin.hashed)) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `${ctx.lockfile} pins ${apply.packageName} with --hash: regenerate it with its tool`
+	};
+	let text = found.text;
+	for (const pin of [...moving].sort((a, b) => b.start - a.start)) text = text.slice(0, pin.start) + apply.to + text.slice(pin.end);
+	await ctx.fs.write(ctx.lockfile, text);
+	return {
+		status: "edited",
+		files: [ctx.lockfile]
+	};
+}
+const pipApplier = {
+	packageManager: "pip",
+	lockfiles: ["requirements.txt"],
+	versionCommand: {
+		file: "python3",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, name) {
+		const found = await pinsOf(ctx, name);
+		return [...new Set((found?.pins ?? []).map((pin) => pin.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		if (!await onlyPypi(ctx.fs, ctx.lockfile)) return null;
+		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
+	},
+	applyStep: editPins,
+	lockfileInstall: () => [],
+	fullInstall: () => null,
+	checks: () => Promise.resolve([])
 };
 
 // src/appliers/pnpm.ts
@@ -16661,8 +17572,23 @@ const KNOWN_LOCKFILES = [
 	["yarn.lock", "yarn"],
 	["bun.lock", "bun"],
 	["bun.lockb", "bun"],
-	["Cargo.lock", "cargo"]
+	["Cargo.lock", "cargo"],
+	["go.mod", "go"],
+	["uv.lock", "uv"],
+	["requirements.txt", "pip"],
+	["composer.lock", "composer"]
 ];
+const FAMILIES = {
+	npm: "node",
+	pnpm: "node",
+	yarn: "node",
+	bun: "node",
+	cargo: "cargo",
+	go: "go",
+	uv: "python",
+	pip: "python",
+	composer: "composer"
+};
 function parsePackageManagerField(value) {
 	if (typeof value !== "string") return null;
 	const match = /^(@?[a-z0-9._-]+)(?:@([^+\s]+))?/.exec(value.trim());
@@ -16692,9 +17618,11 @@ async function declaredIn(fs, root) {
 	}
 	return null;
 }
-async function detectProject(fs, root) {
+async function detectProject(fs, root, expected = null) {
+	const family = expected === null ? null : FAMILIES[expected];
 	const found = [];
 	for (const [name, manager] of KNOWN_LOCKFILES) {
+		if (family !== null && FAMILIES[manager] !== family) continue;
 		const lockfile = repoJoin(root, name);
 		if (await fs.exists(lockfile)) found.push({
 			lockfile,
@@ -16714,7 +17642,7 @@ async function detectProject(fs, root) {
 		ok: false,
 		problem: `several lockfiles in ${root}: ${managers.join(", ")}`
 	};
-	if (declared && declared.name !== manager && manager !== "cargo") return {
+	if (declared && declared.name !== manager && FAMILIES[manager] === "node") return {
 		ok: false,
 		problem: `packageManager says ${declared.name} but the lockfile is ${manager}'s`
 	};
@@ -16962,7 +17890,11 @@ const APPLIERS = /* @__PURE__ */ new Map([
 	["npm", npmApplier],
 	["yarn", yarnApplier],
 	["bun", bunApplier],
-	["cargo", cargoApplier]
+	["cargo", cargoApplier],
+	["go", goApplier],
+	["uv", uvApplier],
+	["pip", pipApplier],
+	["composer", composerApplier]
 ]);
 
 // src/checks-input.ts
@@ -17002,6 +17934,9 @@ const nodeCompressor = {
 // src/toolchain.ts
 const DEFAULT_PNPM_VERSION = "10";
 const DEFAULT_BUN_VERSION = "latest";
+const DEFAULT_UV_VERSION = "0.13.2";
+const DEFAULT_PHP_VERSION = "8.4";
+const COMPOSER_VERSION = "2.11.1";
 const NODE_FAMILY = [
 	"npm",
 	"pnpm",
@@ -17009,6 +17944,25 @@ const NODE_FAMILY = [
 	"bun"
 ];
 const NODE_VERSION_FILES = [".node-version", ".nvmrc"];
+const PHP_VERSION = /^\d+\.\d+$/;
+async function findPhpVersion(fs, root) {
+	const text = await fs.read(repoJoin(root, "composer.json"));
+	if (text === null) return "8.4";
+	try {
+		const { data } = parseJsonFile(text);
+		if (!isJsonObject(data)) return "8.4";
+		const config = isJsonObject(data.config) ? data.config : null;
+		const platform = config && isJsonObject(config.platform) ? config.platform : null;
+		const requires = isJsonObject(data.require) ? data.require : null;
+		for (const value of [platform?.php, requires?.php]) {
+			if (typeof value !== "string") continue;
+			const lowest = [...value.matchAll(/(\d+)\.(\d+)/g)].map((m) => [Number(m[1]), Number(m[2])]).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0];
+			const version = lowest ? `${lowest[0]}.${lowest[1]}` : "";
+			if (PHP_VERSION.test(version)) return version;
+		}
+	} catch {}
+	return "8.4";
+}
 async function hasEnginesNode(fs, file) {
 	const text = await fs.read(file);
 	if (text === null) return false;
@@ -17062,6 +18016,8 @@ async function planToolchains(fs, projects) {
 		bun = { version: (declared?.name === "bun" ? declared.version : null) ?? "latest" };
 	}
 	const cargoProject = firstOf("cargo");
+	const goProject = firstOf("go");
+	const composerProject = firstOf("composer");
 	return {
 		managers,
 		node: firstNode !== void 0,
@@ -17069,7 +18025,13 @@ async function planToolchains(fs, projects) {
 		pnpm,
 		yarn,
 		bun,
-		rust: cargoProject ? { root: cargoProject.root } : null
+		rust: cargoProject ? { root: cargoProject.root } : null,
+		go: goProject ? { versionFile: repoJoin(goProject.root, "go.mod") } : null,
+		uv: firstOf("uv") ? { version: DEFAULT_UV_VERSION } : null,
+		php: composerProject ? {
+			version: await findPhpVersion(fs, composerProject.root),
+			composer: COMPOSER_VERSION
+		} : null
 	};
 }
 function toolchainOutputs(toolchains) {
@@ -17085,7 +18047,14 @@ function toolchainOutputs(toolchains) {
 		setup_bun: String(toolchains.bun !== null),
 		bun_version: toolchains.bun?.version ?? "",
 		setup_rust: String(toolchains.rust !== null),
-		rust_root: toolchains.rust?.root ?? ""
+		rust_root: toolchains.rust?.root ?? "",
+		setup_go: String(toolchains.go !== null),
+		go_version_file: toolchains.go?.versionFile ?? "",
+		setup_uv: String(toolchains.uv !== null),
+		uv_version: toolchains.uv?.version ?? "",
+		setup_php: String(toolchains.php !== null),
+		php_version: toolchains.php?.version ?? "",
+		composer_version: toolchains.php?.composer ?? ""
 	};
 }
 
@@ -17121,7 +18090,8 @@ function riskyProjects(risky) {
 	const projects = /* @__PURE__ */ new Map();
 	for (const step of [...risky].sort((a, b) => a.order - b.order)) {
 		const { lockfile, packageManager } = step;
-		if (lockfile === null || packageManager === "unknown" || projects.has(lockfile)) continue;
+		if (lockfile === null || projects.has(lockfile)) continue;
+		if (packageManager === "unknown" || isUnsupportedPackageManager(packageManager)) continue;
 		projects.set(lockfile, {
 			root: repoDirname(lockfile),
 			packageManager
@@ -17131,6 +18101,12 @@ function riskyProjects(risky) {
 }
 async function installCommands(applier, ctx, options) {
 	return [await applier.lockfileInstall(ctx, options)].flat();
+}
+const VERSION_MAX_CHARS = 64;
+function versionLine(applier, output) {
+	const lines = output.split("\n").map((line) => line.trim()).filter(Boolean);
+	const line = applier.versionLine ? applier.versionLine(lines) : lines.at(-1);
+	return line ? line.slice(0, VERSION_MAX_CHARS) : null;
 }
 function reconcileStep(step, resolved) {
 	if (resolved.length === 0) return {
@@ -17212,7 +18188,7 @@ var ApplyRun = class {
 	}
 	async openProject(project) {
 		const { fs, exec, publishTimes, log } = this.deps;
-		const detected = await detectProject(fs, project.root);
+		const detected = await detectProject(fs, project.root, project.packageManager);
 		if (!detected.ok) {
 			this.failAll(project.steps, `package manager check failed: ${detected.problem}`);
 			return null;
@@ -17235,10 +18211,11 @@ var ApplyRun = class {
 			fs,
 			root: project.root,
 			lockfile: project.lockfile,
-			version: version.code === 0 ? version.output.trim().split("\n").pop()?.trim() || null : null,
+			version: version.code === 0 ? versionLine(applier, version.output) : null,
 			publishTimes,
 			exec,
-			now: this.now
+			now: this.now,
+			searchPath: this.deps.searchPath
 		};
 		log.info("project", {
 			lockfile: project.lockfile,
@@ -17355,7 +18332,16 @@ var ApplyRun = class {
 	async checkProject(entry, selection) {
 		const { applier, ctx, project } = entry;
 		const prefix = project.root === "." ? "" : `${project.root}: `;
-		const install = await this.run(applier.fullInstall(ctx), project.root, INSTALL_TIMEOUT_MS);
+		const command = applier.fullInstall(ctx);
+		const install = command === null ? {
+			code: 0,
+			output: "",
+			durationMs: 0
+		} : "refused" in command ? {
+			code: 1,
+			output: command.refused,
+			durationMs: 0
+		} : await this.run(command, project.root, INSTALL_TIMEOUT_MS);
 		this.install.durationMs += install.durationMs;
 		const specs = (await applier.checks(ctx)).filter((spec) => selection.only === null || selection.only.includes(spec.name));
 		if (install.code !== 0) {
@@ -17410,7 +18396,7 @@ async function runDetect(inputs, fs, scope = "fix") {
 	};
 }
 async function detectOne(fs, root, expected) {
-	const detected = await detectProject(fs, root);
+	const detected = await detectProject(fs, root, expected);
 	if (!detected.ok) return {
 		packageManager: "",
 		packageManagerVersion: "",
@@ -18087,7 +19073,8 @@ async function main(io) {
 			exec,
 			publishTimes: registryPublishTimes(io.fetch),
 			log,
-			now: io.now ?? currentTime
+			now: io.now ?? currentTime,
+			searchPath: env.PATH ?? ""
 		};
 		const applyInputs = {
 			...dispatchInputs,

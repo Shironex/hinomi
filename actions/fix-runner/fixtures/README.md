@@ -23,6 +23,20 @@ nothing here is ever installed (except by the real tool test). Every package nam
   `[dependencies.name]` table, dev and build dependencies, a build script that leaves a marker
   if it ever runs, and a Cargo.lock that the real cargo test updates against a sparse
   registry it serves on 127.0.0.1.
+- `go-module`: a go.mod with a direct and an indirect module and a `replace`, with its go.sum.
+- `uv-project`: a uv project whose uv.lock has PyPI packages and one from a private index.
+- `pip-requirements`: a requirements.txt with an extras and marker pin, a plain pin, a pin
+  with `--hash` and lines that are not pins.
+- `composer-project`: a composer.lock with Packagist packages (one with a `v` version) and one
+  from another repository, and a `pre-update-cmd` script that must never run.
+- `real-go`, `real-uv`, `real-composer`: for the tests that run the real go, uv and composer
+  against a file:// module proxy, a folder of wheels (with a source distribution that
+  builds, through an in-tree backend that leaves a marker, if `--no-build` is ever dropped)
+  plus a committed `.venv` interpreter and a `.python-version` path that leave markers if
+  uv runs them, and a project committed with dynamic metadata whose in-tree backend, or
+  backend from the index running a `hatch_build.py`, leaves a marker if uv asks it, and an
+  inline package repository with zip dists whose update and install
+  scripts leave a marker, all written by the test itself.
 - `dispatches`: dispatches the runner must refuse.
 - `selftest-npm`, `selftest-pnpm`, `selftest-dispatch.json`: what `.github/workflows/fix-selftest.yml`
   runs the reusable workflow against, inside this repo's own checkout. They pin the real package

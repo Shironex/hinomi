@@ -1,8 +1,12 @@
 import { bunApplier } from './bun.js'
 import { cargoApplier } from './cargo.js'
+import { composerApplier } from './composer.js'
+import { goApplier } from './go.js'
 import { npmApplier } from './npm.js'
+import { pipApplier } from './pip.js'
 import { pnpmApplier } from './pnpm.js'
 import type { Applier, StepPackageManager } from './types.js'
+import { uvApplier } from './uv.js'
 import { yarnApplier } from './yarn.js'
 
 /**
@@ -18,4 +22,8 @@ export const APPLIERS: ReadonlyMap<StepPackageManager, Applier> = new Map<
   ['yarn', yarnApplier],
   ['bun', bunApplier],
   ['cargo', cargoApplier],
+  ['go', goApplier],
+  ['uv', uvApplier],
+  ['pip', pipApplier],
+  ['composer', composerApplier],
 ])

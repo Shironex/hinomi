@@ -236,7 +236,12 @@ export class LocalRunner implements FixRunner {
     this.#busy = true
     let prepared: Awaited<ReturnType<typeof prepareDispatch>>
     try {
-      prepared = await prepareDispatch(this.#options, this.kind, request)
+      // The bundled action is this server's own: it takes every package manager it plans for.
+      prepared = await prepareDispatch(
+        { ...this.#options, newerPackageManagers: () => Promise.resolve(true) },
+        this.kind,
+        request,
+      )
     } catch (error) {
       this.#busy = false
       throw error
