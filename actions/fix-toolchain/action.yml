@@ -168,7 +168,9 @@ runs:
         enable-cache: false
 
     # PHP for composer at the version composer.json names, with composer at an exact version.
-    # The fix runner calls composer with --no-scripts and --no-plugins only.
+    # The fix runner calls composer with --no-scripts and --no-plugins only. github-token is
+    # empty on purpose: by default setup-php writes the job's GITHUB_TOKEN into composer's
+    # global auth.json, where every later process (package managers, checks) could read it.
     - name: Set up PHP and composer
       if: inputs.setup_php == 'true'
       uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
@@ -176,3 +178,21 @@ runs:
         php-version: ${{ inputs.php_version }}
         tools: composer:${{ inputs.composer_version }}
         coverage: none
+        github-token: ''
+
+    - name: Check composer holds no GitHub token
+      if: inputs.setup_php == 'true'
+      shell: bash
+      run: |
+        home=$(composer config --global home --no-plugins --no-interaction 2>/dev/null || true)
+        for file in "$home/auth.json" "$HOME/.composer/auth.json" "$HOME/.config/composer/auth.json"; do
+          if [ -f "$file" ] && grep -q 'github-oauth' "$file"; then
+            echo "::error::$file holds a GitHub token that every later process could read"
+            exit 1
+          fi
+        done
+        if [ -n "${COMPOSER_AUTH:-}" ]; then
+          echo "::error::COMPOSER_AUTH is set for every later step"
+          exit 1
+        fi
+        echo "composer has no GitHub token"

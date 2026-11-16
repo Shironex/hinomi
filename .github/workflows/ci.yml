@@ -64,6 +64,29 @@ jobs:
       # The release notes script, against a throwaway repo and a stub gh.
       - run: .github/scripts/release-notes.test.sh
 
+  toolchain:
+    name: Fix toolchain leaves no token
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The composite's own check fails the job if setup-php left the job token in composer's
+      # global auth.json or in COMPOSER_AUTH.
+      - uses: $/actions/fix-toolchain
+        with:
+          setup_node: 'false'
+          setup_pnpm: 'false'
+          setup_yarn: 'false'
+          setup_bun: 'false'
+          setup_rust: 'false'
+          setup_php: 'true'
+          php_version: '8.4'
+          composer_version: '2.11.1'
+      - name: Composer runs at the pinned version
+        run: composer --version --no-plugins | grep -F 'Composer version 2.11.1'
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest
