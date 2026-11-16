@@ -2,10 +2,11 @@ import type { AccessStatus } from '@hinomi/shared'
 import type * as React from 'react'
 import { IconExternalLink, IconLock, IconShieldCheck, IconWorld } from '@tabler/icons-react'
 import { Callout } from '@/components/ui/callout'
-import { ACCESS_DOCS_URL, accessTone, useAccessStatus } from '@/hooks/use-access'
+import { ACCESS_DOCS_URL, accessTone, useAccessStatus, useLoginEnabled } from '@/hooks/use-access'
 
 const NO_LOGIN =
-  'Hinomi has no login of its own, so anyone who passes this layer can read your findings and change these settings.'
+  'The built in login is off, so anyone who passes this layer can read your findings and change these settings.'
+const LOGIN_ON = 'The built in login is on as well, so every request also needs a session.'
 
 function Mono({ children }: { children: React.ReactNode }) {
   return <code className="font-mono text-[max(13px,0.92em)]">{children}</code>
@@ -70,22 +71,36 @@ function unknownDetail(status: Extract<AccessStatus, { state: 'unknown' }>) {
  * verified Cloudflare Access token is in front, a red warning from a public address, and
  * the plain warning (with `title`) whenever Hinomi cannot confirm either.
  */
-export function AccessCallout({ title = 'Hinomi has no login yet' }: { title?: string }) {
+export function AccessCallout({ title = 'The built in login is off' }: { title?: string }) {
   const status = useAccessStatus()
-  const tone = accessTone(status)
+  const loginOn = useLoginEnabled()
+  const tone = accessTone(status, loginOn)
+  const loginNote = loginOn ? LOGIN_ON : NO_LOGIN
 
   if (status && tone === 'ok') {
     const detail =
       status.state === 'tailscale' && status.via === 'address' && status.address ? (
         <>
-          This request came from <Mono>{status.address}</Mono> on your tailnet. {NO_LOGIN}
+          This request came from <Mono>{status.address}</Mono> on your tailnet. {loginNote}
         </>
       ) : (
-        NO_LOGIN
+        loginNote
       )
     return (
       <Callout variant="ok" icon={IconShieldCheck} title={protectedTitle(status)}>
         <Body>{detail}</Body>
+      </Callout>
+    )
+  }
+
+  if (status?.state === 'public' && loginOn) {
+    return (
+      <Callout variant="warn" icon={IconLock} title="Reachable from the internet, behind the login">
+        <Body>
+          This request came from <Mono>{status.address}</Mono>, a public address. The built in login
+          stands between it and your findings. Tailscale or Cloudflare Access in front would keep
+          the login page itself private too.
+        </Body>
       </Callout>
     )
   }
@@ -121,13 +136,23 @@ export function AccessCallout({ title = 'Hinomi has no login yet' }: { title?: s
   }
 
   const detail = status?.state === 'unknown' ? unknownDetail(status) : null
+  if (loginOn) {
+    return (
+      <Callout variant="ok" icon={IconShieldCheck} title="Protected by the built in login">
+        <Body>
+          {detail ? <>{detail} </> : null}
+          Every request needs a session, whatever network it comes from.
+        </Body>
+      </Callout>
+    )
+  }
   return (
     <Callout variant="warn" icon={IconLock} title={title}>
       <Body>
         {detail ? <>{detail} </> : null}
         Anyone who can reach this address can read your findings and change these settings. Run
-        Hinomi behind Tailscale or Cloudflare Access, and do not publish its port on a public
-        interface.
+        Hinomi behind Tailscale or Cloudflare Access, or turn on the built in login, and do not
+        publish its port on a public interface otherwise.
       </Body>
     </Callout>
   )

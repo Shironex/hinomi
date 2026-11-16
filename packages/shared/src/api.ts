@@ -59,6 +59,12 @@ export const API_ERROR_CODES = [
   'not_supported',
   'internal',
   'unavailable',
+  /** HINOMI_AUTH is on and the request has no valid session. */
+  'unauthenticated',
+  /** A change without the session's CSRF token, or from another origin. */
+  'forbidden',
+  /** Too many failed logins from this address or for this account. */
+  'rate_limited',
 ] as const
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODES)
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>

@@ -2,7 +2,9 @@
 
 The SPA talks to the server through a small JSON API under `/api`. Every request and response is a zod schema in [`packages/shared/src/api.ts`](../packages/shared/src/api.ts): the server validates input against it and checks each response before sending it, and the SPA parses responses with the same schemas.
 
-Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never expose the port to the internet; the server logs a warning about this on every start, and `GET /api/access` tells the SPA whether the current request came through one (see [access.md](access.md)).
+Without the [built in login](auth.md), run Hinomi behind Tailscale or Cloudflare Access and never expose the port to the internet; the server logs a warning about this on every start, and `GET /api/access` tells the SPA whether the current request came through one (see [access.md](access.md)).
+
+With the login on (`HINOMI_AUTH=1`), every route answers `401 unauthenticated` without a session cookie, except `GET /api/health`, the `/api/auth` login routes and the two signed receivers. Every change also needs the `x-hinomi-csrf` header with the token from `GET /api/auth/session`, and a same origin request; otherwise it answers `403 forbidden`. Details in [auth.md](auth.md).
 
 ## Conventions
 
@@ -23,10 +25,13 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 | `bad_request` | 400 | The action cannot run as asked (for example a stored token that cannot be decrypted) |
 | `secret_key_missing` | 400 | A token was sent but `HINOMI_SECRET_KEY` is not set |
 | `not_supported` | 400 | For example a connection test for OSV.dev |
+| `unauthenticated` | 401 | The login is on and the request has no valid session |
+| `forbidden` | 403 | A change without the CSRF token, or from another origin |
 | `not_found` | 404 | Unknown route or id |
 | `conflict` | 409 | Duplicate source name, or a state change the finding does not allow |
 | `unsupported_media_type` | 415 | A body that is not JSON |
 | `payload_too_large` | 413 | Body over 64 KiB |
+| `rate_limited` | 429 | Too many failed sign ins; see the `Retry-After` header |
 | `internal` | 500 | A server bug; details only in the server log |
 | `unavailable` | 503 | The server is shutting down, so it starts no new scan |
 
@@ -36,7 +41,7 @@ Hinomi has no login yet. Run it behind Tailscale or Cloudflare Access and never 
 
 | Method and path | Returns |
 |---|---|
-| `GET /api/health` | `{ status: "ok", version }`, the running version (`0.3.0`, or `dev`) |
+| `GET /api/health` | `{ status: "ok", version }`, the running version (`0.3.0`, or `dev`). With the built in login on it is `{ status: "ok" }` only, since it is public |
 | `GET /api/version` | The running build: `version` (`dev` for a build without a release version), `commit` (full sha or null), `buildDate` (ISO or null), `isDev`, `prerelease`, `imageTag` and `releaseNotesUrl` (null for a dev build), and `update`: null, or `{ version, url, imageTag }` when the daily check found a newer release. Values come from the `HINOMI_BUILD_*` build args, see [self-hosting.md](self-hosting.md#version-and-update-check) |
 | `GET /api/access` | How this request reached Hinomi, one of the states below. Sent with `cache-control: no-store` |
 | `GET /api/overview` | Advisory funnel (total, deployed, runtime, critical or high, public, exposed, needs action, dismissed upstream), distinct repos and apps behind each funnel step (`funnelReach`), blind spot counts, counts per tier and the same split by severity (`tierSeverity`), last scan, next scan time, health of every source (plus an `osv` row with a null id, from the OSV setting and the latest scan runs), the 20 latest finding events, `topFixes` (the 5 best fixes that have a patched version, see Fixes below), `guardCounts` (guard findings not fixed per check and level, turned off ones included), `windows` (the 5 runtime lines that end security support soonest, ended ones first: `{ repoId, repoName, runtime, line, eolFrom, daysLeft, result }`; Node only, since Rust and Bun are judged by releases behind and have no date) |
@@ -355,6 +360,25 @@ Logins for private images in the `sbom` [image scan](self-hosting.md#registry-cr
 | `POST /api/settings/registry-credentials` | `{ host, username, secret }`: 201 with the credential. `host` is a plain host with an optional port (`ghcr.io`, `registry.example.com:5000`); it is lower cased, a pasted `https://` and trailing slash are dropped, `:443` too, and `docker.io` and `index.docker.io` are stored as `registry-1.docker.io`. No wildcards, paths or user info. A host that has one already is a 409; without `HINOMI_SECRET_KEY` it is a 400 `secret_key_missing` |
 | `PATCH /api/settings/registry-credentials/:id` | Any of `username`, `secret` (a new secret replaces the stored one). The host cannot change: a secret stays bound to the registry it was entered for; remove the credential and add it again instead |
 | `DELETE /api/settings/registry-credentials/:id` | 204 |
+
+### Login and audit log
+
+The [built in login](auth.md). `GET /api/auth/session` always exists; the rest only while `HINOMI_AUTH=1`. The routes marked public answer without a session.
+
+| Method and path | Does |
+|---|---|
+| `GET /api/auth/session` | Public. `{ enabled, methods: { oidc: { name } \| null, github, passkey }, session }`; `session` is null without one, else `{ subject, method, createdAt, expiresAt, csrfToken }` |
+| `POST /api/auth/logout` | Public. Ends this browser's session on the server and clears the cookie: 204 |
+| `GET /api/auth/oidc/start?next=`, `GET /api/auth/github/start?next=` | Public. Redirect to the provider. `next` must be a path on this site |
+| `GET /api/auth/oidc/callback`, `GET /api/auth/github/callback` | Public. Finish the provider login and redirect to `next`, or to `/login?error=not_allowed\|expired\|failed\|rate_limited` |
+| `POST /api/auth/passkey/login/options`, `POST /api/auth/passkey/login` | Public. A passkey challenge, then `{ credential }` to sign in: 204 with the cookie |
+| `POST /api/auth/setup/verify`, `POST /api/auth/setup/register` | Public. `{ code }` from `cli.mjs setup-code` returns `{ enrollmentId, options }`; then `{ enrollmentId, name, credential }` registers the passkey and signs in |
+| `GET /api/auth/passkeys` | `{ passkeys: [{ id, name, createdAt, lastUsedAt, owner, ownerMethod }] }`; `ownerMethod` is `setup-code` (owner `admin`), `oidc` or `github`, how the registering session signed in |
+| `POST /api/auth/passkeys/options`, `POST /api/auth/passkeys` | Add a passkey: the options, then `{ name, credential }`: 204 |
+| `DELETE /api/auth/passkeys/:id` | Removes it and ends the sessions it started: 204. 409 for the last passkey when no provider is set |
+| `GET /api/auth/sessions` | `{ sessions: [{ id, method, subject, createdAt, lastSeenAt, expiresAt, ip, userAgent, current }] }` |
+| `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others` | End one session, or every one but this: 204 |
+| `GET /api/audit?before=&limit=` | `{ events: [{ id, at, action, actor, ip, httpMethod, path, status, detail }], nextBefore }`, newest first, `limit` up to 200 (default 50). Recorded with the login off too. Refused sign ins are capped separately |
 
 ### GitHub webhook
 

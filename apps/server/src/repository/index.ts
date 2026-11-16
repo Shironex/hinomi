@@ -1,4 +1,6 @@
 export * from './advisories.js'
+export * from './audit.js'
+export * from './auth.js'
 export * from './check-overrides.js'
 export * from './deployments.js'
 export * from './findings.js'

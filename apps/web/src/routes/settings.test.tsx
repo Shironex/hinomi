@@ -47,10 +47,10 @@ describe('settings', () => {
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Sources')
   })
 
-  it('shows the no login note under access', async () => {
+  it('shows that the built in login is off under access', async () => {
     mockApi(configuredRoutes())
     await renderApp('/settings?sel=access')
-    expect(await screen.findByText('Hinomi has no login yet')).toBeVisible()
+    expect(await screen.findByText('The built in login is off')).toBeVisible()
   })
 
   it('never shows a token', async () => {

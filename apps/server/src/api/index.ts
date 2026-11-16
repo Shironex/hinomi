@@ -1,4 +1,5 @@
 export type { ApiDeps } from './deps.js'
+export { authRoutes, safeNext } from './routes/auth.js'
 export { errorHandler } from './http.js'
 export { MAX_BODY_BYTES, registerApiRoutes, type ApiOptions } from './register.js'
 export type { NotificationsApiOptions } from './routes/notifications.js'

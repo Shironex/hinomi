@@ -6170,7 +6170,7 @@ const ecosystemSchema = _enum([
 	"other"
 ]);
 const dependencyScopeSchema = _enum(["runtime", "dev"]);
-const isoDate$6 = datetime({ offset: true });
+const isoDate$7 = datetime({ offset: true });
 const advisoryRecordSchema = object({
 	ghsaId: string(),
 	cveIds: array(string()),
@@ -6182,7 +6182,7 @@ const advisoryRecordSchema = object({
 	description: string().nullable().optional(),
 	vulnerableRange: string(),
 	firstPatched: string().nullable(),
-	publishedAt: isoDate$6.nullable()
+	publishedAt: isoDate$7.nullable()
 });
 const repoAlertRecordSchema = object({
 	owner: string(),
@@ -6193,11 +6193,11 @@ const repoAlertRecordSchema = object({
 	ecosystem: ecosystemSchema,
 	scope: dependencyScopeSchema.nullable(),
 	manifestPath: string().nullable(),
-	createdAt: isoDate$6,
-	dismissedAt: isoDate$6.nullable()
+	createdAt: isoDate$7,
+	dismissedAt: isoDate$7.nullable()
 });
 const dismissedAlertRecordSchema = repoAlertRecordSchema.extend({
-	dismissedAt: isoDate$6,
+	dismissedAt: isoDate$7,
 	dismissReason: string().nullable(),
 	dismissComment: string().nullable()
 });
@@ -6218,7 +6218,7 @@ const repoHealthSchema = object({
 	defaultBranch: string(),
 	visibility: repoVisibilitySchema,
 	alertsEnabled: boolean().nullable(),
-	pushedAt: isoDate$6.nullable()
+	pushedAt: isoDate$7.nullable()
 });
 const accountRepoSchema = object({
 	owner: string(),
@@ -6227,7 +6227,7 @@ const accountRepoSchema = object({
 	fork: boolean(),
 	defaultBranch: string().nullable(),
 	visibility: repoVisibilitySchema,
-	pushedAt: isoDate$6.nullable()
+	pushedAt: isoDate$7.nullable()
 });
 const githubConnectionSchema = object({
 	login: string(),
@@ -6423,8 +6423,8 @@ const supportStatusSchema = object({
 });
 
 // ../../packages/shared/src/api.ts
-const isoDate$5 = datetime({ offset: true });
-const id$3 = number$1().int().positive();
+const isoDate$6 = datetime({ offset: true });
+const id$4 = number$1().int().positive();
 const API_ERROR_CODES = [
 	"bad_request",
 	"validation_failed",
@@ -6436,7 +6436,10 @@ const API_ERROR_CODES = [
 	"secret_key_missing",
 	"not_supported",
 	"internal",
-	"unavailable"
+	"unavailable",
+	"unauthenticated",
+	"forbidden",
+	"rate_limited"
 ];
 const apiErrorCodeSchema = _enum(API_ERROR_CODES);
 const apiErrorSchema = object({ error: object({
@@ -6449,16 +6452,16 @@ function csvOf(item) {
 }
 const csvIds = string().max(500).transform((value) => value.split(",").map((part) => part.trim()).filter((part) => part !== "")).pipe(array(string().regex(/^[1-9][0-9]{0,15}$/, "Must be an id").transform(Number)).max(50));
 const repoRefSchema = object({
-	id: id$3,
+	id: id$4,
 	owner: string(),
 	name: string(),
 	fullName: string(),
 	archived: boolean(),
 	alertsEnabled: boolean().nullable(),
-	lastScannedAt: isoDate$5.nullable()
+	lastScannedAt: isoDate$6.nullable()
 });
 const deploymentRefSchema = object({
-	id: id$3,
+	id: id$4,
 	name: string(),
 	kind: deploymentKindSchema,
 	reach: deploymentReachSchema,
@@ -6484,7 +6487,7 @@ const FINDING_TIERS = [
 ];
 const findingTierSchema = _enum(FINDING_TIERS);
 const advisorySummarySchema = object({
-	id: id$3,
+	id: id$4,
 	advisoryKey: string(),
 	ghsaId: string().nullable(),
 	cveIds: array(string()),
@@ -6497,10 +6500,10 @@ const advisorySummarySchema = object({
 	firstPatchedVersion: string().nullable()
 });
 const checkOverrideRefSchema = object({
-	id: id$3,
+	id: id$4,
 	scope: _enum(["deployment", "repo"]),
 	reason: string(),
-	createdAt: isoDate$5
+	createdAt: isoDate$6
 });
 const findingGuardSchema = object({
 	check: guardCheckSchema,
@@ -6512,7 +6515,7 @@ const findingGuardSchema = object({
 	override: checkOverrideRefSchema.nullable()
 });
 const findingListItemSchema = object({
-	id: id$3,
+	id: id$4,
 	kind: findingKindSchema,
 	rank: number$1(),
 	tier: findingTierSchema,
@@ -6522,7 +6525,7 @@ const findingListItemSchema = object({
 	patchedInLockfile: boolean(),
 	state: findingStateSchema,
 	stateReason: string().nullable(),
-	stateUntil: isoDate$5.nullable(),
+	stateUntil: isoDate$6.nullable(),
 	stateUntilNewAdvisory: boolean(),
 	scope: findingScopeSchema,
 	sources: array(reporterSchema),
@@ -6535,21 +6538,21 @@ const findingListItemSchema = object({
 	installedVersion: string().nullable(),
 	repo: repoRefSchema.nullable(),
 	deployments: array(deploymentRefSchema),
-	firstSeenAt: isoDate$5,
-	lastSeenAt: isoDate$5,
-	fixedAt: isoDate$5.nullable()
+	firstSeenAt: isoDate$6,
+	lastSeenAt: isoDate$6,
+	fixedAt: isoDate$6.nullable()
 });
 const findingEventSchema = object({
-	id: id$3,
-	findingId: id$3,
+	id: id$4,
+	findingId: id$4,
 	type: string(),
 	fromState: findingStateSchema.nullable(),
 	toState: findingStateSchema.nullable(),
 	reason: string().nullable(),
-	until: isoDate$5.nullable(),
+	until: isoDate$6.nullable(),
 	untilNewAdvisory: boolean(),
 	actor: _enum(["system", "user"]),
-	at: isoDate$5
+	at: isoDate$6
 });
 const severityCountsSchema = object({
 	critical: number$1().int(),
@@ -6568,11 +6571,11 @@ const scanSourceResultSchema = object({
 	durationMs: number$1().optional()
 });
 const scanRunSchema = object({
-	id: id$3,
+	id: id$4,
 	trigger: scanTriggerSchema,
 	status: scanRunStatusSchema,
-	startedAt: isoDate$5,
-	finishedAt: isoDate$5.nullable(),
+	startedAt: isoDate$6,
+	finishedAt: isoDate$6.nullable(),
 	durationMs: number$1().int().nullable(),
 	sourceResults: partialRecord(sourceKindSchema, scanSourceResultSchema),
 	findingsOpened: number$1().int(),
@@ -6580,7 +6583,7 @@ const scanRunSchema = object({
 	error: string().nullable()
 });
 const sourceSchema = object({
-	id: id$3,
+	id: id$4,
 	kind: sourceKindSchema,
 	name: string(),
 	baseUrl: string().nullable(),
@@ -6589,14 +6592,14 @@ const sourceSchema = object({
 	appId: string().nullable(),
 	installationId: string().nullable(),
 	hasToken: boolean(),
-	lastOkAt: isoDate$5.nullable(),
-	lastErrorAt: isoDate$5.nullable(),
+	lastOkAt: isoDate$6.nullable(),
+	lastErrorAt: isoDate$6.nullable(),
 	lastError: string().nullable(),
 	repoCount: number$1().int().nonnegative(),
 	deploymentCount: number$1().int().nonnegative(),
 	docker: dockerSourceConfigSchema.nullable().optional(),
-	createdAt: isoDate$5,
-	updatedAt: isoDate$5
+	createdAt: isoDate$6,
+	updatedAt: isoDate$6
 });
 const sourcesResponseSchema = object({
 	sources: array(sourceSchema),
@@ -6672,7 +6675,7 @@ const sourceTestResultSchema = discriminatedUnion("ok", [object({
 	message: string()
 })]);
 const sourceHealthSchema = object({
-	id: id$3.nullable(),
+	id: id$4.nullable(),
 	kind: sourceKindSchema,
 	name: string(),
 	status: _enum([
@@ -6682,12 +6685,12 @@ const sourceHealthSchema = object({
 		"disabled",
 		"missing_token"
 	]),
-	lastOkAt: isoDate$5.nullable(),
-	lastErrorAt: isoDate$5.nullable(),
+	lastOkAt: isoDate$6.nullable(),
+	lastErrorAt: isoDate$6.nullable(),
 	lastError: string().nullable()
 });
 const activityItemSchema = findingEventSchema.extend({ finding: object({
-	id: id$3,
+	id: id$4,
 	kind: findingKindSchema,
 	title: string(),
 	severity: severitySchema,
@@ -6772,7 +6775,7 @@ const fixPlanTargetFields = {
 	packageManager: packageManagerSchema,
 	workspaces: array(string()),
 	via: array(string()),
-	findingIds: array(id$3),
+	findingIds: array(id$4),
 	advisories: array(string()),
 	byTier: tierCounts
 };
@@ -6797,7 +6800,7 @@ const fixPlanStepSchema = object({
 	riskReasons: array(fixPlanRiskReasonSchema),
 	note: string().nullable(),
 	apply: fixPlanApplySchema,
-	releasedAt: isoDate$5.nullable(),
+	releasedAt: isoDate$6.nullable(),
 	releaseAge: releaseAgeSchema,
 	targetCheck: fixPlanTargetCheckSchema.optional()
 });
@@ -6805,7 +6808,7 @@ const fixPlanUnfixedSchema = object({
 	...fixPlanTargetFields,
 	installed: array(string()),
 	blocker: _enum(["no_patch", "too_new"]),
-	availableAt: isoDate$5.nullable()
+	availableAt: isoDate$6.nullable()
 });
 const fixPlanSummarySchema = object({
 	findings: object({
@@ -6823,7 +6826,7 @@ const fixPlanSummarySchema = object({
 	unfixed: number$1().int()
 });
 const fixPlanPreviousSchema = object({
-	scanRunId: id$3,
+	scanRunId: id$4,
 	findings: number$1().int(),
 	cleared: number$1().int(),
 	stillOpen: number$1().int()
@@ -6831,8 +6834,8 @@ const fixPlanPreviousSchema = object({
 const fixPlanSchema = object({
 	version: literal(1),
 	repo: repoRefSchema,
-	scanRunId: id$3,
-	createdAt: isoDate$5,
+	scanRunId: id$4,
+	createdAt: isoDate$6,
 	projects: array(fixPlanProjectSchema),
 	steps: array(fixPlanStepSchema),
 	unfixed: array(fixPlanUnfixedSchema),
@@ -6840,9 +6843,9 @@ const fixPlanSchema = object({
 	previous: fixPlanPreviousSchema.nullable()
 });
 const fixPlanRefSchema = object({
-	repoId: id$3,
-	scanRunId: id$3,
-	createdAt: isoDate$5,
+	repoId: id$4,
+	scanRunId: id$4,
+	createdAt: isoDate$6,
 	summary: fixPlanSummarySchema
 });
 const fixPlanQuerySchema = strictObject({ scan: number().int().positive().optional() });
@@ -6872,7 +6875,7 @@ const fixItemSchema = object({
 		byTier: record(findingTierSchema, number$1().int()),
 		bySeverity: severityCountsSchema
 	}),
-	findingIds: array(id$3),
+	findingIds: array(id$4),
 	bestTier: findingTierSchema,
 	exposedCritical: boolean(),
 	repos: array(fixRepoSchema),
@@ -6899,7 +6902,7 @@ const funnelReachSchema = object({
 	apps: number$1().int()
 });
 const overviewWindowSchema = object({
-	repoId: id$3,
+	repoId: id$4,
 	repoName: string(),
 	runtime: runtimeSchema,
 	line: string(),
@@ -6928,7 +6931,7 @@ const overviewResponseSchema = object({
 	tiers: record(findingTierSchema, number$1().int()),
 	tierSeverity: record(findingTierSchema, severityCountsSchema),
 	lastScan: scanRunSchema.nullable(),
-	nextScanAt: isoDate$5.nullable(),
+	nextScanAt: isoDate$6.nullable(),
 	sources: array(sourceHealthSchema),
 	recentActivity: array(activityItemSchema),
 	topFixes: array(fixItemSchema),
@@ -6980,16 +6983,16 @@ const findingNotificationSchema = object({
 	channelName: string().nullable(),
 	channelKind: string().nullable(),
 	event: string(),
-	eventId: id$3,
-	sentAt: isoDate$5
+	eventId: id$4,
+	sentAt: isoDate$6
 });
 const findingDetailSchema = findingListItemSchema.extend({
 	advisory: advisorySummarySchema.extend({
 		aliases: array(string()),
 		cvssVector: string().nullable(),
 		vulnerableRanges: array(string()),
-		publishedAt: isoDate$5.nullable(),
-		withdrawnAt: isoDate$5.nullable(),
+		publishedAt: isoDate$6.nullable(),
+		withdrawnAt: isoDate$6.nullable(),
 		description: string().nullable()
 	}).nullable(),
 	versions: object({
@@ -7015,7 +7018,7 @@ const findingDetailSchema = findingListItemSchema.extend({
 const reason = string().trim().min(1, "A reason is required").max(500);
 const deferFields = {
 	reason,
-	until: isoDate$5.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
+	until: isoDate$6.refine((value) => Date.parse(value) > nowMs(), { message: "The expiry must be in the future" }).optional(),
 	untilNewAdvisory: literal(true).optional()
 };
 const oneExpiry = (value) => value.until === void 0 !== (value.untilNewAdvisory === void 0);
@@ -7028,19 +7031,19 @@ const reopenFindingRequestSchema = strictObject({ reason: string().trim().max(50
 const BULK_FINDINGS_MAX = 200;
 const bulkFindingsRequestSchema = discriminatedUnion("action", [strictObject({
 	action: _enum(["snooze", "accept"]),
-	ids: array(id$3).min(1).max(200),
+	ids: array(id$4).min(1).max(200),
 	...deferFields
 }).refine(oneExpiry, ONE_EXPIRY), strictObject({
 	action: literal("reopen"),
-	ids: array(id$3).min(1).max(200),
+	ids: array(id$4).min(1).max(200),
 	reason: string().trim().max(500).optional()
 })]);
 const bulkFindingResultSchema = discriminatedUnion("ok", [object({
-	id: id$3,
+	id: id$4,
 	ok: literal(true),
 	state: findingStateSchema
 }), object({
-	id: id$3,
+	id: id$4,
 	ok: literal(false),
 	error: object({
 		code: apiErrorCodeSchema,
@@ -7055,11 +7058,11 @@ const bulkFindingsResponseSchema = object({
 const repoOverrideSchema = object({
 	repo: repoRefSchema,
 	note: string().nullable(),
-	createdAt: isoDate$5
+	createdAt: isoDate$6
 });
 const deploymentItemSchema = deploymentRefSchema.extend({
 	source: object({
-		id: id$3,
+		id: id$4,
 		kind: sourceKindSchema,
 		name: string()
 	}),
@@ -7068,9 +7071,9 @@ const deploymentItemSchema = deploymentRefSchema.extend({
 	image: string().nullable(),
 	gitRepository: string().nullable(),
 	gitBranch: string().nullable(),
-	lastDeployedAt: isoDate$5.nullable(),
-	firstSeenAt: isoDate$5,
-	lastSeenAt: isoDate$5,
+	lastDeployedAt: isoDate$6.nullable(),
+	firstSeenAt: isoDate$6,
+	lastSeenAt: isoDate$6,
 	mapping: _enum([
 		"auto",
 		"override",
@@ -7098,7 +7101,7 @@ const deploymentGuardSchema = object({
 	check: overridableCheckSchema,
 	result: guardResultSchema.nullable(),
 	evidence: guardEvidenceSchema.nullable(),
-	findingId: id$3.nullable(),
+	findingId: id$4.nullable(),
 	override: checkOverrideRefSchema.nullable()
 });
 const deploymentDetailSchema = deploymentItemSchema.extend({
@@ -7112,8 +7115,8 @@ const deployRecordSchema = object({
 	status: string(),
 	commit: string().nullable(),
 	commitMessage: string().nullable(),
-	startedAt: isoDate$5.nullable(),
-	finishedAt: isoDate$5.nullable(),
+	startedAt: isoDate$6.nullable(),
+	finishedAt: isoDate$6.nullable(),
 	webhook: boolean(),
 	rollback: boolean()
 });
@@ -7142,19 +7145,19 @@ const REPO_SOURCE_MODES = [
 ];
 const repoSourceModeSchema = _enum(REPO_SOURCE_MODES);
 const repoSourceRefSchema = object({
-	id: id$3,
+	id: id$4,
 	name: string(),
 	auth: sourceAuthSchema,
 	enabled: boolean()
 });
 const repoSourceSeenSchema = repoSourceRefSchema.extend({
 	alertsReadable: boolean().nullable(),
-	lastSeenAt: isoDate$5
+	lastSeenAt: isoDate$6
 });
 const repoSourceViewSchema = object({
 	current: repoSourceRefSchema.nullable(),
 	mode: repoSourceModeSchema,
-	overrideId: id$3.nullable(),
+	overrideId: id$4.nullable(),
 	seenBy: array(repoSourceSeenSchema)
 });
 const REPO_RELEASE_STATUSES = [
@@ -7170,17 +7173,17 @@ const repoReleaseSchema = object({
 	tier: releaseTierModeSchema,
 	status: repoReleaseStatusSchema,
 	latestTag: string().nullable(),
-	latestAt: isoDate$5.nullable(),
+	latestAt: isoDate$6.nullable(),
 	installers: boolean().nullable(),
 	installerAssets: array(string()),
-	checkedAt: isoDate$5.nullable(),
+	checkedAt: isoDate$6.nullable(),
 	openFindings: number$1().int().nonnegative(),
 	fixedOnDefaultBranch: number$1().int().nonnegative(),
 	lockfileMissing: boolean()
 });
 const repoRuntimePinSchema = runtimePinRecordSchema.extend({
 	ref: string(),
-	scannedAt: isoDate$5,
+	scannedAt: isoDate$6,
 	disagrees: boolean()
 });
 const repoSupportLinesSchema = object({
@@ -7194,15 +7197,15 @@ const repoDetailSchema = repoRefSchema.extend({
 	supportLines: repoSupportLinesSchema
 });
 const updateRepoReleaseTierRequestSchema = strictObject({ tier: releaseTierModeSchema });
-const updateRepoRequestSchema = strictObject({ sourceId: id$3.nullable() });
+const updateRepoRequestSchema = strictObject({ sourceId: id$4.nullable() });
 const checkOverrideSchema = object({
-	id: id$3,
+	id: id$4,
 	check: overridableCheckSchema,
 	deployment: deploymentRefSchema.nullable(),
 	repo: repoRefSchema.nullable(),
 	reason: string(),
-	createdAt: isoDate$5,
-	updatedAt: isoDate$5
+	createdAt: isoDate$6,
+	updatedAt: isoDate$6
 });
 const checkOverridesQuerySchema = strictObject({
 	check: csvOf(overridableCheckSchema).optional(),
@@ -7212,8 +7215,8 @@ const checkOverridesQuerySchema = strictObject({
 const checkOverridesResponseSchema = object({ items: array(checkOverrideSchema) });
 const createCheckOverrideRequestSchema = strictObject({
 	check: overridableCheckSchema,
-	deploymentId: id$3.optional(),
-	repoId: id$3.optional(),
+	deploymentId: id$4.optional(),
+	repoId: id$4.optional(),
 	reason
 }).refine((value) => value.deploymentId === void 0 !== (value.repoId === void 0), {
 	message: "Give either deploymentId or repoId",
@@ -7284,17 +7287,17 @@ const scanStatusSchema = discriminatedUnion("state", [
 	object({ state: literal("unconfigured") }),
 	object({
 		state: literal("queued"),
-		nextScanAt: isoDate$5.nullable()
+		nextScanAt: isoDate$6.nullable()
 	}),
 	object({
 		state: literal("idle"),
-		lastScanAt: isoDate$5,
-		nextScanAt: isoDate$5.nullable()
+		lastScanAt: isoDate$6,
+		nextScanAt: isoDate$6.nullable()
 	}),
 	object({
 		state: literal("scanning"),
-		scanRunId: id$3,
-		startedAt: isoDate$5,
+		scanRunId: id$4,
+		startedAt: isoDate$6,
 		phase: scanPhaseSchema,
 		done: number$1().int().nonnegative(),
 		total: number$1().int().nonnegative(),
@@ -7302,7 +7305,7 @@ const scanStatusSchema = discriminatedUnion("state", [
 	}),
 	object({
 		state: literal("failed"),
-		lastScanAt: isoDate$5.nullable(),
+		lastScanAt: isoDate$6.nullable(),
 		message: string()
 	})
 ]);
@@ -7441,6 +7444,168 @@ const onboardingStateSchema = object({
 	alertsSkipped: boolean()
 });
 const updateOnboardingRequestSchema = strictObject(onboardingStateSchema.partial().shape).refine((value) => Object.keys(value).length > 0, "Nothing to update");
+
+// ../../packages/shared/src/auth.ts
+const isoDate$5 = datetime({ offset: true });
+const id$3 = number$1().int().positive();
+const AUTH_METHODS = [
+	"oidc",
+	"github",
+	"passkey"
+];
+const authMethodSchema = _enum(AUTH_METHODS);
+const PASSKEY_OWNER_METHODS = [
+	"setup-code",
+	"oidc",
+	"github"
+];
+const passkeyOwnerMethodSchema = _enum(PASSKEY_OWNER_METHODS);
+const LOGIN_ERRORS = [
+	"not_allowed",
+	"expired",
+	"failed",
+	"rate_limited"
+];
+const loginErrorSchema = _enum(LOGIN_ERRORS);
+const authSessionSchema = object({
+	enabled: boolean(),
+	methods: object({
+		oidc: object({ name: string() }).nullable(),
+		github: boolean(),
+		passkey: boolean()
+	}),
+	session: object({
+		subject: string(),
+		method: authMethodSchema,
+		createdAt: isoDate$5,
+		expiresAt: isoDate$5,
+		csrfToken: string()
+	}).nullable()
+});
+const b64url = string().max(16384).regex(/^[A-Za-z0-9_-]*$/, "must be base64url");
+const passkeyCreationOptionsSchema = object({
+	challenge: b64url,
+	rp: object({
+		id: string(),
+		name: string()
+	}),
+	user: object({
+		id: b64url,
+		name: string(),
+		displayName: string()
+	}),
+	pubKeyCredParams: array(object({
+		type: literal("public-key"),
+		alg: number$1().int()
+	})),
+	timeout: number$1().int().positive(),
+	excludeCredentials: array(object({
+		type: literal("public-key"),
+		id: b64url
+	})),
+	authenticatorSelection: object({
+		residentKey: literal("required"),
+		requireResidentKey: literal(true),
+		userVerification: literal("required")
+	}),
+	attestation: literal("none")
+});
+const passkeyRequestOptionsSchema = object({
+	challenge: b64url,
+	rpId: string(),
+	timeout: number$1().int().positive(),
+	userVerification: literal("required")
+});
+const passkeyRegistrationSchema = object({
+	id: b64url,
+	rawId: b64url,
+	type: literal("public-key"),
+	response: object({
+		clientDataJSON: b64url,
+		attestationObject: b64url,
+		transports: array(string().max(32)).max(10).optional()
+	})
+});
+const passkeyAssertionSchema = object({
+	id: b64url,
+	rawId: b64url,
+	type: literal("public-key"),
+	response: object({
+		clientDataJSON: b64url,
+		authenticatorData: b64url,
+		signature: b64url,
+		userHandle: b64url.nullable().optional()
+	})
+});
+const passkeyName = string().trim().min(1).max(60);
+const setupCodeRequestSchema = object({ code: string().trim().min(1).max(64) });
+const setupCodeResponseSchema = object({
+	enrollmentId: string(),
+	options: passkeyCreationOptionsSchema
+});
+const setupRegisterRequestSchema = object({
+	enrollmentId: string().min(1).max(128),
+	name: passkeyName,
+	credential: passkeyRegistrationSchema
+});
+const addPasskeyRequestSchema = object({
+	name: passkeyName,
+	credential: passkeyRegistrationSchema
+});
+const passkeyLoginRequestSchema = object({ credential: passkeyAssertionSchema });
+const passkeySchema = object({
+	id: id$3,
+	name: string(),
+	createdAt: isoDate$5,
+	lastUsedAt: isoDate$5.nullable(),
+	owner: string(),
+	ownerMethod: passkeyOwnerMethodSchema
+});
+const passkeysResponseSchema = object({ passkeys: array(passkeySchema) });
+const authSessionRowSchema = object({
+	id: string(),
+	subject: string(),
+	method: authMethodSchema,
+	createdAt: isoDate$5,
+	lastSeenAt: isoDate$5,
+	expiresAt: isoDate$5,
+	ip: string().nullable(),
+	userAgent: string().nullable(),
+	current: boolean()
+});
+const authSessionsResponseSchema = object({ sessions: array(authSessionRowSchema) });
+const AUDIT_ACTIONS = [
+	"login",
+	"login_failed",
+	"logout",
+	"passkey_added",
+	"passkey_removed",
+	"session_revoked",
+	"setup_code_issued",
+	"setup_code_used",
+	"auth_reset",
+	"change"
+];
+const auditActionSchema = _enum(AUDIT_ACTIONS);
+const auditEventSchema = object({
+	id: id$3,
+	at: isoDate$5,
+	action: auditActionSchema,
+	actor: string().nullable(),
+	ip: string().nullable(),
+	httpMethod: string().nullable(),
+	path: string().nullable(),
+	status: number$1().int().nullable(),
+	detail: string().nullable()
+});
+const auditQuerySchema = object({
+	before: number().int().positive().optional(),
+	limit: number().int().min(1).max(200).default(50)
+});
+const auditResponseSchema = object({
+	events: array(auditEventSchema),
+	nextBefore: number$1().int().nullable()
+});
 
 // ../../node_modules/.pnpm/yaml@2.9.1/node_modules/yaml/dist/nodes/identity.js
 var require_identity = /* @__PURE__ */ __commonJSMin(((exports) => {
@@ -14070,7 +14235,7 @@ const githubWebhookAckSchema = object({ status: _enum([
 // ../../packages/shared/src/health.ts
 const healthResponseSchema = object({
 	status: literal("ok"),
-	version: string()
+	version: string().optional()
 });
 
 // ../../packages/shared/src/registry-credentials.ts

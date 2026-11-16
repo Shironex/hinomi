@@ -1,5 +1,6 @@
 export * from './access.js'
 export * from './api.js'
+export * from './auth.js'
 export * from './clock.js'
 export * from './compose.js'
 export * from './container-user.js'

@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown'
 // Workspace packages are dev dependencies, so they are bundled into the output.
 // Runtime dependencies stay external and are installed in the image.
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/cli.ts'],
   format: 'esm',
   platform: 'node',
   target: 'node22',

@@ -3,6 +3,28 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { readBuildInfo, type BuildInfo } from './version/build-info.js'
 import { createIpMatcher, InvalidCidrError, normalizeTeamDomain } from './access/index.js'
+import { InvalidAllowRuleError, parseAllowRules, type AllowRule } from './auth/index.js'
+
+/** The built in login (HINOMI_AUTH=1, docs/auth.md). */
+export interface AuthConfig {
+  /** HINOMI_AUTH_PUBLIC_URL as an origin: the only origin changes and passkeys are accepted from. */
+  publicOrigin: string
+  /** The origin is https, so cookies carry Secure and the __Host- prefix. */
+  secure: boolean
+  /** The WebAuthn relying party id: the host name of the public URL. */
+  rpId: string
+  oidc: {
+    issuer: string
+    clientId: string
+    clientSecret: string
+    name: string
+    /** HINOMI_AUTH_OIDC_TOKEN_ORIGIN: another origin the token endpoint may be on, or null. */
+    tokenOrigin: string | null
+  } | null
+  github: { clientId: string; clientSecret: string } | null
+  /** HINOMI_AUTH_ALLOWED, for OpenID Connect and GitHub sign in. */
+  allowed: AllowRule[]
+}
 
 export interface Config {
   host: string
@@ -41,6 +63,8 @@ export interface Config {
   localRunner: { enabled: boolean; checks: boolean; entry: string; path: string }
   /** The running build, from the Docker build args (HINOMI_BUILD_VERSION, _COMMIT, _DATE). */
   build: BuildInfo
+  /** The built in login; null while HINOMI_AUTH is off (the default). */
+  auth: AuthConfig | null
 }
 
 const DEFAULT_PORT = 3000
@@ -69,11 +93,21 @@ const optionalString = z
   .optional()
   .transform((value) => (value === undefined || value.trim() === '' ? undefined : value))
 
+const FLAG_OFF = ['0', 'false', 'no']
+
+/** The on or off switches among the HINOMI_AUTH_* settings. */
+const AUTH_FLAGS = ['HINOMI_AUTH_ALLOW_HTTP']
+
+/** Whether a switch is set to off on purpose (0, false or no), not merely unset. */
+function isExplicitOff(value: string | undefined): boolean {
+  return FLAG_OFF.includes((value ?? '').trim().toLowerCase())
+}
+
 /** An on or off switch: 1, true or yes; 0, false, no or unset. */
 function flagSetting(name: string) {
   return optionalString.transform((value, ctx) => {
     const text = (value ?? '').trim().toLowerCase()
-    if (['', '0', 'false', 'no'].includes(text)) return false
+    if (text === '' || FLAG_OFF.includes(text)) return false
     if (['1', 'true', 'yes'].includes(text)) return true
     ctx.addIssue({ code: 'custom', message: `${name} must be 1 or 0, got "${value ?? ''}"` })
     return z.NEVER
@@ -142,6 +176,58 @@ const envSchema = z.object({
     return origin
   }),
   HINOMI_CF_ACCESS_AUD: optionalString,
+  HINOMI_AUTH: flagSetting('HINOMI_AUTH'),
+  HINOMI_AUTH_ALLOW_HTTP: flagSetting('HINOMI_AUTH_ALLOW_HTTP'),
+  HINOMI_AUTH_PUBLIC_URL: optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
+    const origin = parsePublicOrigin(value)
+    if (!origin) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_AUTH_PUBLIC_URL must be the address people open, like https://hinomi.example.dev (no path), got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return origin
+  }),
+  HINOMI_AUTH_OIDC_ISSUER: optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
+    const issuer = parseIssuer(value)
+    if (!issuer) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_AUTH_OIDC_ISSUER must be the provider's https issuer URL, got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return issuer
+  }),
+  HINOMI_AUTH_OIDC_CLIENT_ID: optionalString,
+  HINOMI_AUTH_OIDC_CLIENT_SECRET: optionalString,
+  HINOMI_AUTH_OIDC_NAME: optionalString,
+  HINOMI_AUTH_OIDC_TOKEN_ORIGIN: optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
+    const origin = parsePublicOrigin(value)
+    if (!origin?.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_AUTH_OIDC_TOKEN_ORIGIN must be an https origin without a path, like https://oauth2.googleapis.com, got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return origin
+  }),
+  HINOMI_AUTH_GITHUB_CLIENT_ID: optionalString,
+  HINOMI_AUTH_GITHUB_CLIENT_SECRET: optionalString,
+  HINOMI_AUTH_ALLOWED: optionalString.transform((value, ctx) => {
+    try {
+      return parseAllowRules(value)
+    } catch (error) {
+      if (!(error instanceof InvalidAllowRuleError)) throw error
+      ctx.addIssue({ code: 'custom', message: `HINOMI_AUTH_ALLOWED: ${error.message}` })
+      return z.NEVER
+    }
+  }),
   HINOMI_LOCAL_RUNNER: flagSetting('HINOMI_LOCAL_RUNNER'),
   HINOMI_LOCAL_RUNNER_CHECKS: flagSetting('HINOMI_LOCAL_RUNNER_CHECKS'),
   PATH: optionalString,
@@ -155,6 +241,125 @@ const envSchema = z.object({
       .optional(),
   ),
 })
+
+const isLocalHost = (hostname: string) =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+
+/** An http(s) origin without path, query or credentials, or null. */
+function parsePublicOrigin(value: string): string | null {
+  try {
+    const url = new URL(value.trim())
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    if (url.pathname !== '/' || url.search || url.hash || url.username || url.password) return null
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
+/** An https issuer URL (http only on this machine, for a local provider), without a trailing slash. */
+function parseIssuer(value: string): string | null {
+  try {
+    const url = new URL(value.trim())
+    if (url.search || url.hash || url.username || url.password) return null
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocalHost(url.hostname))) {
+      return null
+    }
+    return url.href.replace(/\/$/, '')
+  } catch {
+    return null
+  }
+}
+
+type ParsedEnv = z.output<typeof envSchema>
+
+function loadAuthConfig(parsed: ParsedEnv, env: NodeJS.ProcessEnv): AuthConfig | null {
+  const oidcValues = [
+    parsed.HINOMI_AUTH_OIDC_ISSUER,
+    parsed.HINOMI_AUTH_OIDC_CLIENT_ID,
+    parsed.HINOMI_AUTH_OIDC_CLIENT_SECRET,
+  ]
+  const oidcSet = oidcValues.filter((value) => value !== undefined).length
+  // A half configured provider is a startup error, never a silent skip.
+  if (oidcSet !== 0 && oidcSet !== oidcValues.length) {
+    throw new Error(
+      'Invalid configuration: set HINOMI_AUTH_OIDC_ISSUER, HINOMI_AUTH_OIDC_CLIENT_ID and HINOMI_AUTH_OIDC_CLIENT_SECRET together, or none of them',
+    )
+  }
+  if (
+    (parsed.HINOMI_AUTH_GITHUB_CLIENT_ID === undefined) !==
+    (parsed.HINOMI_AUTH_GITHUB_CLIENT_SECRET === undefined)
+  ) {
+    throw new Error(
+      'Invalid configuration: set HINOMI_AUTH_GITHUB_CLIENT_ID and HINOMI_AUTH_GITHUB_CLIENT_SECRET together, or neither',
+    )
+  }
+  if (!parsed.HINOMI_AUTH) {
+    // Login settings without the switch look like a protected install that is not: refuse to
+    // start, unless the login was turned off on purpose with HINOMI_AUTH=0.
+    const explicitOff = isExplicitOff(env.HINOMI_AUTH)
+    const stray = Object.keys(env)
+      .filter((key) => key.startsWith('HINOMI_AUTH_') && (env[key] ?? '').trim() !== '')
+      // A login switch set to off (HINOMI_AUTH_ALLOW_HTTP=0) asks for nothing, so it is not stray.
+      .filter((key) => !(AUTH_FLAGS.includes(key) && isExplicitOff(env[key])))
+      .sort()
+    if (stray.length > 0 && !explicitOff) {
+      throw new Error(
+        `Invalid configuration: ${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} set but HINOMI_AUTH is not, so the login would be off. Set HINOMI_AUTH=1 to turn it on, or HINOMI_AUTH=0 to keep it off on purpose`,
+      )
+    }
+    return null
+  }
+
+  const origin = parsed.HINOMI_AUTH_PUBLIC_URL
+  if (!origin) {
+    throw new Error(
+      'Invalid configuration: HINOMI_AUTH=1 needs HINOMI_AUTH_PUBLIC_URL, the address people open Hinomi at (for example https://hinomi.example.dev)',
+    )
+  }
+  const publicUrl = new URL(origin)
+  if (
+    publicUrl.protocol === 'http:' &&
+    !isLocalHost(publicUrl.hostname) &&
+    !parsed.HINOMI_AUTH_ALLOW_HTTP
+  ) {
+    throw new Error(
+      'Invalid configuration: HINOMI_AUTH_PUBLIC_URL is http on a host other than localhost, so the session cookie would cross the network in the clear. Use https, or set HINOMI_AUTH_ALLOW_HTTP=1 to accept that',
+    )
+  }
+  const oidc =
+    parsed.HINOMI_AUTH_OIDC_ISSUER &&
+    parsed.HINOMI_AUTH_OIDC_CLIENT_ID &&
+    parsed.HINOMI_AUTH_OIDC_CLIENT_SECRET
+      ? {
+          issuer: parsed.HINOMI_AUTH_OIDC_ISSUER,
+          clientId: parsed.HINOMI_AUTH_OIDC_CLIENT_ID,
+          clientSecret: parsed.HINOMI_AUTH_OIDC_CLIENT_SECRET,
+          name: parsed.HINOMI_AUTH_OIDC_NAME?.trim() ?? 'single sign on',
+          tokenOrigin: parsed.HINOMI_AUTH_OIDC_TOKEN_ORIGIN ?? null,
+        }
+      : null
+  const github =
+    parsed.HINOMI_AUTH_GITHUB_CLIENT_ID && parsed.HINOMI_AUTH_GITHUB_CLIENT_SECRET
+      ? {
+          clientId: parsed.HINOMI_AUTH_GITHUB_CLIENT_ID,
+          clientSecret: parsed.HINOMI_AUTH_GITHUB_CLIENT_SECRET,
+        }
+      : null
+  if ((oidc || github) && parsed.HINOMI_AUTH_ALLOWED.length === 0) {
+    throw new Error(
+      'Invalid configuration: OpenID Connect or GitHub sign in needs HINOMI_AUTH_ALLOWED (emails, @domains, github:id:<number>, github:<login> or oidc:<subject>), or anyone with an account there could sign in',
+    )
+  }
+  return {
+    publicOrigin: origin,
+    secure: publicUrl.protocol === 'https:',
+    rpId: publicUrl.hostname,
+    oidc,
+    github,
+    allowed: parsed.HINOMI_AUTH_ALLOWED,
+  }
+}
 
 /** Default data dir: `/data` in production (the container volume), `./data` in dev. */
 function defaultDataDir(nodeEnv: string | undefined): string {
@@ -209,5 +414,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       path: parsed.PATH ?? '/usr/local/bin:/usr/bin:/bin',
     },
     build: readBuildInfo(env),
+    auth: loadAuthConfig(parsed, env),
   }
 }

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { setCsrfToken, setUnauthenticatedHandler } from '@/lib/api'
 
 // Testing Library waits 1 s by default, tuned for an idle machine. Rendering a route here is a
 // waterfall (plans, the runs of every repo, the selected one) that takes about a second at a
@@ -33,5 +34,7 @@ Object.defineProperty(window, 'scrollTo', { configurable: true, value: vi.fn() }
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  setCsrfToken(null)
+  setUnauthenticatedHandler(null)
   document.documentElement.classList.remove('dark')
 })

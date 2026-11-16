@@ -45,7 +45,7 @@ Deliveries for repos Hinomi does not track, and events not listed, are acknowled
 
 ## Expose only the webhook path
 
-Hinomi has no login and is meant to be reachable only over Tailscale or behind Cloudflare Access ([access.md](access.md)). GitHub can reach neither, so the webhook needs a public route to exactly one path, `POST /api/github/webhook`, with everything else still private. The receiver is built for that: it checks nothing else about the request before the signature verifies, does not depend on the access status, and answers 404 like any unknown route while the webhook is off.
+Hinomi is meant to be reachable only over Tailscale or behind Cloudflare Access ([access.md](access.md)); with the [built in login](auth.md) on, the receiver stays public and checks only its signature. GitHub can reach neither, so the webhook needs a public route to exactly one path, `POST /api/github/webhook`, with everything else still private. The receiver is built for that: it checks nothing else about the request before the signature verifies, does not depend on the access status, and answers 404 like any unknown route while the webhook is off.
 
 ### The webhook only port (recommended)
 

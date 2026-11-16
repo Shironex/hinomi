@@ -7,6 +7,7 @@ export interface ApiCall {
   path: string
   search: URLSearchParams
   body: unknown
+  headers: Headers
 }
 
 /** `reply(400, {...})` for a non 2xx answer; any other return value is sent as JSON with 200. */
@@ -23,7 +24,9 @@ export const reply = (status: number, body?: unknown) => new Reply(status, body)
  * and without the query string). Unknown routes answer 404, so a test fails
  * loudly when a screen calls something it did not expect.
  */
-export function mockApi(routes: Record<string, unknown>) {
+export function mockApi(given: Record<string, unknown>) {
+  // Every page asks whether the built in login is on; off unless a test says otherwise.
+  const routes: Record<string, unknown> = { 'GET /auth/session': loginOff, ...given }
   const calls: ApiCall[] = []
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const href = input instanceof Request ? input.url : input.toString()
@@ -31,7 +34,13 @@ export function mockApi(routes: Record<string, unknown>) {
     const method = (init?.method ?? 'GET').toUpperCase()
     const path = url.pathname.replace(/^\/api/, '')
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
-    calls.push({ method, path, search: url.searchParams, body })
+    calls.push({
+      method,
+      path,
+      search: url.searchParams,
+      body,
+      headers: new Headers(init?.headers),
+    })
     const key = `${method} ${path}`
     if (!(key in routes)) {
       return Promise.resolve(
@@ -61,6 +70,27 @@ export function mockApi(routes: Record<string, unknown>) {
 }
 
 // Fictional fixtures --------------------------------------------------------
+
+/** GET /auth/session while HINOMI_AUTH is off (the default). */
+export const loginOff = {
+  enabled: false,
+  methods: { oidc: null, github: false, passkey: false },
+  session: null,
+}
+
+/** GET /auth/session with the login on and a passkey session (csrf token included). */
+export const loginOn = (over: Record<string, unknown> = {}) => ({
+  enabled: true,
+  methods: { oidc: { name: 'Authentik' }, github: true, passkey: true },
+  session: {
+    subject: 'ops@example.dev',
+    method: 'passkey',
+    createdAt: '2026-11-05T09:00:00.000Z',
+    expiresAt: '2026-11-12T09:00:00.000Z',
+    csrfToken: 'csrf-fictional-0001',
+  },
+  ...over,
+})
 
 const at = '2026-11-05T10:00:00.000Z'
 

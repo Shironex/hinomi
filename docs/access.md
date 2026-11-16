@@ -1,6 +1,6 @@
 # Access status
 
-Hinomi has no login yet, so it must sit behind something that has one: Tailscale or Cloudflare Access. On every page load the SPA asks `GET /api/access` how the current request reached the server and shows the answer in the top bar, in onboarding and under Settings, Access.
+Unless its [built in login](auth.md) is on, Hinomi must sit behind something that has one: Tailscale or Cloudflare Access. On every page load the SPA asks `GET /api/access` how the current request reached the server and shows the answer in the top bar, in onboarding and under Settings, Access.
 
 | State | Shown as | When |
 |---|---|---|
@@ -11,6 +11,8 @@ Hinomi has no login yet, so it must sit behind something that has one: Tailscale
 | `unknown` | Amber: the old warning, with the address Hinomi saw | Loopback, a LAN or Docker bridge address, or no address |
 
 They are checked in that order. The answer is per request: two people on different paths can see different states.
+
+With the [built in login](auth.md) on, a public address is shown as "Public, login required" in amber instead of the red bar, since every request needs a session; Tailscale or Cloudflare Access in front still keep the login page itself private.
 
 The one route meant to be public is the optional [GitHub webhook](github-webhook.md) receiver, `POST /api/github/webhook`. It does not use the access status at all: it answers only deliveries signed with its secret, and 404 while it is off. Expose that path alone (or the `HINOMI_WEBHOOK_PORT` listener, which serves nothing else), never the whole server.
 

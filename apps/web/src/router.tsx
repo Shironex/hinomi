@@ -7,7 +7,10 @@ import {
   redirect,
   type RouterHistory,
 } from '@tanstack/react-router'
-import { AppShell } from '@/components/shell/app-shell'
+import { loginErrorSchema } from '@hinomi/shared'
+import { z } from 'zod'
+import { RootLayout } from '@/components/shell/root-layout'
+import { authSessionQuery } from '@/lib/auth-api'
 import { alertsSearchSchema } from '@/lib/alerts-search'
 import { deploymentsSearchSchema } from '@/lib/deployments-search'
 import { exposureSearchSchema } from '@/lib/exposure-search'
@@ -25,7 +28,20 @@ export interface RouterContext {
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: AppShell,
+  component: RootLayout,
+  // With the built in login on, every page but the login page needs a session. When the session
+  // cannot be read (an older server, a network blip) stay put: the API itself answers 401 then.
+  beforeLoad: async ({ context, location }) => {
+    if (location.pathname === '/login') return
+    const auth = await context.queryClient
+      .fetchQuery({ ...authSessionQuery, retry: false })
+      .catch(() => null)
+    if (auth?.enabled && !auth.session) {
+      // TanStack Router redirects by throwing its redirect object.
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw redirect({ to: '/login', search: { next: location.href } })
+    }
+  },
   notFoundComponent: NotFoundPage,
   staticData: {},
 })
@@ -138,7 +154,26 @@ const onboardingRoute = createRoute({
   staticData: { nav: 'onboarding', crumb: 'Set up', layout: 'setup' },
 })
 
+/** Where a login goes back to: a path on this site only. */
+const loginSearchSchema = z.object({
+  next: z
+    .string()
+    .regex(/^\/(?![/\\])/)
+    .optional()
+    .catch(undefined),
+  error: loginErrorSchema.optional().catch(undefined),
+})
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: lazyRouteComponent(() => import('@/routes/login'), 'LoginPage'),
+  validateSearch: loginSearchSchema,
+  staticData: { crumb: 'Sign in', layout: 'auth' },
+})
+
 export const routeTree = rootRoute.addChildren([
+  loginRoute,
   overviewRoute,
   alertsRoute,
   findingRoute,

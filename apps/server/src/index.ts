@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createCfAccessVerifier, createIpMatcher } from './access/index.js'
 import { createApp, createWebhookApp } from './app.js'
+import { createAuthCore } from './auth/index.js'
 import { loadConfig } from './config.js'
 import { createConsoleLogger } from './log.js'
 import { createNotifier, readNotifySettings } from './notify/index.js'
@@ -36,11 +37,47 @@ log.info('database ready', { file: config.databaseFile })
 if (!storage.secretBox) {
   log.warn('HINOMI_SECRET_KEY is not set: sources cannot be connected until it is')
 }
-log.warn(
-  'Hinomi has no login yet: run it behind Tailscale or Cloudflare Access and never expose the port to the internet',
-)
 if (config.trustedProxies.length > 0) {
   log.info('access: trusting forwarded headers', { proxies: config.trustedProxies })
+}
+const accessOptions = {
+  ...(config.trustedProxies.length > 0 && {
+    isTrustedProxy: createIpMatcher(config.trustedProxies),
+  }),
+  ...(config.cfAccess && { cfAccess: createCfAccessVerifier(config.cfAccess) }),
+}
+const auth = createAuthCore({
+  config: config.auth,
+  repositories: storage.repositories,
+  access: accessOptions,
+  log,
+})
+auth.startup()
+if (!config.auth) {
+  log.warn(
+    'Hinomi login is off (HINOMI_AUTH): run it behind Tailscale or Cloudflare Access, or turn the login on, and never expose the port to the internet otherwise',
+  )
+} else {
+  log.info('auth: login required', {
+    url: config.auth.publicOrigin,
+    oidc: config.auth.oidc !== null,
+    github: config.auth.github !== null,
+    passkeys: storage.repositories.auth.passkeys.count(),
+  })
+  if (!config.auth.secure) {
+    log.warn(
+      'auth: HINOMI_AUTH_PUBLIC_URL is not https, so the session cookie is sent in the clear',
+    )
+  }
+  if (
+    storage.repositories.auth.passkeys.count() === 0 &&
+    !config.auth.oidc &&
+    !config.auth.github
+  ) {
+    log.warn(
+      'auth: no passkey yet. Run `node apps/server/dist/cli.mjs setup-code` in the container and enter the code on the login page',
+    )
+  }
 }
 if (config.cfAccess)
   log.info('access: verifying Cloudflare Access tokens', {
@@ -178,12 +215,8 @@ const app = createApp({
     webhookRunner,
     localRunner,
   },
-  access: {
-    ...(config.trustedProxies.length > 0 && {
-      isTrustedProxy: createIpMatcher(config.trustedProxies),
-    }),
-    ...(config.cfAccess && { cfAccess: createCfAccessVerifier(config.cfAccess) }),
-  },
+  access: accessOptions,
+  auth,
   log,
 })
 

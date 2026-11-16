@@ -10,6 +10,7 @@ describe('loadConfig', () => {
     expect(config.dataDir).toBe(resolve('data'))
     expect(config.databaseFile).toBe(resolve('data', 'hinomi.db'))
     expect(config.secretKey).toBeUndefined()
+    expect(config.auth).toBeNull()
   })
 
   it('defaults the data dir to /data in production', () => {
@@ -116,5 +117,162 @@ describe('loadConfig', () => {
         HINOMI_CF_ACCESS_AUD: 'a',
       }),
     ).toThrow(/HINOMI_CF_ACCESS_TEAM_DOMAIN must be/)
+  })
+
+  describe('built in login', () => {
+    const on = { HINOMI_AUTH: '1', HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev/' }
+
+    it('stays off by default, and off on purpose with HINOMI_AUTH=0', () => {
+      expect(loadConfig({}).auth).toBeNull()
+      expect(
+        loadConfig({ HINOMI_AUTH: '0', HINOMI_AUTH_PUBLIC_URL: 'https://x.example.dev' }).auth,
+      ).toBeNull()
+    })
+
+    it('refuses to start with login settings but no HINOMI_AUTH (fails closed)', () => {
+      expect(() =>
+        loadConfig({
+          HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev',
+          HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+        }),
+      ).toThrow(
+        'Invalid configuration: HINOMI_AUTH_ALLOWED, HINOMI_AUTH_PUBLIC_URL are set but HINOMI_AUTH is not, so the login would be off. Set HINOMI_AUTH=1 to turn it on, or HINOMI_AUTH=0 to keep it off on purpose',
+      )
+      expect(() =>
+        loadConfig({ HINOMI_AUTH: '', HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL is set but HINOMI_AUTH is not/)
+    })
+
+    it('does not count a login switch set to off as a login setting', () => {
+      for (const off of ['0', 'false', 'no']) {
+        expect(loadConfig({ HINOMI_AUTH_ALLOW_HTTP: off }).auth).toBeNull()
+      }
+      expect(() => loadConfig({ HINOMI_AUTH_ALLOW_HTTP: '1' })).toThrow(
+        /HINOMI_AUTH_ALLOW_HTTP is set but HINOMI_AUTH is not/,
+      )
+    })
+
+    it('refuses an http public URL off this machine unless HINOMI_AUTH_ALLOW_HTTP=1', () => {
+      expect(() =>
+        loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'http://hinomi.example.dev' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL is http on a host other than localhost/)
+      for (const local of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000']) {
+        expect(loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: local }).auth?.secure).toBe(false)
+      }
+      expect(
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_PUBLIC_URL: 'http://hinomi.example.dev',
+          HINOMI_AUTH_ALLOW_HTTP: '1',
+        }).auth,
+      ).toMatchObject({ secure: false, rpId: 'hinomi.example.dev' })
+    })
+
+    it('reads the token origin of an OpenID Connect provider such as Google', () => {
+      const env = {
+        ...on,
+        HINOMI_AUTH_OIDC_ISSUER: 'https://accounts.google.com',
+        HINOMI_AUTH_OIDC_CLIENT_ID: 'a',
+        HINOMI_AUTH_OIDC_CLIENT_SECRET: 'b',
+        HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+      }
+      expect(
+        loadConfig({ ...env, HINOMI_AUTH_OIDC_TOKEN_ORIGIN: 'https://oauth2.googleapis.com/' }).auth
+          ?.oidc?.tokenOrigin,
+      ).toBe('https://oauth2.googleapis.com')
+      expect(() =>
+        loadConfig({ ...env, HINOMI_AUTH_OIDC_TOKEN_ORIGIN: 'http://oauth2.googleapis.com' }),
+      ).toThrow(/HINOMI_AUTH_OIDC_TOKEN_ORIGIN must be an https origin/)
+    })
+
+    it('turns on with passkeys only', () => {
+      expect(loadConfig(on).auth).toEqual({
+        publicOrigin: 'https://hinomi.example.dev',
+        secure: true,
+        rpId: 'hinomi.example.dev',
+        oidc: null,
+        github: null,
+        allowed: [],
+      })
+    })
+
+    it('needs the public URL', () => {
+      expect(() => loadConfig({ HINOMI_AUTH: '1' })).toThrow(/needs HINOMI_AUTH_PUBLIC_URL/)
+      expect(() =>
+        loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'https://x.example.dev/hinomi' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL must be/)
+    })
+
+    it('marks an http public URL as not secure', () => {
+      const auth = loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'http://localhost:3000' }).auth
+      expect(auth).toMatchObject({
+        secure: false,
+        rpId: 'localhost',
+        publicOrigin: 'http://localhost:3000',
+      })
+    })
+
+    it('reads OpenID Connect and GitHub with an allow list', () => {
+      const auth = loadConfig({
+        ...on,
+        HINOMI_AUTH_OIDC_ISSUER: 'https://id.example.dev/application/o/hinomi/',
+        HINOMI_AUTH_OIDC_CLIENT_ID: 'hinomi',
+        HINOMI_AUTH_OIDC_CLIENT_SECRET: 'fictional-secret',
+        HINOMI_AUTH_OIDC_NAME: 'Kestrel ID',
+        HINOMI_AUTH_GITHUB_CLIENT_ID: 'gh',
+        HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'gh-fictional',
+        HINOMI_AUTH_ALLOWED: 'ops@example.dev,github:kestrel-ops',
+      }).auth
+      expect(auth?.oidc).toEqual({
+        issuer: 'https://id.example.dev/application/o/hinomi',
+        clientId: 'hinomi',
+        clientSecret: 'fictional-secret',
+        name: 'Kestrel ID',
+        tokenOrigin: null,
+      })
+      expect(auth?.github).toEqual({ clientId: 'gh', clientSecret: 'gh-fictional' })
+      expect(auth?.allowed).toHaveLength(2)
+    })
+
+    it('refuses a provider without an allow list, so not every account there gets in', () => {
+      expect(() =>
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_GITHUB_CLIENT_ID: 'gh',
+          HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'x',
+        }),
+      ).toThrow(/needs HINOMI_AUTH_ALLOWED/)
+    })
+
+    it('refuses half a provider and a bad allow entry, without echoing secrets', () => {
+      expect(() => loadConfig({ ...on, HINOMI_AUTH_OIDC_CLIENT_SECRET: 'do-not-echo' })).toThrow(
+        /together, or none of them/,
+      )
+      const thrown = (() => {
+        try {
+          loadConfig({ ...on, HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'do-not-echo' })
+          return ''
+        } catch (error) {
+          return String(error)
+        }
+      })()
+      expect(thrown).toMatch(/together, or neither/)
+      expect(thrown).not.toContain('do-not-echo')
+      expect(() => loadConfig({ ...on, HINOMI_AUTH_ALLOWED: 'everyone' })).toThrow(
+        /HINOMI_AUTH_ALLOWED/,
+      )
+    })
+
+    it('refuses an http issuer unless it is on this machine', () => {
+      expect(() =>
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_OIDC_ISSUER: 'http://id.example.dev',
+          HINOMI_AUTH_OIDC_CLIENT_ID: 'a',
+          HINOMI_AUTH_OIDC_CLIENT_SECRET: 'b',
+          HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+        }),
+      ).toThrow(/HINOMI_AUTH_OIDC_ISSUER must be/)
+    })
   })
 })
