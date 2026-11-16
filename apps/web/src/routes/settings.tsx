@@ -4,6 +4,7 @@ import {
   IconCheck,
   IconInfoCircle,
   IconClock,
+  IconHistory,
   IconLock,
   IconPalette,
   IconPlug,
@@ -16,6 +17,8 @@ import {
 } from '@tabler/icons-react'
 import { AccessCallout } from '@/components/access-callout'
 import { AboutSection } from '@/components/settings/about-section'
+import { AuditSection } from '@/components/settings/audit-section'
+import { LoginSection } from '@/components/settings/login-section'
 import { ChecksSection } from '@/components/settings/checks-section'
 import { MappingSection } from '@/components/settings/mapping-section'
 import { NotificationsSection } from '@/components/settings/notifications-section'
@@ -54,6 +57,7 @@ const SECTIONS: readonly SectionMeta[] = [
   { key: 'webhook', label: 'GitHub webhook', icon: IconWebhook },
   { key: 'runner', label: 'Webhook runner', icon: IconSend },
   { key: 'access', label: 'Access', icon: IconLock },
+  { key: 'audit', label: 'Audit log', icon: IconHistory },
   { key: 'appearance', label: 'Appearance', icon: IconPalette },
   { key: 'about', label: 'About', icon: IconInfoCircle },
 ]
@@ -191,7 +195,19 @@ function SectionDetail({
           note="Who can open this page, and the server it talks to"
         >
           <AccessCallout />
+          <LoginSection />
           <AccessFacts healthPending={healthPending} />
+        </SettingsSection>
+      )
+    case 'audit':
+      return (
+        <SettingsSection
+          id="settings-audit"
+          title="Audit log"
+          note="Newest first"
+          intro="Sign ins, refused sign ins, passkeys and sessions, and every change made in Hinomi: a decision on a finding, a setting, a source. Request bodies and secrets are never kept."
+        >
+          <AuditSection />
         </SettingsSection>
       )
     case 'appearance':

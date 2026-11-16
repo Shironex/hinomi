@@ -44,6 +44,7 @@ const ERROR_TAXONOMY = [
   'InvalidCidrError',
   'LocalStepError',
   'OidcError',
+  'PasskeyCancelled',
   'OsvRequestError',
   'RegistryError',
   'SchedulerClosedError',

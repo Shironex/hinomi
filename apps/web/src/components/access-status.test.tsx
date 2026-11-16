@@ -26,7 +26,7 @@ describe('access status', () => {
     await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText('Protected by Tailscale as ops@example.dev')).toBeVisible()
-    expect(access.queryByText('Hinomi has no login yet')).not.toBeInTheDocument()
+    expect(access.queryByText('The built in login is off')).not.toBeInTheDocument()
     expect(access.getByRole('link', { name: /How Hinomi detects this/ })).toHaveAttribute(
       'href',
       expect.stringContaining('docs/access.md'),
@@ -120,7 +120,7 @@ describe('access status', () => {
     await renderApp('/settings?sel=access')
     const access = await accessSection()
     expect(await access.findByText(/a private or container address/)).toBeVisible()
-    expect(access.getByText('Hinomi has no login yet')).toBeVisible()
+    expect(access.getByText('The built in login is off')).toBeVisible()
     const topBar = within(screen.getByRole('banner'))
     expect(topBar.getByRole('link', { name: 'Access not detected' })).toBeInTheDocument()
   })
@@ -129,7 +129,7 @@ describe('access status', () => {
     mockApi({ ...configuredRoutes(), 'GET /access': reply(500) })
     await renderApp('/settings?sel=access')
     const access = await accessSection()
-    expect(await access.findByText('Hinomi has no login yet')).toBeVisible()
+    expect(await access.findByText('The built in login is off')).toBeVisible()
   })
 
   it('replaces the onboarding warning too', async () => {

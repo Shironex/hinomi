@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useScanStatus } from '@/hooks/use-shell-data'
 import { accessLabel, useAccessStatus } from '@/hooks/use-access'
+import { authSessionQuery } from '@/lib/auth-api'
 import { formatClock, formatRelative } from '@/lib/format'
 import {
   channelsQuery,
@@ -25,6 +26,7 @@ export type SettingsSectionKey =
   | 'webhook'
   | 'runner'
   | 'access'
+  | 'audit'
   | 'appearance'
   | 'about'
 
@@ -62,6 +64,7 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
   const overrides = useQuery(overridesQuery)
   const scan = useScanStatus()
   const access = useAccessStatus()
+  const auth = useQuery(authSessionQuery)
   const theme = useTheme()
 
   const out: Partial<Record<SettingsSectionKey, string>> = {}
@@ -141,7 +144,10 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
           : 'Not configured'
   }
 
-  if (access) out.access = accessLabel(access)
+  if (access) {
+    const login = auth.data ? (auth.data.enabled ? 'login on' : 'login off') : null
+    out.access = [accessLabel(access, auth.data?.enabled), login].filter(Boolean).join(', ')
+  }
   out.appearance = `${THEME_LABEL[theme]} theme`
 
   if (version.data) {

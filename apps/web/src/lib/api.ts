@@ -1,4 +1,4 @@
-import { apiErrorSchema } from '@hinomi/shared'
+import { apiErrorSchema, CSRF_HEADER } from '@hinomi/shared'
 import type { z } from 'zod'
 
 export const API_BASE = '/api'
@@ -35,6 +35,23 @@ export class ApiError extends Error {
     this.body = body
   }
 }
+
+/**
+ * The session's CSRF token (GET /api/auth/session sets it), sent with every change while the
+ * built in login is on. Null when the login is off or nobody is signed in.
+ */
+let csrfToken: string | null = null
+export function setCsrfToken(token: string | null): void {
+  csrfToken = token
+}
+
+/** Called when the server says the session is gone, so the app can go to the login page. */
+let onUnauthenticated: (() => void) | null = null
+export function setUnauthenticatedHandler(handler: (() => void) | null): void {
+  onUnauthenticated = handler
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
   /** Serialized as JSON with the matching content type. */
@@ -78,6 +95,8 @@ export async function request<S extends z.ZodType>(
   const finalHeaders = new Headers(headers)
   finalHeaders.set('accept', 'application/json')
   if (json !== undefined) finalHeaders.set('content-type', 'application/json')
+  const method = (init.method ?? 'GET').toUpperCase()
+  if (csrfToken && !SAFE_METHODS.has(method)) finalHeaders.set(CSRF_HEADER, csrfToken)
 
   let res: Response
   try {
@@ -95,6 +114,7 @@ export async function request<S extends z.ZodType>(
     // An error page from a proxy is often HTML; fall back to the status line.
     const body = await readBody(res, path).catch(() => undefined)
     const { code, message } = serverError(body)
+    if (res.status === 401 && code === 'unauthenticated') onUnauthenticated?.()
     throw new ApiError('http', path, message ?? `The server answered ${res.status}`, {
       status: res.status,
       ...(code !== undefined && { code }),

@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { IconLock, IconShieldCheck, IconWorld } from '@tabler/icons-react'
-import { accessLabel, accessTone, useAccessStatus } from '@/hooks/use-access'
+import { accessLabel, accessTone, useAccessStatus, useLoginEnabled } from '@/hooks/use-access'
 import { cn } from '@/lib/utils'
 
 const ICON = { ok: IconShieldCheck, warn: IconLock, danger: IconWorld } as const
@@ -13,10 +13,11 @@ const ICON_COLOR = { ok: 'text-success', warn: 'text-wait', danger: 'text-sev-cr
  */
 export function AccessStatusLink() {
   const status = useAccessStatus()
+  const loginOn = useLoginEnabled()
   if (!status) return null
-  const tone = accessTone(status)
+  const tone = accessTone(status, loginOn)
   const IconCmp = ICON[tone]
-  const label = accessLabel(status)
+  const label = accessLabel(status, loginOn)
   return (
     <Link
       to="/settings"
@@ -37,10 +38,11 @@ export function AccessStatusLink() {
   )
 }
 
-/** A red bar over every page while Hinomi is reached from a public address. */
+/** A red bar over every page while Hinomi is reached from a public address without the login. */
 export function PublicAccessBanner() {
   const status = useAccessStatus()
-  if (status?.state !== 'public') return null
+  const loginOn = useLoginEnabled()
+  if (status?.state !== 'public' || loginOn) return null
   return (
     <div
       role="alert"
@@ -50,7 +52,7 @@ export function PublicAccessBanner() {
       <span>
         <b className="font-semibold">Reachable from the internet.</b>{' '}
         <span className="text-foreground-2">
-          Hinomi has no login and this request came from a public address.
+          The built in login is off and this request came from a public address.
         </span>{' '}
         <Link
           to="/settings"

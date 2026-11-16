@@ -29,6 +29,20 @@ export function formatClock(iso: string): string {
   return Number.isNaN(then) ? iso : clock.format(then)
 }
 
+const dateTime = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/** "16 Nov 2026, 18:00" in the viewer's time zone. */
+export function formatDateTime(iso: string): string {
+  const then = Date.parse(iso)
+  return Number.isNaN(then) ? iso : dateTime.format(then)
+}
+
 const count = new Intl.NumberFormat('en-US')
 
 /** "1 repo", "1,204 repos". */

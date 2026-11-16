@@ -2,6 +2,7 @@ import { render } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
 import { App } from '@/App'
 import { createQueryClient } from '@/lib/queries'
+import { installSessionGuard } from '@/lib/session-guard'
 import { createAppRouter } from '@/router'
 
 /** Renders the whole app (shell, router, query client) at `path`. */
@@ -12,6 +13,7 @@ export async function renderApp(path = '/') {
     queryClient,
     history: createMemoryHistory({ initialEntries: [path] }),
   })
+  installSessionGuard(router, queryClient)
   await router.load()
   // Route views are lazy chunks. Load the matched ones here so the cold import (slow on a busy
   // machine) is not counted inside the first findBy of the test, which only waits one second.
