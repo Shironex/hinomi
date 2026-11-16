@@ -144,7 +144,7 @@ The Exposure view lists the first two tiers, and its By fix tab groups them by t
 
 ### Blind spots
 
-A deployed repo with no advisory coverage is reported as a finding instead of staying silent: Dependabot alerts switched off, alerts the token cannot read, an archived repo that is still deployed, a deployment with no repo mapped, and a lockfile that is missing or cannot be parsed.
+A deployed repo with no advisory coverage is reported as a finding instead of staying silent: Dependabot alerts switched off, alerts the token cannot read, a deployment with no repo mapped, and a lockfile that is missing or cannot be parsed. A deployment that still runs an archived repo is a guard finding (see [docs/guards.md](docs/guards.md#archived-repo-still-deployed)).
 
 ### Notifications
 

@@ -36,7 +36,7 @@ Status: decided 2026-11-07 (see "Decisions taken" before section 13). Covers #66
 
 - The scan phases (deployments, alerts, lockfiles, matching, ranking). Guards evaluate in the ranking phase, next to `applyBlindSpots`, in the same transaction pattern.
 - The rank formula `reach*10 + runtime*5 + severity(1..4) + cvss/100`, the dedupe by `dedupeKey`, the states, `finding_events`, snooze and accept.
-- The existing blind spots and the `image_only` coverage note. `archived_deployed` stays a blind spot (Q5).
+- The existing blind spots and the `image_only` coverage note. `archived_deployed` stayed a blind spot (Q5) until #171 made it a guard check (section 4.6).
 - The notifier's rules: first scan or more than 10 items sends one summary, per channel minimum severity, dedupe per (event, channel), coverage notes never sent.
 - The fix runner and its contract version 1.
 - One container plus SQLite. Nothing new is required to boot; every new source and the image scan are inert until configured.
@@ -76,7 +76,7 @@ export const FINDING_TIERS = [
 ] as const
 ```
 
-`archived_deployed` keeps its blind spot type. The override table accepts any check id from `GUARD_CHECKS` or `BLIND_SPOT_TYPES`, so a blind spot can be turned off per deployment with a reason too (Q5).
+The override table accepts any check id from `GUARD_CHECKS` or `BLIND_SPOT_TYPES`, so a blind spot can be turned off per deployment with a reason too (Q5). `archived_deployed` kept its blind spot type here; since #171 it is also a guard check with the same id (old rows only), see section 4.6.
 
 ### 2.2 Table shape
 
@@ -140,6 +140,7 @@ Guard findings use the existing formula with a per check severity table, exactly
 | `watch_paths_skip` | (no fail level) | moderate |
 | `runtime_pins_disagree` | (no fail level) | low |
 | `action_runtime` | moderate (deprecated runtime) | low (inside the window) |
+| `archived_deployed` | high (archived repo still deployed, #171) | (no warn level) |
 
 `rank = REACH_WEIGHT[reach]*10 + (running ? 5 : 0) + severity`, with no cvss part. Repo subject findings take the best reach of the repo's running deployments, the same way advisory findings do today, and `none` when nothing is deployed.
 
@@ -359,6 +360,8 @@ Tests: fictional `kestrel-web` lockfile with `next@15.5.29`, `now = 2026-11-08`,
 ### 4.6 `archived_deployed`
 
 Already a blind spot (`REPO_BLIND_SPOTS`, high). It stays a blind spot (Q5): it is about lost coverage (no more fixes upstream), and its rows and history already exist. What changes: the override table accepts `archived_deployed`, so it can be turned off per deployment with a reason ("archived on purpose, frozen internal tool"), and the deployment detail lists it in the guards panel next to the guard checks.
+
+Later (#171): `archived_deployed` became a guard check with the same id, one finding per deployment, with `unknown` when GitHub cannot see the repo or access was lost. An old blind spot row hands over to the guard once the guard has an outcome for every deployment of the repo (resolved with `moved_to_guard`); a snooze or time limited acceptance carries to a deployment's guard row in the scan it opens, only when every bad repo of that deployment was deferred, and another repo turning archived lifts it; overrides keep working because the id did not change, and a repo override turns off that repo's entry only. See [guards.md](../guards.md#archived-repo-still-deployed).
 
 ### 4.7 Runtime checks
 
@@ -677,7 +680,7 @@ These win over the options in section 13 and over anything earlier in this docum
 - **Q2.** Guard findings sit in the reach tiers next to advisories, told apart by a kind chip.
 - **Q3.** Turning a check off keeps it running; the finding is stored as accepted with the reason.
 - **Q4.** Turn off per deployment and per repo.
-- **Q5.** `archived_deployed` stays a blind spot and can be turned off through the same override table.
+- **Q5.** `archived_deployed` stays a blind spot and can be turned off through the same override table. Superseded by #171: it is a guard check now (section 4.6).
 - **Q6.** Framework support: direct runtime dependencies matched to endoflife.date products by purl, flagged near or past end of security support.
 - **Q7.** No "behind the latest patch" check; advisories cover it.
 - **Q8.** Warning window 90 days, configurable.

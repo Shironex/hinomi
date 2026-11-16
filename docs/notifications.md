@@ -17,11 +17,11 @@ Items go out most urgent first (highest exposure rank: criticals on public apps 
 
 Coverage notes (a deployment with no git source, covered by the image scan later) are never sent, right away or in the digest. Guard findings at level `unknown` (the source cannot give the signal) are never sent either. A guard that opens at `warn` goes to the digest only. A better level (`level_changed`) and a scan that finds the same level send nothing. A guard or blind spot whose check is turned off (see [guards.md](guards.md)) is never sent.
 
-**Daily digest**, once a day at the configured hour (server local time, default 08:00), only if something changed since the last digest: new and reopened findings that were not announced already, guard escalations that were not announced already, fixed findings, resolved blind spots and guards, and ended snoozes or acceptances. A digest carries at most 30 items (most severe first); the summary says how many were left out.
+**Daily digest**, once a day at the configured hour (server local time, default 08:00), only if something changed since the last digest: new and reopened findings that were not announced already, guard escalations that were not announced already, fixed findings, resolved blind spots and guards (not an old `archived_deployed` blind spot the guard check took over), and ended snoozes or acceptances. A digest carries at most 30 items (most severe first); the summary says how many were left out.
 
 A finding is never announced twice. Each channel remembers which `opened`, `reopened` or `escalated` event it announced; the same event is never sent again, a new `reopened` event is. That record is written as soon as each message is delivered, so a send cut short (a restart, a failed delivery) keeps what already went out. If an immediate message could not be delivered, the finding is not marked as sent, so the next digest carries it.
 
-Each channel has a minimum severity (`low`, `moderate`, `high`, `critical`). Blind spots count with the severity shown in the app (alerts disabled is `critical`, alerts unknown and archived but deployed are `high`, the rest `moderate`). Guards count with the severity of their check and level (see [guards.md](guards.md), for example a mounted Docker socket is `critical`, a root container at `fail` is `high`).
+Each channel has a minimum severity (`low`, `moderate`, `high`, `critical`). Blind spots count with the severity shown in the app (alerts disabled is `critical`, alerts unknown is `high`, the rest `moderate`). Guards count with the severity of their check and level (see [guards.md](guards.md), for example a mounted Docker socket is `critical`, a root container or an archived repo still deployed at `fail` is `high`).
 
 ## Fix run events
 
@@ -154,7 +154,7 @@ Sending is tried up to 3 times with a backoff of 2 s and 4 s on network errors a
 - `omitted`: items cut from a digest or a summary by the limit, otherwise 0.
 - `counts` and `link`, only on a `summary`: `{ total, byTier, bySeverity }` over every item the summary stands for (`byTier` keys are the tiers of the alerts list, only those with items), and the exposure view URL (`null` without a public base URL). `items` holds the 5 most urgent.
 - `event`: `opened`, `reopened`, `fixed`, `resolved` (blind spot or guard cleared), `expired` (snooze or acceptance ended) or `escalated` (a guard's level got worse).
-- `kind`: `advisory`, `blind_spot` or `guard`. For blind spots `blindSpotType` is one of `alerts_disabled`, `alerts_unknown`, `archived_deployed`, `no_repo_mapping`, `lockfile_missing`, `lockfile_unparseable`, and `title` is a readable description. For guards `guardCheck` is the check (see [guards.md](guards.md)), `guardLevel` is `warn` or `fail`, `title` is the check's title and `summary` its explanation for that level.
+- `kind`: `advisory`, `blind_spot` or `guard`. For blind spots `blindSpotType` is one of `alerts_disabled`, `alerts_unknown`, `no_repo_mapping`, `lockfile_missing`, `lockfile_unparseable` (`archived_deployed` only on resolved rows from before it became a guard check), and `title` is a readable description. For guards `guardCheck` is the check (see [guards.md](guards.md)), `guardLevel` is `warn` or `fail`, `title` is the check's title and `summary` its explanation for that level.
 - `severity`: `critical`, `high`, `moderate` or `low`.
 - Fields that do not apply are `null` (or an empty array); `url` is `null` without a public base URL.
 - `reach` is `public`, `internal` or `unknown`.
