@@ -143,6 +143,15 @@ describe('loadConfig', () => {
       ).toThrow(/HINOMI_AUTH_PUBLIC_URL is set but HINOMI_AUTH is not/)
     })
 
+    it('does not count a login switch set to off as a login setting', () => {
+      for (const off of ['0', 'false', 'no']) {
+        expect(loadConfig({ HINOMI_AUTH_ALLOW_HTTP: off }).auth).toBeNull()
+      }
+      expect(() => loadConfig({ HINOMI_AUTH_ALLOW_HTTP: '1' })).toThrow(
+        /HINOMI_AUTH_ALLOW_HTTP is set but HINOMI_AUTH is not/,
+      )
+    })
+
     it('refuses an http public URL off this machine unless HINOMI_AUTH_ALLOW_HTTP=1', () => {
       expect(() =>
         loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'http://hinomi.example.dev' }),

@@ -93,11 +93,21 @@ const optionalString = z
   .optional()
   .transform((value) => (value === undefined || value.trim() === '' ? undefined : value))
 
+const FLAG_OFF = ['0', 'false', 'no']
+
+/** The on or off switches among the HINOMI_AUTH_* settings. */
+const AUTH_FLAGS = ['HINOMI_AUTH_ALLOW_HTTP']
+
+/** Whether a switch is set to off on purpose (0, false or no), not merely unset. */
+function isExplicitOff(value: string | undefined): boolean {
+  return FLAG_OFF.includes((value ?? '').trim().toLowerCase())
+}
+
 /** An on or off switch: 1, true or yes; 0, false, no or unset. */
 function flagSetting(name: string) {
   return optionalString.transform((value, ctx) => {
     const text = (value ?? '').trim().toLowerCase()
-    if (['', '0', 'false', 'no'].includes(text)) return false
+    if (text === '' || FLAG_OFF.includes(text)) return false
     if (['1', 'true', 'yes'].includes(text)) return true
     ctx.addIssue({ code: 'custom', message: `${name} must be 1 or 0, got "${value ?? ''}"` })
     return z.NEVER
@@ -287,9 +297,11 @@ function loadAuthConfig(parsed: ParsedEnv, env: NodeJS.ProcessEnv): AuthConfig |
   if (!parsed.HINOMI_AUTH) {
     // Login settings without the switch look like a protected install that is not: refuse to
     // start, unless the login was turned off on purpose with HINOMI_AUTH=0.
-    const explicitOff = ['0', 'false', 'no'].includes((env.HINOMI_AUTH ?? '').trim().toLowerCase())
+    const explicitOff = isExplicitOff(env.HINOMI_AUTH)
     const stray = Object.keys(env)
       .filter((key) => key.startsWith('HINOMI_AUTH_') && (env[key] ?? '').trim() !== '')
+      // A login switch set to off (HINOMI_AUTH_ALLOW_HTTP=0) asks for nothing, so it is not stray.
+      .filter((key) => !(AUTH_FLAGS.includes(key) && isExplicitOff(env[key])))
       .sort()
     if (stray.length > 0 && !explicitOff) {
       throw new Error(
