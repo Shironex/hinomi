@@ -16,7 +16,29 @@ export const KNOWN_LOCKFILES: ReadonlyArray<readonly [string, StepPackageManager
   ['bun.lock', 'bun'],
   ['bun.lockb', 'bun'],
   ['Cargo.lock', 'cargo'],
+  // Hinomi reads go.mod as Go's lockfile; go.sum sits beside it.
+  ['go.mod', 'go'],
+  ['uv.lock', 'uv'],
+  ['requirements.txt', 'pip'],
+  ['composer.lock', 'composer'],
 ]
+
+/**
+ * Package managers that compete for the same project: lockfiles of one family in one folder
+ * are ambiguous, lockfiles of different families (a package-lock.json beside a composer.lock
+ * or a go.mod) are separate projects that only share the folder.
+ */
+const FAMILIES: Record<StepPackageManager, string> = {
+  npm: 'node',
+  pnpm: 'node',
+  yarn: 'node',
+  bun: 'node',
+  cargo: 'cargo',
+  go: 'go',
+  uv: 'python',
+  pip: 'python',
+  composer: 'composer',
+}
 
 export interface DeclaredPackageManager {
   name: string
@@ -67,10 +89,20 @@ export async function declaredIn(fs: RepoFs, root: string): Promise<DeclaredIn |
   return null
 }
 
-/** Detects the package manager of the project in `root` (repo relative folder). */
-export async function detectProject(fs: RepoFs, root: string): Promise<Detection> {
+/**
+ * Detects the package manager of the project in `root` (repo relative folder). With
+ * `expected`, only lockfiles of its family count, so a dispatch for a composer project is not
+ * thrown off by the package-lock.json beside it.
+ */
+export async function detectProject(
+  fs: RepoFs,
+  root: string,
+  expected: StepPackageManager | null = null,
+): Promise<Detection> {
+  const family = expected === null ? null : FAMILIES[expected]
   const found: Array<{ lockfile: string; manager: StepPackageManager }> = []
   for (const [name, manager] of KNOWN_LOCKFILES) {
+    if (family !== null && FAMILIES[manager] !== family) continue
     const lockfile = repoJoin(root, name)
     if (await fs.exists(lockfile)) found.push({ lockfile, manager })
   }
@@ -86,7 +118,7 @@ export async function detectProject(fs: RepoFs, root: string): Promise<Detection
   } else {
     return { ok: false, problem: `several lockfiles in ${root}: ${managers.join(', ')}` }
   }
-  if (declared && declared.name !== manager && manager !== 'cargo') {
+  if (declared && declared.name !== manager && FAMILIES[manager] === 'node') {
     return {
       ok: false,
       problem: `packageManager says ${declared.name} but the lockfile is ${manager}'s`,

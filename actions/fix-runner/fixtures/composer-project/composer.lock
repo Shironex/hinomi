@@ -1,0 +1,33 @@
+{
+    "_readme": ["This file locks the dependencies of your project to a known state"],
+    "content-hash": "00000000000000000000000000000000",
+    "packages": [
+        {
+            "name": "kestrel/http",
+            "version": "v3.1.0",
+            "require": { "kestrel/uri": "^1.2" },
+            "type": "library",
+            "notification-url": "https://packagist.org/downloads/"
+        },
+        {
+            "name": "kestrel/uri",
+            "version": "1.2.0",
+            "type": "library",
+            "notification-url": "https://packagist.org/downloads/"
+        },
+        {
+            "name": "kestrel/vault",
+            "version": "0.5.0",
+            "type": "library"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": { "php": "^8.2" },
+    "platform-dev": {},
+    "plugin-api-version": "2.6.0"
+}

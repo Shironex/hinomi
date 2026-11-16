@@ -1,0 +1,10 @@
+{
+  "name": "kestrel/shop",
+  "require": {
+    "php": "^8.2",
+    "kestrel/http": "^3.1"
+  },
+  "scripts": {
+    "pre-update-cmd": "php -r \"touch('SCRIPT_RAN');\""
+  }
+}

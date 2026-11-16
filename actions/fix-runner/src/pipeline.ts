@@ -142,6 +142,19 @@ export async function installCommands(
   return [await applier.lockfileInstall(ctx, options)].flat()
 }
 
+/** Most characters of a tool version the result file keeps. */
+const VERSION_MAX_CHARS = 64
+
+/** The tool's version line: the applier's pick, else the last line, cut to fit the result. */
+export function versionLine(applier: Applier, output: string): string | null {
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const line = applier.versionLine ? applier.versionLine(lines) : lines.at(-1)
+  return line ? line.slice(0, VERSION_MAX_CHARS) : null
+}
+
 type Verdict = { apply: true } | Omit<FixResultStep, 'id' | 'files'>
 
 /** Compares a step with what the live lockfile resolves. */
@@ -235,7 +248,7 @@ class ApplyRun {
   /** Opens a project: detection, applier, tool version. Null when its steps cannot run. */
   async openProject(project: Project): Promise<ProjectRun | null> {
     const { fs, exec, publishTimes, log } = this.deps
-    const detected = await detectProject(fs, project.root)
+    const detected = await detectProject(fs, project.root, project.packageManager)
     if (!detected.ok) {
       this.failAll(project.steps, `package manager check failed: ${detected.problem}`)
       return null
@@ -261,7 +274,7 @@ class ApplyRun {
       fs,
       root: project.root,
       lockfile: project.lockfile,
-      version: version.code === 0 ? version.output.trim().split('\n').pop()?.trim() || null : null,
+      version: version.code === 0 ? versionLine(applier, version.output) : null,
       publishTimes,
       exec,
       now: this.now,
@@ -372,7 +385,10 @@ class ApplyRun {
   async checkProject(entry: ProjectRun, selection: ChecksSelection) {
     const { applier, ctx, project } = entry
     const prefix = project.root === '.' ? '' : `${project.root}: `
-    const install = await this.run(applier.fullInstall(ctx), project.root, INSTALL_TIMEOUT_MS)
+    const command = applier.fullInstall(ctx)
+    const install = command
+      ? await this.run(command, project.root, INSTALL_TIMEOUT_MS)
+      : { code: 0, output: '', durationMs: 0 }
     this.install.durationMs += install.durationMs
     const specs = (await applier.checks(ctx)).filter(
       (spec) => selection.only === null || selection.only.includes(spec.name),
@@ -462,7 +478,7 @@ async function detectOne(
   root: string,
   expected: StepPackageManager | null,
 ): Promise<ProjectDetection> {
-  const detected = await detectProject(fs, root)
+  const detected = await detectProject(fs, root, expected)
   if (!detected.ok) {
     return {
       packageManager: '',

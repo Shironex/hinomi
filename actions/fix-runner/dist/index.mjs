@@ -15043,7 +15043,12 @@ const DEPENDENCY_FILE_NAMES = [
 	"bun.lock",
 	"bun.lockb",
 	"Cargo.toml",
-	"Cargo.lock"
+	"Cargo.lock",
+	"go.mod",
+	"go.sum",
+	"uv.lock",
+	"requirements.txt",
+	"composer.lock"
 ];
 const STEP_ONLY_FILE_NAMES = [".npmrc", ".yarnrc.yml"];
 function basename(path) {
@@ -15415,11 +15420,80 @@ function cratesPublishTimes(fetchImpl, options = {}) {
 		return pending;
 	} };
 }
+const GO_PROXY = "https://proxy.golang.org/";
+const PYPI_API = "https://pypi.org/pypi/";
+const PACKAGIST_API = "https://repo.packagist.org/p2/";
+const toDate = (value) => {
+	if (typeof value !== "string") return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+};
+function jsonDocuments(fetchImpl) {
+	const cache = /* @__PURE__ */ new Map();
+	return (url) => {
+		let pending = cache.get(url);
+		if (!pending) {
+			pending = (async () => {
+				try {
+					const response = await fetchImpl(url, {
+						headers: { accept: "application/json" },
+						signal: AbortSignal.timeout(TIMEOUT_MS)
+					});
+					return response.ok ? await response.json() : null;
+				} catch {
+					return null;
+				}
+			})();
+			cache.set(url, pending);
+		}
+		return pending;
+	};
+}
+function goProxyEscape(text) {
+	return text.replace(/[A-Z]/g, (letter) => `!${letter.toLowerCase()}`);
+}
+function goPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(modulePath, version) {
+		const url = `${GO_PROXY}${goProxyEscape(modulePath)}/@v/${goProxyEscape(`v${version}`)}.info`;
+		const body = await document(url);
+		return toDate(body?.Time);
+	} };
+}
+function pypiPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(packageName, version) {
+		const url = `${PYPI_API}${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`;
+		const body = await document(url);
+		if (!Array.isArray(body?.urls)) return null;
+		return body.urls.map((file) => toDate(file.upload_time_iso_8601)).filter((date) => date !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+	} };
+}
+function packagistPublishTimes(fetchImpl) {
+	const document = jsonDocuments(fetchImpl);
+	return { async publishedAt(packageName, version) {
+		const [vendor, name] = packageName.split("/");
+		if (!vendor || !name) return null;
+		const url = `${PACKAGIST_API}${encodeURIComponent(vendor)}/${encodeURIComponent(name)}.json`;
+		const versions = (await document(url))?.packages?.[packageName];
+		if (!Array.isArray(versions)) return null;
+		const entry = versions.find((item) => {
+			const v = item.version;
+			return typeof v === "string" && v.replace(/^v(?=\d)/i, "") === version;
+		});
+		return toDate(entry?.time);
+	} };
+}
 function registryPublishTimes(fetchImpl) {
 	const npm = npmPublishTimes(fetchImpl);
-	const crates = cratesPublishTimes(fetchImpl);
+	const byRegistry = /* @__PURE__ */ new Map([
+		[CRATES_IO_API, cratesPublishTimes(fetchImpl)],
+		[GO_PROXY, goPublishTimes(fetchImpl)],
+		[PYPI_API, pypiPublishTimes(fetchImpl)],
+		[PACKAGIST_API, packagistPublishTimes(fetchImpl)]
+	]);
 	return { publishedAt(packageName, version, registry) {
-		return (registry === "https://crates.io/api/v1/crates/" ? crates : npm).publishedAt(packageName, version, registry);
+		return (byRegistry.get(registry) ?? npm).publishedAt(packageName, version, registry);
 	} };
 }
 
@@ -16446,6 +16520,215 @@ const cargoApplier = {
 	}
 };
 
+// src/appliers/composer.ts
+const COMPOSER_SAFE_FLAGS = [
+	"--no-scripts",
+	"--no-plugins",
+	"--no-interaction",
+	"--no-progress",
+	"--no-audit",
+	"--ignore-platform-req=ext-*"
+];
+const PACKAGIST_NOTIFY = "https://packagist.org/downloads/";
+function composerLockPackages(text) {
+	const { data } = parseJsonFile(text);
+	if (!isJsonObject(data)) return [];
+	const out = [];
+	for (const key of ["packages", "packages-dev"]) {
+		const list = data[key];
+		if (!Array.isArray(list)) continue;
+		for (const pkg of list) {
+			if (!isJsonObject(pkg) || typeof pkg.name !== "string" || typeof pkg.version !== "string") continue;
+			out.push({
+				name: pkg.name.toLowerCase(),
+				version: pkg.version.trim().replace(/^v(?=\d)/i, ""),
+				fromPackagist: pkg["notification-url"] === PACKAGIST_NOTIFY
+			});
+		}
+	}
+	return out;
+}
+async function lockedPackages$1(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return [];
+	try {
+		const wanted = name.toLowerCase();
+		return composerLockPackages(text).filter((pkg) => pkg.name === wanted);
+	} catch {
+		return [];
+	}
+}
+function composerUpdateCommand(steps) {
+	const targets = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? [`${apply.packageName}:${apply.to}`] : []);
+	if (targets.length === 0) return null;
+	return {
+		file: "composer",
+		args: [
+			"update",
+			...targets,
+			"--no-install",
+			"--minimal-changes",
+			...COMPOSER_SAFE_FLAGS
+		]
+	};
+}
+function checkStep$2(step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "composer") return Promise.resolve({
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a composer update`
+	});
+	return Promise.resolve({
+		status: "edited",
+		files: []
+	});
+}
+const composerApplier = {
+	packageManager: "composer",
+	lockfiles: ["composer.lock"],
+	versionCommand: {
+		file: "composer",
+		args: [
+			"--version",
+			"--no-plugins",
+			"--no-interaction"
+		]
+	},
+	versionLine: (lines) => lines.find((line) => line.startsWith("Composer version")),
+	async resolvedVersions(ctx, name) {
+		return [...new Set((await lockedPackages$1(ctx, name)).map((pkg) => pkg.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		const locked = await lockedPackages$1(ctx, name);
+		if (locked.length === 0 || !locked.every((pkg) => pkg.fromPackagist)) return null;
+		return ctx.publishTimes.publishedAt(name.toLowerCase(), version, PACKAGIST_API);
+	},
+	applyStep: (_ctx, step) => checkStep$2(step),
+	lockfileInstall(_ctx, { steps }) {
+		return composerUpdateCommand(steps) ?? [];
+	},
+	fullInstall() {
+		return {
+			file: "composer",
+			args: ["install", ...COMPOSER_SAFE_FLAGS]
+		};
+	},
+	checks: () => Promise.resolve([])
+};
+
+// src/appliers/go.ts
+const GO_ENV = {
+	GOTOOLCHAIN: "local",
+	GOWORK: "off"
+};
+const stripV = (version) => version.replace(/^v/, "");
+function tokens(line) {
+	const at = line.indexOf("//");
+	return {
+		words: (at === -1 ? line : line.slice(0, at)).trim().split(/\s+/).filter(Boolean).map((word) => word.replace(/^["`]|["`]$/g, "")),
+		comment: at === -1 ? "" : line.slice(at + 2)
+	};
+}
+function parseGoMod(text) {
+	const requires = [];
+	const replaced = /* @__PURE__ */ new Set();
+	let block = null;
+	for (const raw of text.split(/\r?\n/)) {
+		const { words, comment } = tokens(raw);
+		if (words.length === 0) continue;
+		if (block !== null) {
+			if (words[0] === ")") {
+				block = null;
+				continue;
+			}
+			directive(block, words, comment);
+			continue;
+		}
+		const [verb, ...rest] = words;
+		if ((verb === "require" || verb === "replace") && rest[0] === "(") {
+			block = verb;
+			continue;
+		}
+		if (verb) directive(verb, rest, comment);
+	}
+	return {
+		requires,
+		replaced
+	};
+	function directive(verb, args, comment) {
+		if (verb === "require" && args.length >= 2) requires.push({
+			path: args[0] ?? "",
+			version: stripV(args[1] ?? ""),
+			indirect: /^\s*indirect\b/.test(comment)
+		});
+		else if (verb === "replace" && args[0]) replaced.add(args[0]);
+	}
+}
+async function readGoMod(ctx) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	return text === null ? null : parseGoMod(text);
+}
+function goCommand(args) {
+	return {
+		file: "go",
+		args,
+		env: { ...GO_ENV }
+	};
+}
+function goGetCommand(steps) {
+	const targets = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? [`${apply.packageName}@v${apply.to}`] : []);
+	return targets.length === 0 ? null : goCommand(["get", ...targets]);
+}
+async function checkStep$1(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "go") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a go get`
+	};
+	if ((await readGoMod(ctx))?.replaced.has(apply.packageName)) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `${ctx.lockfile} replaces ${apply.packageName}: update the replace directive by hand`
+	};
+	return {
+		status: "edited",
+		files: []
+	};
+}
+const goApplier = {
+	packageManager: "go",
+	lockfiles: ["go.mod"],
+	versionCommand: goCommand(["version"]),
+	async resolvedVersions(ctx, modulePath) {
+		const versions = ((await readGoMod(ctx))?.requires ?? []).filter((r) => r.path === modulePath).map((r) => r.version);
+		return [...new Set(versions)];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	publishedAt(ctx, modulePath, version) {
+		return ctx.publishTimes.publishedAt(modulePath, version, GO_PROXY);
+	},
+	applyStep: checkStep$1,
+	lockfileInstall(_ctx, { steps }) {
+		const command = goGetCommand(steps);
+		return command === null ? [] : command;
+	},
+	fullInstall() {
+		return goCommand(["mod", "download"]);
+	},
+	checks() {
+		return Promise.resolve([{
+			name: "go build",
+			command: goCommand(["build", "./..."])
+		}, {
+			name: "go test",
+			command: goCommand(["test", "./..."])
+		}]);
+	}
+};
+
 // src/appliers/npm.ts
 const NPM_MIN_RELEASE_AGE_SINCE = "11.10.0";
 function npmLockVersions(text, packageName) {
@@ -16564,6 +16847,192 @@ const npmApplier = {
 	checks(ctx) {
 		return scriptChecks(ctx, "npm");
 	}
+};
+
+// src/appliers/uv.ts
+const normalizePypiName = (name) => name.toLowerCase().replace(/[-_.]+/g, "-");
+const PYPI_INDEXES = /* @__PURE__ */ new Set(["https://pypi.org/simple", "https://pypi.org/simple/"]);
+function uvLockPackages(text) {
+	const blocks = /* @__PURE__ */ new Map();
+	for (const entry of scanToml(text)) {
+		if (!entry.arrayTable || entry.table.join(".") !== "package" || entry.key.length !== 1) continue;
+		const block = blocks.get(entry.tableIndex) ?? { registry: null };
+		const field = entry.key[0];
+		if (field === "name" || field === "version") {
+			const value = scalarValue(text, entry);
+			if (typeof value === "string") block[field] = field === "name" ? normalizePypiName(value) : value;
+		} else if (field === "source") {
+			const registry = scanInlineTable(text, entry.start, entry.end).find((inner) => inner.key.join(".") === "registry");
+			const value = registry ? scalarValue(text, registry) : null;
+			block.registry = typeof value === "string" ? value : null;
+		}
+		blocks.set(entry.tableIndex, block);
+	}
+	return [...blocks.values()].flatMap((block) => block.name && block.version ? [{
+		name: block.name,
+		version: block.version,
+		registry: block.registry ?? null
+	}] : []);
+}
+async function lockedPackages(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return [];
+	try {
+		const wanted = normalizePypiName(name);
+		return uvLockPackages(text).filter((pkg) => pkg.name === wanted);
+	} catch {
+		return [];
+	}
+}
+function uvLockCommand(steps) {
+	const upgrades = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? ["--upgrade-package", `${apply.packageName}==${apply.to}`] : []);
+	if (upgrades.length === 0) return null;
+	return {
+		file: "uv",
+		args: [
+			"lock",
+			"--no-build",
+			...upgrades
+		]
+	};
+}
+function checkStep(step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "uv") return Promise.resolve({
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a uv lock update`
+	});
+	return Promise.resolve({
+		status: "edited",
+		files: []
+	});
+}
+const uvApplier = {
+	packageManager: "uv",
+	lockfiles: ["uv.lock"],
+	versionCommand: {
+		file: "uv",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, name) {
+		return [...new Set((await lockedPackages(ctx, name)).map((pkg) => pkg.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		const locked = await lockedPackages(ctx, name);
+		if (locked.length === 0 || !locked.every((pkg) => PYPI_INDEXES.has(pkg.registry ?? ""))) return null;
+		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
+	},
+	applyStep: (_ctx, step) => checkStep(step),
+	lockfileInstall(_ctx, { steps }) {
+		return uvLockCommand(steps) ?? [];
+	},
+	fullInstall() {
+		return {
+			file: "uv",
+			args: [
+				"lock",
+				"--check",
+				"--no-build"
+			]
+		};
+	},
+	checks: () => Promise.resolve([])
+};
+
+// src/appliers/pip.ts
+const PIN = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==(?!=)\s*([^\s;#\\]+)/;
+const INDEX_OPTION = /^\s*(?:-i\b|--index-url\b|--extra-index-url\b|-f\b|--find-links\b)/m;
+function requirementPins(text) {
+	const pins = [];
+	const lines = text.split("\n");
+	let offset = 0;
+	for (let i = 0; i < lines.length; i++) {
+		const start = offset;
+		let logical = lines[i] ?? "";
+		offset += logical.length + 1;
+		while (logical.trimEnd().endsWith("\\") && i + 1 < lines.length) {
+			i++;
+			logical += `\n${lines[i] ?? ""}`;
+			offset += (lines[i] ?? "").length + 1;
+		}
+		const lead = logical.length - logical.trimStart().length;
+		const match = PIN.exec(logical.slice(lead));
+		if (!match?.[1] || !match[2]) continue;
+		const versionAt = start + lead + match[0].length - match[2].length;
+		pins.push({
+			name: normalizePypiName(match[1]),
+			version: match[2],
+			start: versionAt,
+			end: versionAt + match[2].length,
+			hashed: /(?:^|\s)--hash[=\s]/.test(logical.replace(/(?:^|\s)#.*$/gm, ""))
+		});
+	}
+	return pins;
+}
+async function pinsOf(ctx, name) {
+	const text = await ctx.fs.read(ctx.lockfile);
+	if (text === null) return null;
+	const wanted = normalizePypiName(name);
+	return {
+		text,
+		pins: requirementPins(text).filter((pin) => pin.name === wanted)
+	};
+}
+async function editPins(ctx, step) {
+	const { apply } = step;
+	if (apply.type !== "lockfile_update" || apply.tool !== "pip") return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${apply.type} is not a pin edit`
+	};
+	const found = await pinsOf(ctx, apply.packageName);
+	if (!found) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${ctx.lockfile} is missing`
+	};
+	const moving = found.pins.filter((pin) => apply.from.includes(pin.version) || compareVersions(pin.version, apply.to) < 0);
+	if (moving.length === 0) return {
+		status: "failed",
+		reason: "edit_failed",
+		detail: `${ctx.lockfile} pins no version of ${apply.packageName} below ${apply.to}`
+	};
+	if (moving.some((pin) => pin.hashed)) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `${ctx.lockfile} pins ${apply.packageName} with --hash: regenerate it with its tool`
+	};
+	let text = found.text;
+	for (const pin of [...moving].sort((a, b) => b.start - a.start)) text = text.slice(0, pin.start) + apply.to + text.slice(pin.end);
+	await ctx.fs.write(ctx.lockfile, text);
+	return {
+		status: "edited",
+		files: [ctx.lockfile]
+	};
+}
+const pipApplier = {
+	packageManager: "pip",
+	lockfiles: ["requirements.txt"],
+	versionCommand: {
+		file: "python3",
+		args: ["--version"]
+	},
+	async resolvedVersions(ctx, name) {
+		const found = await pinsOf(ctx, name);
+		return [...new Set((found?.pins ?? []).map((pin) => pin.version))];
+	},
+	releaseAgeGate: () => Promise.resolve(null),
+	async publishedAt(ctx, name, version) {
+		const text = await ctx.fs.read(ctx.lockfile);
+		if (text === null || INDEX_OPTION.test(text)) return null;
+		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
+	},
+	applyStep: editPins,
+	lockfileInstall: () => [],
+	fullInstall: () => null,
+	checks: () => Promise.resolve([])
 };
 
 // src/appliers/pnpm.ts
@@ -16730,8 +17199,23 @@ const KNOWN_LOCKFILES = [
 	["yarn.lock", "yarn"],
 	["bun.lock", "bun"],
 	["bun.lockb", "bun"],
-	["Cargo.lock", "cargo"]
+	["Cargo.lock", "cargo"],
+	["go.mod", "go"],
+	["uv.lock", "uv"],
+	["requirements.txt", "pip"],
+	["composer.lock", "composer"]
 ];
+const FAMILIES = {
+	npm: "node",
+	pnpm: "node",
+	yarn: "node",
+	bun: "node",
+	cargo: "cargo",
+	go: "go",
+	uv: "python",
+	pip: "python",
+	composer: "composer"
+};
 function parsePackageManagerField(value) {
 	if (typeof value !== "string") return null;
 	const match = /^(@?[a-z0-9._-]+)(?:@([^+\s]+))?/.exec(value.trim());
@@ -16761,9 +17245,11 @@ async function declaredIn(fs, root) {
 	}
 	return null;
 }
-async function detectProject(fs, root) {
+async function detectProject(fs, root, expected = null) {
+	const family = expected === null ? null : FAMILIES[expected];
 	const found = [];
 	for (const [name, manager] of KNOWN_LOCKFILES) {
+		if (family !== null && FAMILIES[manager] !== family) continue;
 		const lockfile = repoJoin(root, name);
 		if (await fs.exists(lockfile)) found.push({
 			lockfile,
@@ -16783,7 +17269,7 @@ async function detectProject(fs, root) {
 		ok: false,
 		problem: `several lockfiles in ${root}: ${managers.join(", ")}`
 	};
-	if (declared && declared.name !== manager && manager !== "cargo") return {
+	if (declared && declared.name !== manager && FAMILIES[manager] === "node") return {
 		ok: false,
 		problem: `packageManager says ${declared.name} but the lockfile is ${manager}'s`
 	};
@@ -17031,7 +17517,11 @@ const APPLIERS = /* @__PURE__ */ new Map([
 	["npm", npmApplier],
 	["yarn", yarnApplier],
 	["bun", bunApplier],
-	["cargo", cargoApplier]
+	["cargo", cargoApplier],
+	["go", goApplier],
+	["uv", uvApplier],
+	["pip", pipApplier],
+	["composer", composerApplier]
 ]);
 
 // src/checks-input.ts
@@ -17071,6 +17561,9 @@ const nodeCompressor = {
 // src/toolchain.ts
 const DEFAULT_PNPM_VERSION = "10";
 const DEFAULT_BUN_VERSION = "latest";
+const DEFAULT_UV_VERSION = "0.13.2";
+const DEFAULT_PHP_VERSION = "8.4";
+const COMPOSER_VERSION = "2.11.1";
 const NODE_FAMILY = [
 	"npm",
 	"pnpm",
@@ -17078,6 +17571,25 @@ const NODE_FAMILY = [
 	"bun"
 ];
 const NODE_VERSION_FILES = [".node-version", ".nvmrc"];
+const PHP_VERSION = /^\d+\.\d+$/;
+async function findPhpVersion(fs, root) {
+	const text = await fs.read(repoJoin(root, "composer.json"));
+	if (text === null) return "8.4";
+	try {
+		const { data } = parseJsonFile(text);
+		if (!isJsonObject(data)) return "8.4";
+		const config = isJsonObject(data.config) ? data.config : null;
+		const platform = config && isJsonObject(config.platform) ? config.platform : null;
+		const requires = isJsonObject(data.require) ? data.require : null;
+		for (const value of [platform?.php, requires?.php]) {
+			if (typeof value !== "string") continue;
+			const lowest = [...value.matchAll(/(\d+)\.(\d+)/g)].map((m) => [Number(m[1]), Number(m[2])]).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0];
+			const version = lowest ? `${lowest[0]}.${lowest[1]}` : "";
+			if (PHP_VERSION.test(version)) return version;
+		}
+	} catch {}
+	return "8.4";
+}
 async function hasEnginesNode(fs, file) {
 	const text = await fs.read(file);
 	if (text === null) return false;
@@ -17131,6 +17643,8 @@ async function planToolchains(fs, projects) {
 		bun = { version: (declared?.name === "bun" ? declared.version : null) ?? "latest" };
 	}
 	const cargoProject = firstOf("cargo");
+	const goProject = firstOf("go");
+	const composerProject = firstOf("composer");
 	return {
 		managers,
 		node: firstNode !== void 0,
@@ -17138,7 +17652,13 @@ async function planToolchains(fs, projects) {
 		pnpm,
 		yarn,
 		bun,
-		rust: cargoProject ? { root: cargoProject.root } : null
+		rust: cargoProject ? { root: cargoProject.root } : null,
+		go: goProject ? { versionFile: repoJoin(goProject.root, "go.mod") } : null,
+		uv: firstOf("uv") ? { version: DEFAULT_UV_VERSION } : null,
+		php: composerProject ? {
+			version: await findPhpVersion(fs, composerProject.root),
+			composer: COMPOSER_VERSION
+		} : null
 	};
 }
 function toolchainOutputs(toolchains) {
@@ -17154,7 +17674,14 @@ function toolchainOutputs(toolchains) {
 		setup_bun: String(toolchains.bun !== null),
 		bun_version: toolchains.bun?.version ?? "",
 		setup_rust: String(toolchains.rust !== null),
-		rust_root: toolchains.rust?.root ?? ""
+		rust_root: toolchains.rust?.root ?? "",
+		setup_go: String(toolchains.go !== null),
+		go_version_file: toolchains.go?.versionFile ?? "",
+		setup_uv: String(toolchains.uv !== null),
+		uv_version: toolchains.uv?.version ?? "",
+		setup_php: String(toolchains.php !== null),
+		php_version: toolchains.php?.version ?? "",
+		composer_version: toolchains.php?.composer ?? ""
 	};
 }
 
@@ -17201,6 +17728,12 @@ function riskyProjects(risky) {
 }
 async function installCommands(applier, ctx, options) {
 	return [await applier.lockfileInstall(ctx, options)].flat();
+}
+const VERSION_MAX_CHARS = 64;
+function versionLine(applier, output) {
+	const lines = output.split("\n").map((line) => line.trim()).filter(Boolean);
+	const line = applier.versionLine ? applier.versionLine(lines) : lines.at(-1);
+	return line ? line.slice(0, VERSION_MAX_CHARS) : null;
 }
 function reconcileStep(step, resolved) {
 	if (resolved.length === 0) return {
@@ -17282,7 +17815,7 @@ var ApplyRun = class {
 	}
 	async openProject(project) {
 		const { fs, exec, publishTimes, log } = this.deps;
-		const detected = await detectProject(fs, project.root);
+		const detected = await detectProject(fs, project.root, project.packageManager);
 		if (!detected.ok) {
 			this.failAll(project.steps, `package manager check failed: ${detected.problem}`);
 			return null;
@@ -17305,7 +17838,7 @@ var ApplyRun = class {
 			fs,
 			root: project.root,
 			lockfile: project.lockfile,
-			version: version.code === 0 ? version.output.trim().split("\n").pop()?.trim() || null : null,
+			version: version.code === 0 ? versionLine(applier, version.output) : null,
 			publishTimes,
 			exec,
 			now: this.now
@@ -17425,7 +17958,12 @@ var ApplyRun = class {
 	async checkProject(entry, selection) {
 		const { applier, ctx, project } = entry;
 		const prefix = project.root === "." ? "" : `${project.root}: `;
-		const install = await this.run(applier.fullInstall(ctx), project.root, INSTALL_TIMEOUT_MS);
+		const command = applier.fullInstall(ctx);
+		const install = command ? await this.run(command, project.root, INSTALL_TIMEOUT_MS) : {
+			code: 0,
+			output: "",
+			durationMs: 0
+		};
 		this.install.durationMs += install.durationMs;
 		const specs = (await applier.checks(ctx)).filter((spec) => selection.only === null || selection.only.includes(spec.name));
 		if (install.code !== 0) {
@@ -17480,7 +18018,7 @@ async function runDetect(inputs, fs, scope = "fix") {
 	};
 }
 async function detectOne(fs, root, expected) {
-	const detected = await detectProject(fs, root);
+	const detected = await detectProject(fs, root, expected);
 	if (!detected.ok) return {
 		packageManager: "",
 		packageManagerVersion: "",

@@ -5,13 +5,19 @@ import { repoJoin, type RepoFs } from './repo-fs.js'
 
 // What the reusable workflow installs before the apply step: every package manager among the
 // dispatch's projects (a repo with a pnpm app and a Rust crate gets both), plus Node for the
-// npm family. The detect step turns this into outputs; the workflow gates its setup steps on
+// npm family and PHP for composer. pip needs nothing: its fix is a text edit. The detect step turns this into outputs; the workflow gates its setup steps on
 // them. Nothing here runs a tool, it only reads files of the checkout.
 
 /** pnpm version used when no `packageManager` field names one. */
 export const DEFAULT_PNPM_VERSION = '10'
 /** bun version used when no `packageManager` field names one. */
 export const DEFAULT_BUN_VERSION = 'latest'
+/** uv version the runner installs; pinned so a lock never depends on the day it runs. */
+export const DEFAULT_UV_VERSION = '0.13.2'
+/** PHP version for composer when composer.json names none. */
+export const DEFAULT_PHP_VERSION = '8.4'
+/** Composer version the runner installs (2.7 or later has --minimal-changes). */
+export const COMPOSER_VERSION = '2.11.1'
 
 const NODE_FAMILY: readonly StepPackageManager[] = ['npm', 'pnpm', 'yarn', 'bun']
 const NODE_VERSION_FILES = ['.node-version', '.nvmrc']
@@ -35,6 +41,40 @@ export interface Toolchains {
   bun: { version: string } | null
   /** Folder of the first cargo project, where a rust-toolchain file would apply. */
   rust: { root: string } | null
+  /** go.mod of the first Go project, for setup-go's go-version-file. */
+  go: { versionFile: string } | null
+  uv: { version: string } | null
+  /** PHP `major.minor` and the composer version, for setup-php. */
+  php: { version: string; composer: string } | null
+}
+
+const PHP_VERSION = /^\d+\.\d+$/
+
+/**
+ * The PHP version composer should resolve with, from the project's composer.json:
+ * `config.platform.php` (what the repo told composer to assume), else the lowest
+ * `major.minor` its `require.php` names, else DEFAULT_PHP_VERSION.
+ */
+export async function findPhpVersion(fs: RepoFs, root: string): Promise<string> {
+  const text = await fs.read(repoJoin(root, 'composer.json'))
+  if (text === null) return DEFAULT_PHP_VERSION
+  try {
+    const { data } = parseJsonFile(text)
+    if (!isJsonObject(data)) return DEFAULT_PHP_VERSION
+    const config = isJsonObject(data.config) ? data.config : null
+    const platform = config && isJsonObject(config.platform) ? config.platform : null
+    const requires = isJsonObject(data.require) ? data.require : null
+    for (const value of [platform?.php, requires?.php]) {
+      if (typeof value !== 'string') continue
+      const versions = [...value.matchAll(/(\d+)\.(\d+)/g)].map((m) => [Number(m[1]), Number(m[2])])
+      const lowest = versions.sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]!)[0]
+      const version = lowest ? `${lowest[0]}.${lowest[1]}` : ''
+      if (PHP_VERSION.test(version)) return version
+    }
+  } catch {
+    // Unreadable composer.json: the default, and composer itself will say what is wrong.
+  }
+  return DEFAULT_PHP_VERSION
 }
 
 async function hasEnginesNode(fs: RepoFs, file: string): Promise<boolean> {
@@ -109,6 +149,8 @@ export async function planToolchains(
   }
 
   const cargoProject = firstOf('cargo')
+  const goProject = firstOf('go')
+  const composerProject = firstOf('composer')
   return {
     managers,
     node: firstNode !== undefined,
@@ -117,6 +159,11 @@ export async function planToolchains(
     yarn,
     bun,
     rust: cargoProject ? { root: cargoProject.root } : null,
+    go: goProject ? { versionFile: repoJoin(goProject.root, 'go.mod') } : null,
+    uv: firstOf('uv') ? { version: DEFAULT_UV_VERSION } : null,
+    php: composerProject
+      ? { version: await findPhpVersion(fs, composerProject.root), composer: COMPOSER_VERSION }
+      : null,
   }
 }
 
@@ -135,5 +182,12 @@ export function toolchainOutputs(toolchains: Toolchains): Record<string, string>
     bun_version: toolchains.bun?.version ?? '',
     setup_rust: String(toolchains.rust !== null),
     rust_root: toolchains.rust?.root ?? '',
+    setup_go: String(toolchains.go !== null),
+    go_version_file: toolchains.go?.versionFile ?? '',
+    setup_uv: String(toolchains.uv !== null),
+    uv_version: toolchains.uv?.version ?? '',
+    setup_php: String(toolchains.php !== null),
+    php_version: toolchains.php?.version ?? '',
+    composer_version: toolchains.php?.composer ?? '',
   }
 }

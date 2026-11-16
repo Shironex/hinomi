@@ -1,0 +1,39 @@
+{
+  "name": "kestrel/shop",
+  "require": {
+    "kestrel/http": "^3.1"
+  },
+  "repositories": [
+    {
+      "packagist.org": false
+    },
+    {
+      "type": "package",
+      "package": [
+        {
+          "name": "kestrel/http",
+          "version": "3.1.0",
+          "require": {
+            "kestrel/uri": "^1.2"
+          }
+        },
+        {
+          "name": "kestrel/uri",
+          "version": "1.2.0"
+        },
+        {
+          "name": "kestrel/uri",
+          "version": "1.2.4"
+        },
+        {
+          "name": "kestrel/uri",
+          "version": "1.2.6"
+        }
+      ]
+    }
+  ],
+  "scripts": {
+    "pre-update-cmd": "@php -r \"touch('script-ran');\"",
+    "post-update-cmd": "@php -r \"touch('script-ran');\""
+  }
+}

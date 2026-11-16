@@ -1,0 +1,10 @@
+[project]
+name = "kestrel-api"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["heron-web>=2.3"]
+
+[tool.uv]
+no-index = true
+# The test points this at the wheels it writes.
+find-links = ["WHEELS"]

@@ -126,6 +126,13 @@ jobs:
           bun_version: ${{ steps.detect.outputs.bun_version }}
           setup_rust: ${{ steps.detect.outputs.setup_rust }}
           rust_root: ${{ steps.detect.outputs.rust_root }}
+          setup_go: ${{ steps.detect.outputs.setup_go }}
+          go_version_file: ${{ steps.detect.outputs.go_version_file }}
+          setup_uv: ${{ steps.detect.outputs.setup_uv }}
+          uv_version: ${{ steps.detect.outputs.uv_version }}
+          setup_php: ${{ steps.detect.outputs.setup_php }}
+          php_version: ${{ steps.detect.outputs.php_version }}
+          composer_version: ${{ steps.detect.outputs.composer_version }}
 
       # No install script runs here: lockfiles are updated in lockfile only mode. A majors
       # dispatch has no safe step, so only the majors job below does anything for it.
@@ -245,6 +252,13 @@ jobs:
           bun_version: ${{ steps.detect.outputs.bun_version }}
           setup_rust: ${{ steps.detect.outputs.setup_rust }}
           rust_root: ${{ steps.detect.outputs.rust_root }}
+          setup_go: ${{ steps.detect.outputs.setup_go }}
+          go_version_file: ${{ steps.detect.outputs.go_version_file }}
+          setup_uv: ${{ steps.detect.outputs.setup_uv }}
+          uv_version: ${{ steps.detect.outputs.uv_version }}
+          setup_php: ${{ steps.detect.outputs.setup_php }}
+          php_version: ${{ steps.detect.outputs.php_version }}
+          composer_version: ${{ steps.detect.outputs.composer_version }}
 
       # The key reaches the agent process only (the action strips it from every other command).
       # The result and patch are written to the runner's temp folder after the agent is gone.

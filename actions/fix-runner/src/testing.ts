@@ -179,3 +179,59 @@ export function inputs(value: FixDispatchV1, checks = 'auto') {
     checks,
   }
 }
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff
+  for (const byte of data) crc = (CRC_TABLE[(crc ^ byte) & 0xff] ?? 0) ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+/**
+ * A zip archive with every entry stored uncompressed, for the real tool tests: Go module zips
+ * and Python wheels. Fixed timestamps, so the bytes depend on the entries only.
+ */
+export function storedZip(entries: Record<string, string>): Buffer {
+  const locals: Buffer[] = []
+  const centrals: Buffer[] = []
+  let offset = 0
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, 'utf8')
+    const data = Buffer.from(text, 'utf8')
+    const crc = crc32(data)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(0x21, 12) // 1980-01-01
+    local.writeUInt32LE(crc, 14)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(data.length, 22)
+    local.writeUInt16LE(nameBytes.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(0x21, 14)
+    central.writeUInt32LE(crc, 16)
+    central.writeUInt32LE(data.length, 20)
+    central.writeUInt32LE(data.length, 24)
+    central.writeUInt16LE(nameBytes.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(local, nameBytes, data)
+    centrals.push(central, nameBytes)
+    offset += local.length + nameBytes.length + data.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(entries).length, 8)
+  end.writeUInt16LE(Object.keys(entries).length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}

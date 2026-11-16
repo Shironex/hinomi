@@ -1,8 +1,10 @@
 import { nowMs } from '@hinomi/shared'
 import type { Npmrc } from './npmrc.js'
 
-// Publish times from the npm registry (the `time` map of a package document) and from the
-// crates.io API (`created_at` of a version). The apply job has no secrets, so only public
+// Publish times from the npm registry (the `time` map of a package document), the crates.io
+// API (`created_at` of a version), the Go module proxy (`Time` of a version's .info), PyPI
+// (the earliest `upload_time_iso_8601` of a release's files) and Packagist (`time` of a
+// version in the p2 metadata). The apply job has no secrets, so only public
 // metadata is read and nothing is sent but the package name and version.
 
 export type HttpFetch = (
@@ -141,13 +143,108 @@ export function cratesPublishTimes(
   }
 }
 
-/** Publish times of every ecosystem: crates.io for the Cargo applier, npm registries otherwise. */
+/** The public Go module proxy; a Go applier passes it as the registry. */
+export const GO_PROXY = 'https://proxy.golang.org/'
+/** PyPI's JSON API; the uv and pip appliers pass it as the registry. */
+export const PYPI_API = 'https://pypi.org/pypi/'
+/** Packagist's p2 metadata; the composer applier passes it as the registry. */
+export const PACKAGIST_API = 'https://repo.packagist.org/p2/'
+
+const toDate = (value: unknown): Date | null => {
+  if (typeof value !== 'string') return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/** One cached JSON document per URL and run; null for any failure. */
+function jsonDocuments(fetchImpl: HttpFetch) {
+  const cache = new Map<string, Promise<unknown>>()
+  return (url: string): Promise<unknown> => {
+    let pending = cache.get(url)
+    if (!pending) {
+      pending = (async () => {
+        try {
+          const response = await fetchImpl(url, {
+            headers: { accept: 'application/json' },
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          })
+          return response.ok ? await response.json() : null
+        } catch {
+          return null
+        }
+      })()
+      cache.set(url, pending)
+    }
+    return pending
+  }
+}
+
+/** The proxy's case encoding of a module path or version: `!` before each lowercased capital. */
+export function goProxyEscape(text: string): string {
+  return text.replace(/[A-Z]/g, (letter) => `!${letter.toLowerCase()}`)
+}
+
+/** Go proxy lookups: `<module>/@v/v<version>.info`, whose `Time` is the publish time. */
+export function goPublishTimes(fetchImpl: HttpFetch): PublishTimes {
+  const document = jsonDocuments(fetchImpl)
+  return {
+    async publishedAt(modulePath, version) {
+      const url = `${GO_PROXY}${goProxyEscape(modulePath)}/@v/${goProxyEscape(`v${version}`)}.info`
+      const body = (await document(url)) as { Time?: unknown } | null
+      return toDate(body?.Time)
+    },
+  }
+}
+
+/** PyPI lookups: `<name>/<version>/json`, the earliest upload among the release's files. */
+export function pypiPublishTimes(fetchImpl: HttpFetch): PublishTimes {
+  const document = jsonDocuments(fetchImpl)
+  return {
+    async publishedAt(packageName, version) {
+      const url = `${PYPI_API}${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`
+      const body = (await document(url)) as { urls?: unknown } | null
+      if (!Array.isArray(body?.urls)) return null
+      const times = body.urls
+        .map((file) => toDate((file as { upload_time_iso_8601?: unknown }).upload_time_iso_8601))
+        .filter((date): date is Date => date !== null)
+        .sort((a, b) => a.getTime() - b.getTime())
+      return times[0] ?? null
+    },
+  }
+}
+
+/** Packagist lookups: `<vendor>/<package>.json`, the `time` of the version (a `v` prefix too). */
+export function packagistPublishTimes(fetchImpl: HttpFetch): PublishTimes {
+  const document = jsonDocuments(fetchImpl)
+  return {
+    async publishedAt(packageName, version) {
+      const [vendor, name] = packageName.split('/')
+      if (!vendor || !name) return null
+      const url = `${PACKAGIST_API}${encodeURIComponent(vendor)}/${encodeURIComponent(name)}.json`
+      const body = (await document(url)) as { packages?: Record<string, unknown> } | null
+      const versions = body?.packages?.[packageName]
+      if (!Array.isArray(versions)) return null
+      const entry = versions.find((item) => {
+        const v = (item as { version?: unknown }).version
+        return typeof v === 'string' && v.replace(/^v(?=\d)/i, '') === version
+      }) as { time?: unknown } | undefined
+      return toDate(entry?.time)
+    },
+  }
+}
+
+/** Publish times of every ecosystem, picked by the registry the applier passes. */
 export function registryPublishTimes(fetchImpl: HttpFetch): PublishTimes {
   const npm = npmPublishTimes(fetchImpl)
-  const crates = cratesPublishTimes(fetchImpl)
+  const byRegistry = new Map<string, PublishTimes>([
+    [CRATES_IO_API, cratesPublishTimes(fetchImpl)],
+    [GO_PROXY, goPublishTimes(fetchImpl)],
+    [PYPI_API, pypiPublishTimes(fetchImpl)],
+    [PACKAGIST_API, packagistPublishTimes(fetchImpl)],
+  ])
   return {
     publishedAt(packageName, version, registry) {
-      const source = registry === CRATES_IO_API ? crates : npm
+      const source = byRegistry.get(registry) ?? npm
       return source.publishedAt(packageName, version, registry)
     },
   }

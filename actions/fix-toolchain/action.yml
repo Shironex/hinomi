@@ -46,6 +46,35 @@ inputs:
     description: detect output rust_root
     required: false
     default: ''
+  # Optional, so a fix.yml from before these ecosystems still calls this action unchanged.
+  setup_go:
+    description: detect output setup_go
+    required: false
+    default: 'false'
+  go_version_file:
+    description: detect output go_version_file
+    required: false
+    default: ''
+  setup_uv:
+    description: detect output setup_uv
+    required: false
+    default: 'false'
+  uv_version:
+    description: detect output uv_version
+    required: false
+    default: ''
+  setup_php:
+    description: detect output setup_php
+    required: false
+    default: 'false'
+  php_version:
+    description: detect output php_version
+    required: false
+    default: ''
+  composer_version:
+    description: detect output composer_version
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -119,3 +148,31 @@ runs:
           dir=$(dirname "$dir")
         done
         (cd "$GITHUB_WORKSPACE/$RUST_ROOT" && cargo --version)
+
+    # Go from the project's go.mod (its go and toolchain lines). The fix runner runs every go
+    # command with GOTOOLCHAIN=local, so nothing downloads another toolchain after this step.
+    - name: Set up Go
+      if: inputs.setup_go == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ${{ inputs.go_version_file }}
+        cache: false
+
+    # uv at the version the detect step pins. The fix runner only calls `uv lock --no-build`,
+    # which builds no source distribution.
+    - name: Set up uv
+      if: inputs.setup_uv == 'true'
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        version: ${{ inputs.uv_version }}
+        enable-cache: false
+
+    # PHP for composer at the version composer.json names, with composer at an exact version.
+    # The fix runner calls composer with --no-scripts and --no-plugins only.
+    - name: Set up PHP and composer
+      if: inputs.setup_php == 'true'
+      uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+      with:
+        php-version: ${{ inputs.php_version }}
+        tools: composer:${{ inputs.composer_version }}
+        coverage: none
