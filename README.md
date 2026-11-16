@@ -154,7 +154,7 @@ New or reopened critical and high findings on deployed repos, and new blind spot
 
 Hinomi is one container with a SQLite database in `/data`. Images for `linux/amd64` and `linux/arm64` are published to `ghcr.io/shironex/hinomi` on every release, tagged `X.Y.Z`, `X.Y` and `latest`.
 
-It has no login yet, so read [Access](#access) before you connect a token. The full guide, with Coolify, tokens, upgrades and backups, is [docs/self-hosting.md](docs/self-hosting.md).
+Its login is off by default, so read [Access](#access) before you connect a token. The full guide, with Coolify, tokens, upgrades and backups, is [docs/self-hosting.md](docs/self-hosting.md).
 
 ### Docker compose
 
@@ -186,7 +186,7 @@ docker compose up -d --build
 
 ## Access
 
-Hinomi has no login yet, so it must sit behind something that has one: [Tailscale](docs/self-hosting.md#tailscale) or [Cloudflare Access](docs/self-hosting.md#cloudflare-access). On every page it shows how the current request reached it: "Protected by Tailscale" or "Protected by Cloudflare Access" in the top bar, and a red bar on every page when a request comes from a public address. How that is decided, and which proxies it trusts, is in [docs/access.md](docs/access.md).
+Hinomi must sit behind something with a login: [Tailscale](docs/self-hosting.md#tailscale), [Cloudflare Access](docs/self-hosting.md#cloudflare-access), or its own opt in [built in login](docs/auth.md) with passkeys, OpenID Connect or GitHub. On every page it shows how the current request reached it: "Protected by Tailscale" or "Protected by Cloudflare Access" in the top bar, and a red bar on every page when a request comes from a public address. How that is decided, and which proxies it trusts, is in [docs/access.md](docs/access.md).
 
 ## Configuration
 
@@ -201,6 +201,11 @@ No environment variables are required; see [.env.example](.env.example).
 | `HINOMI_TRUSTED_PROXIES` | unset | Comma separated IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `CF-Connecting-IP` and Tailscale identity headers are believed. Unset, they are all ignored. See [docs/access.md](docs/access.md). |
 | `HINOMI_CF_ACCESS_TEAM_DOMAIN` | unset | Cloudflare Access team name or `https://<team>.cloudflareaccess.com`. With `HINOMI_CF_ACCESS_AUD`, Hinomi verifies the Access token and shows "Protected by Cloudflare Access". |
 | `HINOMI_CF_ACCESS_AUD` | unset | Application Audience (AUD) tag of the Access application. Set both Cloudflare variables or neither. |
+| `HINOMI_AUTH` | unset | `1` turns on the [built in login](docs/auth.md). Needs `HINOMI_AUTH_PUBLIC_URL`. |
+| `HINOMI_AUTH_PUBLIC_URL` | unset | The address people open Hinomi at, an origin without a path (https in production). |
+| `HINOMI_AUTH_ALLOWED` | unset | Who may sign in through a provider: emails, `@domains`, `github:<login>`, `oidc:<sub>`. Required with a provider. |
+| `HINOMI_AUTH_OIDC_ISSUER`, `HINOMI_AUTH_OIDC_CLIENT_ID`, `HINOMI_AUTH_OIDC_CLIENT_SECRET`, `HINOMI_AUTH_OIDC_NAME` | unset | OpenID Connect sign in (Authentik, Authelia, Google). Set the first three together. |
+| `HINOMI_AUTH_GITHUB_CLIENT_ID`, `HINOMI_AUTH_GITHUB_CLIENT_SECRET` | unset | GitHub sign in through an OAuth app. Set both or neither. |
 | `HINOMI_WEBHOOK_PORT` | unset | A second port that serves only the optional GitHub webhook path, so a tunnel pointed at it reaches nothing else. Must differ from `PORT`. See [docs/github-webhook.md](docs/github-webhook.md). |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | `25` | How long a stop (SIGTERM or SIGINT) waits for a running scan before it is marked interrupted. Whole seconds from 0 to 3600. Keep it below the stop grace of your platform, or the container is killed first. |
 | `HINOMI_LOCAL_RUNNER` | unset | `1` allows the opt in [local runner](docs/runners.md#the-local-runner), which applies fix plans on this host. Read its risks first. |

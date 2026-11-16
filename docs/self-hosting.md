@@ -1,6 +1,6 @@
 # Self-hosting
 
-This guide takes you from nothing to a protected Hinomi that scans on its own. Hinomi is one container with a SQLite database in `/data`. It has no login yet, so decide how people reach it (see [Protect access](#protect-access)) before you connect any token.
+This guide takes you from nothing to a protected Hinomi that scans on its own. Hinomi is one container with a SQLite database in `/data`. Its login is off by default, so decide how people reach it (see [Protect access](#protect-access)) before you connect any token.
 
 Contents: [Image or source](#get-the-image) | [Docker compose](#plain-docker-compose) | [Coolify](#coolify) | [Protect access](#protect-access) | [Tokens](#tokens) | [Operations](#operations) | [Troubleshooting](#troubleshooting)
 
@@ -41,6 +41,8 @@ Hinomi makes outbound calls only for the jobs below. It sends no telemetry and n
 | `api.github.com` and GitHub's artifact storage | Fix runs on the `github_actions` runner: dispatch the workflow, follow the run and read its result, open the PR. Uses your GitHub token. | When a fix run is dispatched, and while it runs. | Do not dispatch fix runs. |
 | The runner URL you entered | The `webhook` runner: a signed POST of the fix plan. | When a fix run is dispatched. | Clear the URL under Settings, Webhook runner. |
 | Each notification channel you added: a Discord webhook URL, a webhook URL of your own, or your SMTP server | The notifications you asked for. | When a finding or fix run event reaches the channel's severity. | Disable or remove the channel (Settings, Notifications). |
+| Your OpenID Connect issuer (discovery, its signing keys, the token endpoint) | The [built in login](auth.md) with single sign on. | When someone signs in with it. | Unset the `HINOMI_AUTH_OIDC_*` variables. |
+| `github.com` and `api.github.com` | The [built in login](auth.md) with GitHub: the token exchange, then the login and verified emails. The token is dropped right after. | When someone signs in with GitHub. | Unset the `HINOMI_AUTH_GITHUB_*` variables. |
 | `<team>.cloudflareaccess.com` (`/cdn-cgi/access/certs`) | The keys that verify the Cloudflare Access token. | On the first request, and again when a token names an unknown key (rate limited). | Unset `HINOMI_CF_ACCESS_TEAM_DOMAIN`. |
 
 A manual list source makes no call. Inbound webhooks (the optional GitHub webhook and the runner callback) are connections to Hinomi, not from it.
@@ -54,6 +56,7 @@ Nothing is required to boot, but one value is needed before you can connect a so
 | `HINOMI_SECRET_KEY` | Encrypts source tokens at rest. Without it sources cannot be connected. |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | Keep it below your stop grace period (default `25`). |
 | `HINOMI_TRUSTED_PROXIES`, `HINOMI_CF_ACCESS_TEAM_DOMAIN`, `HINOMI_CF_ACCESS_AUD` | Only for the access setups below. |
+| `HINOMI_AUTH`, `HINOMI_AUTH_PUBLIC_URL`, `HINOMI_AUTH_ALLOWED` and the provider variables | Only for the [built in login](auth.md). |
 | `HINOMI_WEBHOOK_PORT` | Only for the optional [GitHub webhook](github-webhook.md) and the [webhook runner](runners.md#the-webhook-runner) callback: a second port that serves those two paths alone, the one thing safe to expose. |
 | `HINOMI_LOCAL_RUNNER` | `1` allows the [local runner](runners.md#the-local-runner), which applies fix plans on this host. Off by default; read its risks first. |
 | `HINOMI_LOCAL_RUNNER_CHECKS` | `1` also runs install scripts and checks on the host during a local run. Off by default. |
@@ -161,7 +164,7 @@ The proxy container mounts the socket, so the Docker socket check flags it when 
 
 ## Protect access
 
-Hinomi has no login. Pick one of these, then check Settings, Access (or the sidebar): it must say "Protected by Tailscale" or "Protected by Cloudflare Access". Details and every state are in [access.md](access.md).
+Pick one of these, then check Settings, Access (or the sidebar): it must say "Protected by Tailscale", "Protected by Cloudflare Access" or, with the built in login, "Public, login required". Details and every state are in [access.md](access.md).
 
 ### Tailscale
 
@@ -183,6 +186,10 @@ HINOMI_CF_ACCESS_AUD=<Application Audience (AUD) tag>
 ```
 
 Set both or neither; one alone is a startup error. The AUD tag is under Access controls, Applications, your app, Basic information. Without these the header is only reported as "seen, not verified". Behind a `cloudflared` tunnel the peer is the tunnel container, so also list its network in `HINOMI_TRUSTED_PROXIES` if you want the client address.
+
+### Built in login
+
+When neither fits, turn on Hinomi's own login: passkeys, OpenID Connect (Authentik, Authelia, Google) or GitHub. Set `HINOMI_AUTH=1` and `HINOMI_AUTH_PUBLIC_URL`, then register the first passkey with a code from `docker exec <container> node apps/server/dist/cli.mjs setup-code`. The full guide, with the providers, reverse proxies and lost access, is [auth.md](auth.md).
 
 ## Install as an app
 
