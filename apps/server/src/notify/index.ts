@@ -1,4 +1,4 @@
-// Discord, generic webhook and email notifications. The scheduler calls
+// Notifications to Discord, Slack, ntfy, Gotify, Telegram, generic webhooks and email. The scheduler calls
 // `handleScanFinished` after each scan and `sendDigest` once a day; `handleFixRunChanged` is fed
 // from the fix runs repository (see index.ts of the server).
 export { createNotifier, type Notifier, type NotifierOptions, type TestResult } from './notifier.js'

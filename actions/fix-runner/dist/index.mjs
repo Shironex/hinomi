@@ -7309,8 +7309,51 @@ const scanStatusSchema = discriminatedUnion("state", [
 const NOTIFY_CHANNEL_KINDS = [
 	"discord",
 	"webhook",
-	"email"
+	"email",
+	"slack",
+	"ntfy",
+	"gotify",
+	"telegram"
 ];
+const CHANNEL_KIND_FIELDS = {
+	discord: {
+		url: "required",
+		secret: "none",
+		chatId: false,
+		allowPrivate: false
+	},
+	slack: {
+		url: "required",
+		secret: "none",
+		chatId: false,
+		allowPrivate: false
+	},
+	webhook: {
+		url: "required",
+		secret: "optional",
+		chatId: false,
+		allowPrivate: true
+	},
+	ntfy: {
+		url: "required",
+		secret: "optional",
+		chatId: false,
+		allowPrivate: true
+	},
+	gotify: {
+		url: "required",
+		secret: "required",
+		chatId: false,
+		allowPrivate: true
+	},
+	telegram: {
+		url: "none",
+		secret: "required",
+		chatId: true,
+		allowPrivate: false
+	}
+};
+const TELEGRAM_CHAT_ID = /^(-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/;
 const SMTP_SECURITY_MODES = [
 	"tls",
 	"starttls",
@@ -7333,11 +7376,16 @@ const notifyChannelSchema = object({
 	minSeverity: severitySchema,
 	url: string(),
 	urlEncrypted: boolean(),
-	email: emailChannelViewSchema.optional()
+	email: emailChannelViewSchema.optional(),
+	allowPrivate: boolean(),
+	secretSet: boolean().optional(),
+	chatId: string().optional()
 });
 const notifyChannelsResponseSchema = object({ items: array(notifyChannelSchema) });
 const channelParamSchema = object({ id: uuid() });
 const webhookUrl = string().trim().min(1).max(1e3);
+const channelSecret = string().trim().min(1).max(1e3);
+const telegramChatId = string().trim().regex(TELEGRAM_CHAT_ID, "A chat id is a number like -1001234567890, or @channelname");
 const smtpHost = string().trim().min(1).max(255).regex(/^[A-Za-z0-9.:-]+$/, "The SMTP host is a host name or an IP address");
 const emailAddress = string().trim().max(254).pipe(email());
 const smtpFields = {
@@ -7371,37 +7419,44 @@ const createNotifyChannelRequestSchema = strictObject({
 	kind: _enum(NOTIFY_CHANNEL_KINDS),
 	name: string().trim().min(1).max(80),
 	url: webhookUrl.optional(),
+	secret: channelSecret.optional(),
+	chatId: telegramChatId.optional(),
+	allowPrivate: boolean().optional(),
 	email: emailChannelInputSchema.optional(),
 	enabled: boolean().optional(),
 	minSeverity: severitySchema.optional()
 }).superRefine((value, ctx) => {
+	const issue = (path, message) => ctx.addIssue({
+		code: "custom",
+		path: [path],
+		message
+	});
 	if (value.kind === "email") {
-		if (!value.email) ctx.addIssue({
-			code: "custom",
-			path: ["email"],
-			message: "The SMTP settings are required"
-		});
-		if (value.url !== void 0) ctx.addIssue({
-			code: "custom",
-			path: ["url"],
-			message: "An email channel has no URL"
-		});
+		if (!value.email) issue("email", "The SMTP settings are required");
+		for (const key of [
+			"url",
+			"secret",
+			"chatId",
+			"allowPrivate"
+		]) if (value[key] !== void 0) issue(key, `An email channel has no ${key}`);
 		return;
 	}
-	if (value.url === void 0) ctx.addIssue({
-		code: "custom",
-		path: ["url"],
-		message: "The webhook URL is required"
-	});
-	if (value.email !== void 0) ctx.addIssue({
-		code: "custom",
-		path: ["email"],
-		message: "Only an email channel has SMTP settings"
-	});
+	if (value.email !== void 0) issue("email", "Only an email channel has SMTP settings");
+	const fields = CHANNEL_KIND_FIELDS[value.kind];
+	if (fields.url === "required" && value.url === void 0) issue("url", "The URL is required");
+	if (fields.url === "none" && value.url !== void 0) issue("url", "This channel has no URL");
+	if (fields.secret === "required" && value.secret === void 0) issue("secret", "The token is required");
+	if (fields.secret === "none" && value.secret !== void 0) issue("secret", "This channel has no token or secret");
+	if (fields.chatId && value.chatId === void 0) issue("chatId", "The chat id is required");
+	if (!fields.chatId && value.chatId !== void 0) issue("chatId", "Only Telegram has a chat id");
+	if (!fields.allowPrivate && value.allowPrivate) issue("allowPrivate", "This channel always posts to a public service");
 });
 const updateNotifyChannelRequestSchema = strictObject({
 	name: string().trim().min(1).max(80).optional(),
 	url: webhookUrl.optional(),
+	secret: union([literal(""), channelSecret]).optional(),
+	chatId: telegramChatId.optional(),
+	allowPrivate: boolean().optional(),
 	email: emailChannelPatchSchema.optional(),
 	enabled: boolean().optional(),
 	minSeverity: severitySchema.optional()

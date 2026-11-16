@@ -318,3 +318,70 @@ describe('email channels', () => {
     expect(failed.text).not.toContain('SECRET')
   })
 })
+
+describe('Slack, ntfy, Gotify and Telegram channels', () => {
+  // Fake secrets, built from parts so no literal in the source looks like a real one.
+  const NTFY_TOKEN = ['tk', 'SECRETfakeNTFY'].join('_')
+  const BOT_TOKEN = ['42', `fake_SECRET_bot_${'x'.repeat(10)}`].join(':')
+
+  it('stores the token, shows only that one is set, and lets it be replaced', async () => {
+    const { call, logger } = createTestApi()
+    const created = await call('POST', '/notifications/channels', {
+      kind: 'ntfy',
+      name: 'phone',
+      url: 'https://ntfy.example.dev/hinomi-SECRET-topic',
+      secret: NTFY_TOKEN,
+    })
+    expect(created.status).toBe(201)
+    expect(created.json).toMatchObject({ kind: 'ntfy', secretSet: true, allowPrivate: false })
+    expect(created.text).not.toContain('SECRET')
+    const id = (created.json as { id: string }).id
+    const cleared = await call('PATCH', `/notifications/channels/${id}`, { secret: '' })
+    expect(cleared.json).toMatchObject({ secretSet: false })
+
+    const telegram = await call('POST', '/notifications/channels', {
+      kind: 'telegram',
+      name: 'ops chat',
+      secret: BOT_TOKEN,
+      chatId: '-1001234567890',
+    })
+    expect(telegram.status).toBe(201)
+    expect(telegram.json).toMatchObject({ chatId: '-1001234567890', secretSet: true })
+    expect(telegram.text).not.toContain('SECRET')
+    expect(logger.text()).not.toContain('SECRET')
+  })
+
+  it('rejects what a kind does not take, and private addresses unless allowed', async () => {
+    const { call } = createTestApi()
+    const post = (body: Record<string, unknown>) => call('POST', '/notifications/channels', body)
+    expect((await post({ kind: 'telegram', name: 't', secret: BOT_TOKEN })).status).toBe(400)
+    expect(
+      (await post({ kind: 'gotify', name: 'g', url: 'https://gotify.example.dev' })).status,
+    ).toBe(400)
+    expect(
+      (
+        await post({
+          kind: 'slack',
+          name: 's',
+          url: 'https://hooks.slack.com/services/x',
+          secret: 'x',
+        })
+      ).status,
+    ).toBe(400)
+    const metadata = await post({
+      kind: 'webhook',
+      name: 'w',
+      url: 'http://169.254.169.254/latest/meta-data',
+    })
+    expect(metadata.status).toBe(400)
+    expect(errorOf(metadata.json).message).toMatch(/private/)
+    const allowed = await post({
+      kind: 'webhook',
+      name: 'w',
+      url: 'http://10.0.0.8:8080/hook',
+      allowPrivate: true,
+    })
+    expect(allowed.status).toBe(201)
+    expect(allowed.json).toMatchObject({ allowPrivate: true })
+  })
+})

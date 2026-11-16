@@ -11,16 +11,12 @@ import {
   type ScanSummary,
 } from '../scan/index.js'
 import { ChannelNotFoundError, createChannelStore, type ResolvedChannel } from './channels.js'
+import { publicFetch } from '../net/public-fetch.js'
+import type { ScanBatch } from './chat-format.js'
 import { defaultSleep, deliver, type DeliverOptions } from './deliver.js'
 import { createSmtpSender, emailContent, type MailSender } from './email.js'
 import { eventsOf, isEnabled } from './fix-run-events.js'
-import {
-  fixRunDiscord,
-  fixRunEmail,
-  fixRunMessage,
-  fixRunWebhook,
-  type FixRunMessage,
-} from './fix-run-format.js'
+import { fixRunEmail, fixRunMessage, type FixRunMessage } from './fix-run-format.js'
 import {
   markSent,
   pruneFixRunState,
@@ -30,7 +26,6 @@ import {
 } from './fix-run-state.js'
 import {
   digestSummary,
-  discordMessages,
   exposureUrl,
   immediateSummary,
   limitDigest,
@@ -39,7 +34,6 @@ import {
   SUMMARY_TOP,
   summaryCounts,
   summaryText,
-  webhookPayload,
   type MessageType,
   type SummaryCounts,
 } from './format.js'
@@ -51,6 +45,7 @@ import {
   type MessageFinding,
   type NotificationItem,
 } from './items.js'
+import { fixRunRequest, isHttpChannel, scanRequests } from './outbound.js'
 import { readFixRunEvents, readNotifySettings } from './settings.js'
 import { isPrimed, pruneState, readState, writeState, type NotifyState } from './state.js'
 import { currentTime } from '@hinomi/shared'
@@ -59,7 +54,13 @@ export interface NotifierOptions {
   repositories: Repositories
   /** Needed to encrypt webhook URLs. Without it they are stored in clear text. */
   secretBox?: SecretBox | null
+  /**
+   * Replaces both ways of posting (tests). By default a channel that allows private addresses
+   * posts with the global fetch, every other one through `publicFetch` (public addresses only).
+   */
   fetch?: typeof fetch
+  /** Replaces only the public addresses way of posting (tests). */
+  publicFetch?: typeof fetch
   now?: () => Date
   log?: ScanLogger
   /** Waits between delivery retries. Tests replace it. */
@@ -133,7 +134,8 @@ function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
 }
 
 /**
- * Sends Discord, generic webhook and email notifications about findings. Self
+ * Sends notifications about findings to every kind of channel (Discord, Slack,
+ * ntfy, Gotify, Telegram, generic webhook, email). Self
  * contained: the scheduler calls `handleScanFinished` after every scan and
  * `sendDigest` once a day (see `msUntilNextDigest`).
  */
@@ -144,6 +146,8 @@ export function createNotifier(options: NotifierOptions) {
   const channels = createChannelStore(repositories.settings, options.secretBox ?? null)
   const delivery: DeliverOptions = {
     fetch: options.fetch ?? fetch,
+    publicFetch: options.publicFetch ?? options.fetch ?? publicFetch,
+    now,
     sleep: options.sleep ?? defaultSleep,
     log,
     ...options.delivery,
@@ -186,7 +190,9 @@ export function createNotifier(options: NotifierOptions) {
     omitted = 0,
     extra?: SummaryExtra,
   ): Promise<void> {
-    if (channel.kind === 'email' && channel.email) {
+    if (!isHttpChannel(channel)) {
+      // resolve() only yields email channels whose settings could be read.
+      if (!channel.email) return
       await sendMail(channel.email, {
         from: channel.email.from,
         to: channel.email.to,
@@ -195,25 +201,21 @@ export function createNotifier(options: NotifierOptions) {
       onSent(items)
       return
     }
-    if (channel.kind === 'webhook') {
-      const body = webhookPayload(
-        type,
-        items,
-        summary,
-        now(),
-        omitted,
-        extra ? { counts: extra.counts, link: extra.link } : {},
-      )
-      await deliver(channel.url, body, delivery)
-      onSent(items)
-      return
+    const batch: ScanBatch = {
+      type,
+      items,
+      summary,
+      omitted,
+      details: extra?.details ?? [],
+      link:
+        items.length === 1 && type !== 'summary' ? (items[0]?.url ?? null) : (extra?.link ?? null),
     }
-    const content = extra ? [summary, ...extra.details].join('\n') : summary
+    const webhookExtra = extra ? { counts: extra.counts, link: extra.link } : {}
     let offset = 0
-    for (const message of discordMessages(type, items, content)) {
-      await deliver(channel.url, message, delivery)
-      onSent(items.slice(offset, offset + message.embeds.length))
-      offset += message.embeds.length
+    for (const request of scanRequests(channel, batch, now(), webhookExtra)) {
+      await deliver(request.target, request.body, delivery)
+      onSent(items.slice(offset, offset + request.items))
+      offset += request.items
     }
   }
 
@@ -415,16 +417,15 @@ export function createNotifier(options: NotifierOptions) {
 
   /** Posts one fix run message to one channel in the channel's own form. */
   async function sendFixRun(channel: ResolvedChannel, message: FixRunMessage): Promise<void> {
-    if (channel.kind === 'email' && channel.email) {
+    if (isHttpChannel(channel)) {
+      const request = fixRunRequest(channel, message, now())
+      await deliver(request.target, request.body, delivery)
+    } else if (channel.email) {
       await sendMail(channel.email, {
         from: channel.email.from,
         to: channel.email.to,
         ...fixRunEmail(message),
       })
-    } else if (channel.kind === 'webhook') {
-      await deliver(channel.url, fixRunWebhook(message, now()), delivery)
-    } else {
-      await deliver(channel.url, fixRunDiscord(message), delivery)
     }
   }
 
