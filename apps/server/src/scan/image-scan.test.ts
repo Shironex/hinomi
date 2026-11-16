@@ -491,6 +491,34 @@ describe('image scan from Coolify results', () => {
     expect(docs().imageScannedAt).toBeNull()
   })
 
+  it('reopens the note and drops the verdict when scanning is turned off in Coolify', async () => {
+    await scan('off')
+    await scan(
+      'coolify',
+      fakeReader(available(), () => scanOf(FIXTURE)),
+    )
+    expect(note('image_only')).toMatchObject({ state: 'fixed' })
+    expect(docs().imageSecurity).not.toBeNull()
+
+    // Coolify 4.7.0 answers off_reason `application` (or `server`) and a not_checked verdict.
+    const off = {
+      ...FIXTURE,
+      off_reason: 'application',
+      security: { status: 'not_checked', checked_at: null },
+      images: [],
+      findings: [],
+      pagination: { total: 0 },
+    }
+    clock = new Date('2026-11-09T10:00:00Z')
+    await scan(
+      'coolify',
+      fakeReader(available('2026-11-09T09:00:00+00:00'), () => scanOf(off)),
+    )
+    expect(note('image_only')).toMatchObject({ state: 'open' })
+    expect(docs().imageSecurity).toBeNull()
+    expect(docs().imageScannedAt).toBeNull()
+  })
+
   it('reopens the note and resolves the partial note when the setting is turned off', async () => {
     await scan(
       'coolify',
