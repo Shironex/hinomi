@@ -58,6 +58,14 @@ describe('guard evidence', () => {
     expect(within(section).getByText('Database')).toBeInTheDocument()
   })
 
+  it('names the destination of a shared network without the Coolify class', async () => {
+    const section = await openEvidence(103)
+    expect(
+      within(section).getByText('Docker network (destination 1) on server edge-1'),
+    ).toBeInTheDocument()
+    expect(section.textContent).not.toContain('App\\Models')
+  })
+
   it('tells which files a push skips and which trigger a deploy', async () => {
     const section = await openEvidence(106)
     expect(within(section).getAllByText('Skipped, no deploy').length).toBeGreaterThan(0)

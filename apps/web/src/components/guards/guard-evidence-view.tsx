@@ -1,3 +1,4 @@
+import { destinationLabel } from '@hinomi/shared'
 import type { ReactNode } from 'react'
 import type {
   ActionRuntimeEvidence,
@@ -179,7 +180,7 @@ function SharedNetwork({ e }: { e: SharedNetworkEvidence }) {
             ? [
                 {
                   label: 'Destination',
-                  value: `${dest.type ?? 'destination'} ${dest.id}${dest.server ? ` on ${dest.server}` : ''}`,
+                  value: destinationLabel(dest),
                   mono: true,
                 },
               ]
