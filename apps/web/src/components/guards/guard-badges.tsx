@@ -32,13 +32,17 @@ export const GUARD_CHECK_ICON: Record<GuardCheck, Icon> = {
   action_runtime: IconBolt,
 }
 
-/** When a level has no ranked finding behind it (the deployment panel), it reads like this. */
+/**
+ * The look of a level, everywhere guard results show: a fail always reads as high, a warn as
+ * moderate, whatever severity the check ranks that level as (watch_paths_skip fails rank as
+ * moderate, docker_socket warns as high; neither may change how the word looks).
+ */
 const LEVEL_SEVERITY: Record<'fail' | 'warn', SeverityKey> = { fail: 'high', warn: 'moderate' }
 
 /**
- * A guard level in the severity look: the icon and ink of the severity it counts as, with the
- * level as the word ("Fail" in high ink for a root container). Unknown is quiet: the source
- * cannot tell, so it ranks like a coverage note.
+ * A guard level in the look of its level (LEVEL_SEVERITY), with the level as the word. The
+ * severity the finding ranks as only goes into the tooltip. Unknown is quiet: the source cannot
+ * tell, so it ranks like a coverage note.
  */
 export function GuardLevelBadge({
   level,
@@ -46,7 +50,7 @@ export function GuardLevelBadge({
   className,
 }: {
   level: GuardLevel
-  /** The severity the finding ranks as (its factors). Falls back to high for fail, moderate for warn. */
+  /** The severity the finding ranks as (its factors); shown in the tooltip, never changes the look. */
   severity?: SeverityKey
   className?: string
 }) {
@@ -62,13 +66,13 @@ export function GuardLevelBadge({
       </Badge>
     )
   }
-  const sev = severity ?? LEVEL_SEVERITY[level]
-  const IconCmp = SEVERITY_ICON[sev]
+  const look = LEVEL_SEVERITY[level]
+  const IconCmp = SEVERITY_ICON[look]
   return (
     <Badge
-      variant={sev === 'critical' ? 'critical-solid' : 'outline'}
-      className={cn(SEVERITY_BADGE[sev], className)}
-      title={`${GUARD_LEVEL_LABEL[level]}, counts as ${SEVERITY_LABEL[sev].toLowerCase()}`}
+      variant="outline"
+      className={cn(SEVERITY_BADGE[look], className)}
+      title={`${GUARD_LEVEL_LABEL[level]}, counts as ${SEVERITY_LABEL[severity ?? look].toLowerCase()}`}
     >
       <IconCmp aria-hidden="true" stroke={2} />
       {GUARD_LEVEL_LABEL[level]}
