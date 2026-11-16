@@ -15,25 +15,44 @@
           "version": "3.1.0",
           "require": {
             "kestrel/uri": "^1.2"
+          },
+          "dist": {
+            "type": "zip",
+            "url": "file://DISTS/http-3.1.0.zip"
           }
         },
         {
           "name": "kestrel/uri",
-          "version": "1.2.0"
+          "version": "1.2.0",
+          "dist": {
+            "type": "zip",
+            "url": "file://DISTS/uri-1.2.0.zip"
+          }
         },
         {
           "name": "kestrel/uri",
-          "version": "1.2.4"
+          "version": "1.2.4",
+          "dist": {
+            "type": "zip",
+            "url": "file://DISTS/uri-1.2.4.zip"
+          }
         },
         {
           "name": "kestrel/uri",
-          "version": "1.2.6"
+          "version": "1.2.6",
+          "dist": {
+            "type": "zip",
+            "url": "file://DISTS/uri-1.2.6.zip"
+          }
         }
       ]
     }
   ],
   "scripts": {
     "pre-update-cmd": "@php -r \"touch('script-ran');\"",
-    "post-update-cmd": "@php -r \"touch('script-ran');\""
+    "post-update-cmd": "@php -r \"touch('script-ran');\"",
+    "pre-install-cmd": "@php -r \"touch('script-ran');\"",
+    "post-install-cmd": "@php -r \"touch('script-ran');\"",
+    "post-autoload-dump": "@php -r \"touch('script-ran');\""
   }
 }

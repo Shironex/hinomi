@@ -172,6 +172,7 @@ export async function main(io: MainIo): Promise<number> {
       publishTimes: registryPublishTimes(io.fetch),
       log,
       now: io.now ?? currentTime,
+      searchPath: env.PATH ?? '',
     }
     const applyInputs = { ...dispatchInputs, checks: getInput(env, 'checks') }
     if (step === 'check') {

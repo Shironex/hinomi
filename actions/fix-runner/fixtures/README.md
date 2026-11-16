@@ -30,8 +30,10 @@ nothing here is ever installed (except by the real tool test). Every package nam
 - `composer-project`: a composer.lock with Packagist packages (one with a `v` version) and one
   from another repository, and a `pre-update-cmd` script that must never run.
 - `real-go`, `real-uv`, `real-composer`: for the tests that run the real go, uv and composer
-  against a file:// module proxy, a folder of wheels (with a source distribution whose
-  setup.py leaves a marker if it is ever built) and an inline package repository whose
+  against a file:// module proxy, a folder of wheels (with a source distribution that
+  builds, through an in-tree backend that leaves a marker, if `--no-build` is ever dropped)
+  plus a committed `.venv` interpreter and a `.python-version` path that leave markers if
+  uv runs them, and an inline package repository with zip dists whose update and install
   scripts leave a marker, all written by the test itself.
 - `dispatches`: dispatches the runner must refuse.
 - `selftest-npm`, `selftest-pnpm`, `selftest-dispatch.json`: what `.github/workflows/fix-selftest.yml`

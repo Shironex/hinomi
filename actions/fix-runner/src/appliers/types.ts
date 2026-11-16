@@ -24,6 +24,8 @@ export interface ProjectContext {
   publishTimes: PublishTimes
   exec: Exec
   now: Date
+  /** The PATH the runner's child processes get; none is searched when absent. */
+  searchPath?: string
 }
 
 /** What happened to one step's edit. */

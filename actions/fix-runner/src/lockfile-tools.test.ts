@@ -1,10 +1,19 @@
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { parseFixResult, type FixDispatchStep } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { composerApplier, composerLockPackages } from './appliers/composer.js'
 import { GO_ENV, parseGoMod } from './appliers/go.js'
 import { requirementPins } from './appliers/pip.js'
-import { normalizePypiName, uvApplier, uvLockPackages } from './appliers/uv.js'
+import {
+  normalizePypiName,
+  runnerPython,
+  sourceIsPypi,
+  uvApplier,
+  uvEnv,
+  uvLockPackages,
+} from './appliers/uv.js'
 import { detectProject } from './detect.js'
 import { isAllowedPatchPath } from './patch.js'
 import { runApply, versionLine } from './pipeline.js'
@@ -289,6 +298,14 @@ describe('uv', () => {
       'uv lock --check --no-build',
     ])
     expect(times.requests).toEqual([`${PYPI_API}plover-sig@1.0.4`])
+    for (const call of exec.calls.slice(1)) {
+      const vars = call.command.env ?? {}
+      expect(vars).toMatchObject({ UV_PYTHON_DOWNLOADS: 'never', UV_KEYRING_PROVIDER: 'disabled' })
+      for (const key of ['UV_PYTHON', 'UV_PROJECT_ENVIRONMENT', 'UV_CACHE_DIR']) {
+        expect(isAbsolute(vars[key] ?? ''), key).toBe(true)
+        expect((vars[key] ?? '').startsWith(root), key).toBe(false)
+      }
+    }
     expect(result.patch?.files).toEqual(['uv.lock'])
     expect(patch).toContain('+version = "1.0.4"')
     expect(result.checks).toEqual([])
@@ -310,6 +327,14 @@ describe('requirements.txt', () => {
       ['wren-dom', '0.4.0', '0.4.0', true],
     ])
     expect(requirementPins('kestrel===1.0.0\nheron >= 1\n')).toEqual([])
+  })
+
+  it('never joins a comment line ending in a backslash with the requirement after it', () => {
+    const text = '# old pin was here \\\nplover-sig==1.0.2\n  # indented \\\nwren-dom==0.4.0\n'
+    expect(requirementPins(text).map((p) => [p.name, text.slice(p.start, p.end)])).toEqual([
+      ['plover-sig', '1.0.2'],
+      ['wren-dom', '0.4.0'],
+    ])
   })
 
   it('edits the pins in place and runs no tool at all', async () => {
@@ -340,6 +365,7 @@ describe('requirements.txt', () => {
       [
         '# Pinned by hand for the kestrel tools.',
         'Heron_Web[async]==2.3.1 ; python_version >= "3.12"  # web client',
+        '# pinned below, see the notes \\',
         'plover-sig==1.0.4',
         'wren-dom==0.4.0 \\',
         '    --hash=sha256:2222222222222222222222222222222222222222222222222222222222222222',
@@ -358,26 +384,148 @@ describe('requirements.txt', () => {
     expect(times.requests).toContain(`${PYPI_API}heron-web@2.3.1`)
   })
 
-  it('trusts no PyPI publish time when the file names another index', async () => {
+  it.each([
+    [
+      'an --index-url other than PyPI',
+      { 'requirements.txt': '--index-url https://pypi.internal.example.dev/simple\n' },
+    ],
+    ['a short -i option', { 'requirements.txt': '-ihttps://pypi.internal.example.dev/simple\n' }],
+    [
+      'an --extra-index-url in an included file',
+      { 'extra.txt': '--extra-index-url=https://mirror.example.dev/simple\n' },
+    ],
+    ['--find-links in a constraints file', { 'constraints.txt': '--find-links ./wheels\n' }],
+    ['--no-index', { 'requirements.txt': '--no-index\n' }],
+    [
+      'an included file outside the repo',
+      { 'requirements.txt': '-r ../shared/requirements.txt\n' },
+    ],
+    ['an included file that is missing', { 'requirements.txt': '--requirement missing.txt\n' }],
+    ['an included URL', { 'requirements.txt': '-c https://example.dev/constraints.txt\n' }],
+  ])('trusts no PyPI publish time with %s', async (_label, prepend: Record<string, string>) => {
     const root = await fixtureRepo('pip-requirements', async (dir) => {
-      await nodeRepoFs(dir).write(
-        'requirements.txt',
-        '--index-url https://pypi.internal.example.dev/simple\nplover-sig==1.0.2\n',
-      )
+      const fs = nodeRepoFs(dir)
+      for (const [file, line] of Object.entries(prepend)) {
+        await fs.write(file, line + ((await fs.read(file)) ?? ''))
+      }
     })
-    const exec = fakeExec(() => ({}))
     const times = mockPublishTimes({ 'plover-sig@1.0.4': OLD })
     const { result } = await runApply(
       inputs(dispatch([toolStep(1, 'pip', 'plover-sig', '1.0.2', '1.0.4')])),
-      deps(root, exec, times),
+      deps(
+        root,
+        fakeExec(() => ({})),
+        times,
+      ),
     )
     expect(result.steps[0]).toMatchObject({ status: 'skipped', reason: 'too_new' })
     expect(times.requests).toEqual([])
   })
+
+  it('trusts PyPI publish times when the only index option names PyPI itself', async () => {
+    const root = await fixtureRepo('pip-requirements', async (dir) => {
+      const fs = nodeRepoFs(dir)
+      await fs.write(
+        'extra.txt',
+        `-i https://pypi.org/simple\n${(await fs.read('extra.txt')) ?? ''}`,
+      )
+    })
+    const times = mockPublishTimes({ 'plover-sig@1.0.4': OLD })
+    const { result } = await runApply(
+      inputs(dispatch([toolStep(1, 'pip', 'plover-sig', '1.0.2', '1.0.4')])),
+      deps(
+        root,
+        fakeExec(() => ({})),
+        times,
+      ),
+    )
+    expect(result.steps[0]).toMatchObject({ status: 'applied' })
+  })
 })
 
-// ---------------------------------------------------------------------------
-// composer
+describe('uv: where a package comes from now', () => {
+  const isUvLock = (args: string[]) => args[0] === 'lock'
+
+  it.each([
+    [
+      'a uv.toml in the project',
+      { 'uv.toml': 'index-url = "https://mirror.example.dev/simple"\n' },
+    ],
+    ['a uv.toml above the project', { '../uv.toml': '' }],
+    [
+      'an index setting under [tool.uv]',
+      { pyproject: '[tool.uv]\nextra-index-url = ["https://mirror.example.dev/simple"]\n' },
+    ],
+    ['find-links under [tool.uv]', { pyproject: '[tool.uv]\nfind-links = ["./wheels"]\n' }],
+    [
+      'a [[tool.uv.index]] other than PyPI',
+      { pyproject: '[[tool.uv.index]]\nname = "m"\nurl = "https://mirror.example.dev/simple"\n' },
+    ],
+    [
+      'a [tool.uv.sources] entry for the package',
+      { pyproject: '[tool.uv.sources]\nplover-sig = { index = "m" }\n' },
+    ],
+    [
+      'a [tool.uv.sources.<package>] table',
+      { pyproject: '[tool.uv.sources.Plover_Sig]\ngit = "https://example.dev/plover.git"\n' },
+    ],
+  ])('trusts no PyPI publish time with %s', async (_label, extra: Record<string, string>) => {
+    const nested = '../uv.toml' in extra
+    const root = await fixtureRepo('uv-project', async (dir) => {
+      const fs = nodeRepoFs(dir)
+      for (const [file, text] of Object.entries(extra)) {
+        if (file === 'pyproject') {
+          await fs.write('pyproject.toml', `${(await fs.read('pyproject.toml')) ?? ''}\n${text}`)
+        } else if (file === '../uv.toml') {
+          // The project in a sub folder, the uv.toml at the repo root above it.
+          mkdirSync(join(dir, 'py'))
+          for (const name of ['pyproject.toml', 'uv.lock']) {
+            await fs.write(`py/${name}`, (await fs.read(name)) ?? '')
+          }
+          await fs.write('uv.toml', text)
+        } else {
+          await fs.write(file, text)
+        }
+      }
+    })
+    const times = mockPublishTimes({ 'plover-sig@1.0.4': OLD })
+    const step = {
+      ...toolStep(1, 'uv', 'plover-sig', '1.0.2', '1.0.4'),
+      lockfile: nested ? 'py/uv.lock' : 'uv.lock',
+    }
+    const { result } = await runApply(
+      inputs(dispatch([step])),
+      deps(root, fakeExec(fakeTool(root, 'uv 0.13.2', isUvLock, () => ({}))), times),
+    )
+    expect(result.steps[0]).toMatchObject({ status: 'skipped', reason: 'too_new' })
+    expect(times.requests).toEqual([])
+  })
+
+  it('still trusts PyPI with an explicit index the package is not sourced from', async () => {
+    const root = await fixtureRepo('uv-project', async (dir) => {
+      const fs = nodeRepoFs(dir)
+      const extra =
+        '[[tool.uv.index]]\nname = "m"\nurl = "https://mirror.example.dev/simple"\nexplicit = true\n'
+      await fs.write('pyproject.toml', `${(await fs.read('pyproject.toml')) ?? ''}\n${extra}`)
+    })
+    expect(await sourceIsPypi(nodeRepoFs(root), '.', 'plover-sig')).toBe(true)
+    expect(await sourceIsPypi(nodeRepoFs(root), '.', 'Plover.Sig')).toBe(true)
+  })
+
+  it('finds an interpreter on PATH outside the checkout only', () => {
+    const checkout = mkdtempSync(join(tmpdir(), 'hinomi-checkout-'))
+    const inside = join(checkout, 'tools')
+    mkdirSync(inside)
+    writeFileSync(join(inside, 'python3'), '#!/bin/sh\n', { mode: 0o755 })
+    const outside = mkdtempSync(join(tmpdir(), 'hinomi-bin-'))
+    writeFileSync(join(outside, 'python3'), '#!/bin/sh\n', { mode: 0o755 })
+    expect(runnerPython(checkout, [inside, 'relative/bin', outside].join(delimiter))).toBe(
+      join(outside, 'python3'),
+    )
+    expect(runnerPython(checkout, inside)).toBeNull()
+    expect(uvEnv(checkout, null).UV_PYTHON).toMatch(/no-python3-on-path$/)
+  })
+})
 
 describe('composer', () => {
   it('reads composer.lock packages without the v prefix, marking Packagist ones', () => {
@@ -421,16 +569,47 @@ describe('composer', () => {
       ['skipped', 'too_new'],
     ])
     const safe =
-      '--no-scripts --no-plugins --no-interaction --no-progress --no-audit --ignore-platform-req=ext-*'
+      '--no-scripts --no-plugins --no-interaction --no-progress --ignore-platform-req=ext-*'
     expect(exec.calls.map(argv)).toEqual([
       'composer --version --no-plugins --no-interaction',
-      `composer update kestrel/uri:1.2.4 --no-install --minimal-changes ${safe}`,
+      `composer update kestrel/uri:1.2.4 --no-install --minimal-changes --no-audit ${safe}`,
+      // install has no --no-audit (composer 2.11 refuses it); it audits only when asked.
       `composer install ${safe}`,
     ])
+    for (const call of exec.calls.slice(1)) {
+      expect(call.command.env).toMatchObject({
+        COMPOSER_NO_AUDIT: '1',
+        COMPOSER_VENDOR_DIR: 'vendor',
+      })
+    }
     expect(times.requests).toEqual([`${PACKAGIST_API}kestrel/uri@1.2.4`])
     expect(result.patch?.files).toEqual(['composer.lock'])
     expect(patch).toContain('+            "version": "1.2.4",')
   })
+
+  it.each([
+    ['a vcs repository', [{ type: 'vcs', url: 'https://example.dev/kestrel/uri.git' }]],
+    ['Packagist turned off', { 'packagist.org': false }],
+    ['a path repository', [{ type: 'path', url: '../uri' }]],
+  ])(
+    'trusts no Packagist publish time when composer.json lists %s',
+    async (_label, repositories) => {
+      const root = await fixtureRepo('composer-project', async (dir) => {
+        const fs = nodeRepoFs(dir)
+        const json = JSON.parse((await fs.read('composer.json')) ?? '{}') as Record<string, unknown>
+        await fs.write('composer.json', JSON.stringify({ ...json, repositories }, null, 2))
+      })
+      const exec = fakeExec(fakeTool(root, 'Composer version 2.11.1', isUpdate, composerAfter))
+      const times = mockPublishTimes({ 'kestrel/uri@1.2.4': OLD })
+      const { result } = await runApply(
+        inputs(dispatch([toolStep(1, 'composer', 'kestrel/uri', '1.2.0', '1.2.4')])),
+        deps(root, exec, times),
+      )
+      // The lock entry still says Packagist, but the update would now look elsewhere first.
+      expect(result.steps[0]).toMatchObject({ status: 'skipped', reason: 'too_new' })
+      expect(times.requests).toEqual([])
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------

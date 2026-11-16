@@ -2,6 +2,7 @@ import type { FixDispatchStep } from '@hinomi/shared'
 import type { Command } from '../exec.js'
 import { isJsonObject, parseJsonFile } from '../json-file.js'
 import { PACKAGIST_API } from '../registry.js'
+import { repoJoin } from '../repo-fs.js'
 import type { Applier, EditOutcome, ProjectContext } from './types.js'
 
 // Composer with composer.lock. A step is a lockfile_update: one `composer update` with the
@@ -12,17 +13,27 @@ import type { Applier, EditOutcome, ProjectContext } from './types.js'
 // package code runs. composer.json is not edited: a root requirement whose range excludes
 // `to` makes the update fail, and the step is reported as install_failed.
 
-/** Flags of every composer command the runner starts. */
+/** Flags of every composer command the runner starts (install has no `--no-audit`). */
 export const COMPOSER_SAFE_FLAGS = [
   '--no-scripts',
   '--no-plugins',
   '--no-interaction',
   '--no-progress',
-  '--no-audit',
   // PHP extensions only matter at run time; the runner's PHP lacking one must not block a
   // lockfile update. The php version itself is still checked.
   '--ignore-platform-req=ext-*',
 ] as const
+
+/**
+ * Environment of every composer command: no audit (update audits by default and would call
+ * out to Packagist's advisories), and the vendor and bin folders where composer puts them by
+ * default, so a composer.json `config.vendor-dir` cannot send the install outside the checkout.
+ */
+export const COMPOSER_ENV: Readonly<Record<string, string>> = {
+  COMPOSER_NO_AUDIT: '1',
+  COMPOSER_VENDOR_DIR: 'vendor',
+  COMPOSER_BIN_DIR: 'vendor/bin',
+}
 
 /** composer.lock records packages from Packagist with this notification URL. */
 const PACKAGIST_NOTIFY = 'https://packagist.org/downloads/'
@@ -57,6 +68,26 @@ export function composerLockPackages(text: string): LockedComposerPackage[] {
   return out
 }
 
+/**
+ * Whether the project's composer.json leaves Packagist as the only repository. Any entry under
+ * `repositories` (a vcs, path, package or composer repository, or Packagist turned off) can
+ * serve the package instead, whatever the lockfile recorded before.
+ */
+export async function onlyPackagist(ctx: ProjectContext): Promise<boolean> {
+  const text = await ctx.fs.read(repoJoin(ctx.root, 'composer.json'))
+  if (text === null) return false
+  try {
+    const { data } = parseJsonFile(text)
+    if (!isJsonObject(data)) return false
+    const repositories = data.repositories
+    if (repositories === undefined) return true
+    if (Array.isArray(repositories)) return repositories.length === 0
+    return isJsonObject(repositories) && Object.keys(repositories).length === 0
+  } catch {
+    return false
+  }
+}
+
 async function lockedPackages(ctx: ProjectContext, name: string): Promise<LockedComposerPackage[]> {
   const text = await ctx.fs.read(ctx.lockfile)
   if (text === null) return []
@@ -76,7 +107,15 @@ export function composerUpdateCommand(steps: readonly FixDispatchStep[]): Comman
   if (targets.length === 0) return null
   return {
     file: 'composer',
-    args: ['update', ...targets, '--no-install', '--minimal-changes', ...COMPOSER_SAFE_FLAGS],
+    args: [
+      'update',
+      ...targets,
+      '--no-install',
+      '--minimal-changes',
+      '--no-audit',
+      ...COMPOSER_SAFE_FLAGS,
+    ],
+    env: { ...COMPOSER_ENV },
   }
 }
 
@@ -111,6 +150,8 @@ export const composerApplier: Applier = {
     const locked = await lockedPackages(ctx, name)
     // A package from another repository has no Packagist publish time to trust.
     if (locked.length === 0 || !locked.every((pkg) => pkg.fromPackagist)) return null
+    // Where the update would fetch it from now, not only where it came from before.
+    if (!(await onlyPackagist(ctx))) return null
     return ctx.publishTimes.publishedAt(name.toLowerCase(), version, PACKAGIST_API)
   },
 
@@ -122,7 +163,7 @@ export const composerApplier: Applier = {
 
   // Downloads and installs the locked packages without running any script or plugin.
   fullInstall() {
-    return { file: 'composer', args: ['install', ...COMPOSER_SAFE_FLAGS] }
+    return { file: 'composer', args: ['install', ...COMPOSER_SAFE_FLAGS], env: { ...COMPOSER_ENV } }
   },
 
   checks: () => Promise.resolve([]),

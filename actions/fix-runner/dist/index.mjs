@@ -1,9 +1,10 @@
 import { createRequire } from "node:module";
 import { access, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { accessSync, appendFileSync, constants, mkdtempSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 
@@ -16526,9 +16527,13 @@ const COMPOSER_SAFE_FLAGS = [
 	"--no-plugins",
 	"--no-interaction",
 	"--no-progress",
-	"--no-audit",
 	"--ignore-platform-req=ext-*"
 ];
+const COMPOSER_ENV = {
+	COMPOSER_NO_AUDIT: "1",
+	COMPOSER_VENDOR_DIR: "vendor",
+	COMPOSER_BIN_DIR: "vendor/bin"
+};
 const PACKAGIST_NOTIFY = "https://packagist.org/downloads/";
 function composerLockPackages(text) {
 	const { data } = parseJsonFile(text);
@@ -16547,6 +16552,20 @@ function composerLockPackages(text) {
 		}
 	}
 	return out;
+}
+async function onlyPackagist(ctx) {
+	const text = await ctx.fs.read(repoJoin(ctx.root, "composer.json"));
+	if (text === null) return false;
+	try {
+		const { data } = parseJsonFile(text);
+		if (!isJsonObject(data)) return false;
+		const repositories = data.repositories;
+		if (repositories === void 0) return true;
+		if (Array.isArray(repositories)) return repositories.length === 0;
+		return isJsonObject(repositories) && Object.keys(repositories).length === 0;
+	} catch {
+		return false;
+	}
 }
 async function lockedPackages$1(ctx, name) {
 	const text = await ctx.fs.read(ctx.lockfile);
@@ -16568,8 +16587,10 @@ function composerUpdateCommand(steps) {
 			...targets,
 			"--no-install",
 			"--minimal-changes",
+			"--no-audit",
 			...COMPOSER_SAFE_FLAGS
-		]
+		],
+		env: { ...COMPOSER_ENV }
 	};
 }
 function checkStep$2(step) {
@@ -16603,6 +16624,7 @@ const composerApplier = {
 	async publishedAt(ctx, name, version) {
 		const locked = await lockedPackages$1(ctx, name);
 		if (locked.length === 0 || !locked.every((pkg) => pkg.fromPackagist)) return null;
+		if (!await onlyPackagist(ctx)) return null;
 		return ctx.publishTimes.publishedAt(name.toLowerCase(), version, PACKAGIST_API);
 	},
 	applyStep: (_ctx, step) => checkStep$2(step),
@@ -16612,7 +16634,8 @@ const composerApplier = {
 	fullInstall() {
 		return {
 			file: "composer",
-			args: ["install", ...COMPOSER_SAFE_FLAGS]
+			args: ["install", ...COMPOSER_SAFE_FLAGS],
+			env: { ...COMPOSER_ENV }
 		};
 	},
 	checks: () => Promise.resolve([])
@@ -16884,7 +16907,44 @@ async function lockedPackages(ctx, name) {
 		return [];
 	}
 }
-function uvLockCommand(steps) {
+function insideCheckout(checkout, path) {
+	try {
+		const rel = relative(realpathSync(checkout), realpathSync(path));
+		return rel === "" || !rel.startsWith("..") && !isAbsolute(rel);
+	} catch {
+		return true;
+	}
+}
+function runnerPython(checkout, path) {
+	for (const dir of path.split(delimiter)) {
+		if (!isAbsolute(dir)) continue;
+		const candidate = join(dir, "python3");
+		try {
+			accessSync(candidate, constants.X_OK);
+		} catch {
+			continue;
+		}
+		if (!insideCheckout(checkout, candidate)) return candidate;
+	}
+	return null;
+}
+let scratch = null;
+function uvScratch() {
+	scratch ??= mkdtempSync(join(tmpdir(), "hinomi-uv-"));
+	return scratch;
+}
+function uvEnv(checkout, python) {
+	const dir = uvScratch();
+	return {
+		UV_PYTHON: python ?? join(dir, "no-python3-on-path"),
+		UV_PYTHON_DOWNLOADS: "never",
+		UV_PROJECT_ENVIRONMENT: join(dir, "venv"),
+		UV_CACHE_DIR: join(dir, "cache"),
+		UV_KEYRING_PROVIDER: "disabled",
+		UV_NO_PROGRESS: "1"
+	};
+}
+function uvLockCommand(steps, env = {}) {
 	const upgrades = steps.flatMap(({ apply }) => apply.type === "lockfile_update" ? ["--upgrade-package", `${apply.packageName}==${apply.to}`] : []);
 	if (upgrades.length === 0) return null;
 	return {
@@ -16893,8 +16953,48 @@ function uvLockCommand(steps) {
 			"lock",
 			"--no-build",
 			...upgrades
-		]
+		],
+		env
 	};
+}
+const UV_INDEX_SETTINGS = /* @__PURE__ */ new Set([
+	"index",
+	"index-url",
+	"default-index",
+	"extra-index-url",
+	"find-links",
+	"no-index"
+]);
+function entriesUnder(entries, table) {
+	return entries.filter((entry) => entry.table.join(".") === table);
+}
+async function sourceIsPypi(fs, root, name) {
+	for (let dir = root;; dir = repoDirname(dir)) {
+		if (await fs.exists(repoJoin(dir, "uv.toml"))) return false;
+		if (dir === ".") break;
+	}
+	const text = await fs.read(repoJoin(root, "pyproject.toml"));
+	if (text === null) return false;
+	let entries;
+	try {
+		entries = scanToml(text);
+	} catch {
+		return false;
+	}
+	if (entriesUnder(entries, "tool.uv").some((e) => UV_INDEX_SETTINGS.has(e.key[0] ?? ""))) return false;
+	const indexes = /* @__PURE__ */ new Map();
+	for (const entry of entriesUnder(entries, "tool.uv.index")) {
+		const index = indexes.get(entry.tableIndex) ?? {
+			url: null,
+			explicit: false
+		};
+		if (entry.key.join(".") === "url") index.url = scalarValue(text, entry);
+		if (entry.key.join(".") === "explicit") index.explicit = scalarValue(text, entry);
+		indexes.set(entry.tableIndex, index);
+	}
+	for (const { url, explicit } of indexes.values()) if (explicit !== true && !PYPI_INDEXES.has(typeof url === "string" ? url : "")) return false;
+	const wanted = normalizePypiName(name);
+	return !entries.some((entry) => entry.table.join(".") === "tool.uv.sources" && normalizePypiName(entry.key[0] ?? "") === wanted || entry.table.length === 4 && entry.table.slice(0, 3).join(".") === "tool.uv.sources" && normalizePypiName(entry.table[3] ?? "") === wanted);
 }
 function checkStep(step) {
 	const { apply } = step;
@@ -16922,20 +17022,22 @@ const uvApplier = {
 	async publishedAt(ctx, name, version) {
 		const locked = await lockedPackages(ctx, name);
 		if (locked.length === 0 || !locked.every((pkg) => PYPI_INDEXES.has(pkg.registry ?? ""))) return null;
+		if (!await sourceIsPypi(ctx.fs, ctx.root, name)) return null;
 		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
 	},
 	applyStep: (_ctx, step) => checkStep(step),
-	lockfileInstall(_ctx, { steps }) {
-		return uvLockCommand(steps) ?? [];
+	lockfileInstall(ctx, { steps }) {
+		return uvLockCommand(steps, uvEnv(ctx.fs.root, runnerPython(ctx.fs.root, ctx.searchPath ?? ""))) ?? [];
 	},
-	fullInstall() {
+	fullInstall(ctx) {
 		return {
 			file: "uv",
 			args: [
 				"lock",
 				"--check",
 				"--no-build"
-			]
+			],
+			env: uvEnv(ctx.fs.root, runnerPython(ctx.fs.root, ctx.searchPath ?? ""))
 		};
 	},
 	checks: () => Promise.resolve([])
@@ -16943,20 +17045,36 @@ const uvApplier = {
 
 // src/appliers/pip.ts
 const PIN = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==(?!=)\s*([^\s;#\\]+)/;
-const INDEX_OPTION = /^\s*(?:-i\b|--index-url\b|--extra-index-url\b|-f\b|--find-links\b)/m;
-function requirementPins(text) {
-	const pins = [];
+const PYPI_SIMPLE = /* @__PURE__ */ new Set(["https://pypi.org/simple", "https://pypi.org/simple/"]);
+const MAX_INCLUDED_FILES = 20;
+function logicalLines(text) {
+	const out = [];
 	const lines = text.split("\n");
 	let offset = 0;
-	for (let i = 0; i < lines.length; i++) {
+	let current = null;
+	for (const line of lines) {
 		const start = offset;
-		let logical = lines[i] ?? "";
-		offset += logical.length + 1;
-		while (logical.trimEnd().endsWith("\\") && i + 1 < lines.length) {
-			i++;
-			logical += `\n${lines[i] ?? ""}`;
-			offset += (lines[i] ?? "").length + 1;
+		offset += line.length + 1;
+		const comment = /^\s*#/.test(line);
+		if (current) current.text += `\n${line}`;
+		else current = {
+			text: line,
+			start
+		};
+		if (comment || !line.trimEnd().endsWith("\\")) {
+			out.push(current);
+			current = null;
 		}
+	}
+	if (current) out.push(current);
+	return out;
+}
+function withoutComment(line) {
+	return line.replace(/\\\n/g, " ").replace(/(?:^|\s)#.*$/gm, "").trim();
+}
+function requirementPins(text) {
+	const pins = [];
+	for (const { text: logical, start } of logicalLines(text)) {
 		const lead = logical.length - logical.trimStart().length;
 		const match = PIN.exec(logical.slice(lead));
 		if (!match?.[1] || !match[2]) continue;
@@ -16966,10 +17084,64 @@ function requirementPins(text) {
 			version: match[2],
 			start: versionAt,
 			end: versionAt + match[2].length,
-			hashed: /(?:^|\s)--hash[=\s]/.test(logical.replace(/(?:^|\s)#.*$/gm, ""))
+			hashed: /(?:^|\s)--hash[=\s]/.test(withoutComment(logical))
 		});
 	}
 	return pins;
+}
+function optionOf(line) {
+	const long = /^(--[a-z-]+)(?:[=\s]\s*(.*))?$/.exec(line);
+	if (long?.[1]) return {
+		name: long[1],
+		value: (long[2] ?? "").trim()
+	};
+	const short = /^(-[a-zA-Z])\s*(.*)$/.exec(line);
+	if (short?.[1]) return {
+		name: short[1],
+		value: (short[2] ?? "").trim()
+	};
+	return null;
+}
+const INCLUDE_OPTIONS = /* @__PURE__ */ new Set([
+	"-r",
+	"--requirement",
+	"-c",
+	"--constraint"
+]);
+const INDEX_URL_OPTIONS = /* @__PURE__ */ new Set(["-i", "--index-url"]);
+const OTHER_INDEX_OPTIONS = /* @__PURE__ */ new Set([
+	"--extra-index-url",
+	"-f",
+	"--find-links",
+	"--no-index"
+]);
+async function onlyPypi(fs, file) {
+	const queue = [file];
+	const seen = /* @__PURE__ */ new Set();
+	while (queue.length > 0) {
+		const path = queue.shift() ?? "";
+		if (seen.has(path)) continue;
+		seen.add(path);
+		if (seen.size > MAX_INCLUDED_FILES) return false;
+		const text = await fs.read(path).catch(() => null);
+		if (text === null) return false;
+		for (const { text: logical } of logicalLines(text)) {
+			const line = withoutComment(logical);
+			if (!line.startsWith("-")) continue;
+			const option = optionOf(line);
+			if (!option) return false;
+			if (OTHER_INDEX_OPTIONS.has(option.name)) return false;
+			if (INDEX_URL_OPTIONS.has(option.name) && !PYPI_SIMPLE.has(option.value)) return false;
+			if (INCLUDE_OPTIONS.has(option.name)) {
+				const target = option.value;
+				if (!target || posix.isAbsolute(target) || target.includes("\\") || /^[a-z][a-z0-9+.-]*:/i.test(target)) return false;
+				const joined = posix.normalize(posix.join(repoDirname(path), target));
+				if (joined === ".." || joined.startsWith("../")) return false;
+				queue.push(joined);
+			}
+		}
+	}
+	return true;
 }
 async function pinsOf(ctx, name) {
 	const text = await ctx.fs.read(ctx.lockfile);
@@ -17025,8 +17197,7 @@ const pipApplier = {
 	},
 	releaseAgeGate: () => Promise.resolve(null),
 	async publishedAt(ctx, name, version) {
-		const text = await ctx.fs.read(ctx.lockfile);
-		if (text === null || INDEX_OPTION.test(text)) return null;
+		if (!await onlyPypi(ctx.fs, ctx.lockfile)) return null;
 		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
 	},
 	applyStep: editPins,
@@ -17841,7 +18012,8 @@ var ApplyRun = class {
 			version: version.code === 0 ? versionLine(applier, version.output) : null,
 			publishTimes,
 			exec,
-			now: this.now
+			now: this.now,
+			searchPath: this.deps.searchPath
 		};
 		log.info("project", {
 			lockfile: project.lockfile,
@@ -18695,7 +18867,8 @@ async function main(io) {
 			exec,
 			publishTimes: registryPublishTimes(io.fetch),
 			log,
-			now: io.now ?? currentTime
+			now: io.now ?? currentTime,
+			searchPath: env.PATH ?? ""
 		};
 		const applyInputs = {
 			...dispatchInputs,

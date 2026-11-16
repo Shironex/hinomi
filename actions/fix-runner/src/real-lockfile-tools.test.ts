@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { FixDispatchStep } from '@hinomi/shared'
@@ -75,6 +75,7 @@ function runnerDeps(
     log: silentLogger(),
     now: () => NOW,
     appliers: withMockedRegistry(manager),
+    searchPath: env.PATH,
   }
 }
 
@@ -224,32 +225,77 @@ function wheel(dir: string, name: string, version: string, requires: string[] = 
   writeFile(join(dir, `${dist}-py3-none-any.whl`), storedZip(files))
 }
 
-/** A source distribution whose setup.py writes `marker` if anything ever builds it. */
+/**
+ * A source distribution that builds: its in-tree PEP 517 backend (no build requirements, so uv
+ * needs nothing from an index to run it) writes `marker`, then a real wheel. Without
+ * `--no-build` uv would build it to read its metadata and lock 0.4.2; with it uv must refuse.
+ */
 function sdist(dir: string, name: string, version: string, marker: string) {
   const work = tempDir('sdist')
-  const base = `${name.replaceAll('-', '_')}-${version}`
+  const dist = `${name.replaceAll('-', '_')}-${version}`
+  const metadata = `Metadata-Version: 2.1\nName: ${name}\nVersion: ${version}\n`
   writeFile(
-    join(work, base, 'setup.py'),
-    `open(${JSON.stringify(marker)}, 'w').write('ran')\nfrom setuptools import setup\nsetup(name=${JSON.stringify(name)}, version=${JSON.stringify(version)})\n`,
+    join(work, dist, 'pyproject.toml'),
+    '[build-system]\nrequires = []\nbuild-backend = "backend"\nbackend-path = ["."]\n',
   )
   writeFile(
-    join(work, base, 'PKG-INFO'),
-    `Metadata-Version: 2.1\nName: ${name}\nVersion: ${version}\n`,
+    join(work, dist, 'backend.py'),
+    [
+      'import os, zipfile',
+      `MARKER = ${JSON.stringify(marker)}`,
+      `DIST = ${JSON.stringify(dist)}`,
+      `METADATA = ${JSON.stringify(metadata)}`,
+      'def _ran():',
+      "    open(MARKER, 'w').write('ran')",
+      'def get_requires_for_build_wheel(config_settings=None):',
+      '    _ran()',
+      '    return []',
+      'def prepare_metadata_for_build_wheel(directory, config_settings=None):',
+      '    _ran()',
+      "    info = os.path.join(directory, DIST + '.dist-info')",
+      '    os.makedirs(info, exist_ok=True)',
+      "    open(os.path.join(info, 'METADATA'), 'w').write(METADATA)",
+      "    return DIST + '.dist-info'",
+      'def build_wheel(directory, config_settings=None, metadata_directory=None):',
+      '    _ran()',
+      "    name = DIST + '-py3-none-any.whl'",
+      "    info = DIST + '.dist-info/'",
+      "    with zipfile.ZipFile(os.path.join(directory, name), 'w') as whl:",
+      "        whl.writestr(info + 'METADATA', METADATA)",
+      "        whl.writestr(info + 'WHEEL', 'Wheel-Version: 1.0\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')",
+      "        whl.writestr(info + 'RECORD', '')",
+      '    return name',
+      '',
+    ].join('\n'),
   )
-  const tar = spawnSync('tar', ['-czf', join(dir, `${base}.tar.gz`), base], { cwd: work })
+  writeFile(join(work, dist, 'PKG-INFO'), metadata)
+  // COPYFILE_DISABLE: no macOS `._` entries beside the one top level folder uv expects.
+  const tar = spawnSync('tar', ['-czf', join(dir, `${dist}.tar.gz`), dist], {
+    cwd: work,
+    env: { ...process.env, COPYFILE_DISABLE: '1' },
+  })
   if (tar.status !== 0) throw new Error('tar failed')
 }
 
+/** An executable that leaves `marker` and then hands over to the runner's python3. */
+function trapInterpreter(path: string, marker: string) {
+  writeFile(path, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexec python3 "$@"\n`)
+  chmodSync(path, 0o755)
+}
+
 describe('real uv lock', () => {
-  it.skipIf(!available('uv'))(
-    'pins the exact target with --no-build and never builds a source distribution',
+  it.skipIf(!available('uv') || !available('python3'))(
+    'pins the exact target, never builds a source distribution and never runs a repo interpreter',
     async () => {
       const wheels = tempDir('wheels')
-      const marker = join(tempDir('marker'), 'setup-ran')
+      const markers = tempDir('marker')
+      const built = join(markers, 'sdist-built')
+      const venvRan = join(markers, 'venv-python-ran')
+      const pinRan = join(markers, 'python-version-ran')
       for (const version of ['1.0.2', '1.0.4', '1.0.9']) wheel(wheels, 'plover-sig', version)
       wheel(wheels, 'heron-web', '2.3.0', ['plover-sig>=1.0'])
       wheel(wheels, 'wren-dom', '0.4.0')
-      sdist(wheels, 'wren-dom', '0.4.2', marker)
+      sdist(wheels, 'wren-dom', '0.4.2', built)
       const env = {
         ...baseEnv(),
         UV_CACHE_DIR: tempDir('uvcache'),
@@ -262,21 +308,28 @@ describe('real uv lock', () => {
           .replace('WHEELS', wheels)
           .replace('"heron-web>=2.3"', '"heron-web>=2.3", "wren-dom"')
         writeFileSync(path, text)
-        const r = spawnSync('uv', ['lock', '--no-build', '-P', 'plover-sig==1.0.2'], {
-          cwd: dir,
-          env,
-          encoding: 'utf8',
-        })
+        const r = spawnSync(
+          'uv',
+          ['lock', '--no-build', '-P', 'plover-sig==1.0.2', '-P', 'wren-dom==0.4.0'],
+          { cwd: dir, env, encoding: 'utf8' },
+        )
+        // Committed after the starting lock: a virtual environment whose interpreter and a
+        // .python-version naming a path in the repo, both repo code if uv ever ran them.
+        trapInterpreter(join(dir, '.venv', 'bin', 'python'), venvRan)
+        trapInterpreter(join(dir, '.venv', 'bin', 'python3'), venvRan)
+        writeFile(join(dir, '.venv', 'pyvenv.cfg'), 'home = /usr/bin\nversion = 3.12.0\n')
+        trapInterpreter(join(dir, 'tools', 'py'), pinRan)
+        writeFile(join(dir, '.python-version'), './tools/py\n')
         return r.status === 0 ? Promise.resolve() : Promise.reject(new Error(r.stderr))
       })
       const steps = [
         toolStep(1, 'uv', 'uv.lock', 'plover-sig', '1.0.2', '1.0.4'),
-        // Only a source distribution exists for 0.4.2: building it would run setup.py.
+        // Only a source distribution exists for 0.4.2, and it would build without --no-build.
         toolStep(2, 'uv', 'uv.lock', 'wren-dom', '0.4.0', '0.4.2'),
       ]
       const times = { 'plover-sig@1.0.4': OLD, 'wren-dom@0.4.2': OLD }
       const { result } = await runApply(
-        inputs(dispatch(steps, { checks: 'install' })),
+        inputs(dispatch(steps, { checks: 'full' })),
         runnerDeps(root, env, times, 'uv'),
       )
       expect(result.steps.map((s) => [s.status, s.reason])).toEqual([
@@ -288,8 +341,11 @@ describe('real uv lock', () => {
       )
       expect(locked).toMatchObject({ 'plover-sig': '1.0.4', 'wren-dom': '0.4.0' })
       expect(result.patch?.files).toEqual(['uv.lock'])
-      expect(existsSync(marker)).toBe(false)
-      expect(existsSync(join(root, '.venv'))).toBe(false)
+      // Full mode: `uv lock --check --no-build` passes on the new lock.
+      expect(result.install.status).toBe('ok')
+      expect(existsSync(built)).toBe(false)
+      expect(existsSync(venvRan)).toBe(false)
+      expect(existsSync(pinRan)).toBe(false)
     },
     120_000,
   )
@@ -300,8 +356,21 @@ describe('real uv lock', () => {
 
 describe('real composer update', () => {
   it.skipIf(!available('composer', ['--version', '--no-plugins']))(
-    'moves one package to the exact target, runs no script and installs nothing',
+    'moves one package to the exact target and installs it in full mode, running no script',
     async () => {
+      const dists = tempDir('dists')
+      for (const [slug, version] of [
+        ['http', '3.1.0'],
+        ['uri', '1.2.0'],
+        ['uri', '1.2.4'],
+        ['uri', '1.2.6'],
+      ] as const) {
+        const manifest = JSON.stringify({ name: `kestrel/${slug}`, version })
+        writeFile(
+          join(dists, `${slug}-${version}.zip`),
+          storedZip({ 'composer.json': manifest, 'src/Kestrel.php': '<?php\n' }),
+        )
+      }
       const env = {
         ...baseEnv(),
         COMPOSER_HOME: tempDir('composer-home'),
@@ -309,6 +378,8 @@ describe('real composer update', () => {
         COMPOSER_NO_INTERACTION: '1',
       }
       const root = await fixtureRepo('real-composer', (dir) => {
+        const path = join(dir, 'composer.json')
+        writeFileSync(path, readFileSync(path, 'utf8').replaceAll('DISTS', dists))
         const r = spawnSync(
           'composer',
           [
@@ -327,7 +398,7 @@ describe('real composer update', () => {
       const { result } = await runApply(
         inputs(
           dispatch([toolStep(1, 'composer', 'composer.lock', 'kestrel/uri', '1.2.0', '1.2.4')], {
-            checks: 'install',
+            checks: 'full',
           }),
         ),
         runnerDeps(root, env, { 'kestrel/uri@1.2.4': OLD }, 'composer'),
@@ -340,8 +411,10 @@ describe('real composer update', () => {
       expect(locked).toEqual({ 'kestrel/http': '3.1.0', 'kestrel/uri': '1.2.4' })
       expect(result.patch?.files).toEqual(['composer.lock'])
       expect(result.packageManagerVersion).toMatch(/^Composer version \d/)
+      // Full mode installs the new lock without --no-audit, which install does not take.
+      expect(result.install).toMatchObject({ status: 'ok' })
+      expect(readText(root, 'vendor/kestrel/uri/composer.json')).toContain('1.2.4')
       expect(existsSync(join(root, 'script-ran'))).toBe(false)
-      expect(existsSync(join(root, 'vendor'))).toBe(false)
     },
     120_000,
   )

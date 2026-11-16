@@ -52,6 +52,8 @@ export interface RunnerDeps {
   log: Logger
   now: () => Date
   appliers?: ReadonlyMap<StepPackageManager, Applier>
+  /** The PATH the runner's child processes get, for tools found by path (uv's interpreter). */
+  searchPath?: string
 }
 
 export interface DispatchInputs {
@@ -278,6 +280,7 @@ class ApplyRun {
       publishTimes,
       exec,
       now: this.now,
+      searchPath: this.deps.searchPath,
     }
     log.info('project', {
       lockfile: project.lockfile,

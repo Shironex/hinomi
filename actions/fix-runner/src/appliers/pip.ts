@@ -1,5 +1,7 @@
+import { posix } from 'node:path'
 import type { FixDispatchStep } from '@hinomi/shared'
 import { PYPI_API } from '../registry.js'
+import { repoDirname, type RepoFs } from '../repo-fs.js'
 import { compareVersions } from '../semver.js'
 import type { Applier, EditOutcome, ProjectContext } from './types.js'
 import { normalizePypiName } from './uv.js'
@@ -24,24 +26,55 @@ export interface RequirementPin {
 // name, optional extras, `==` (not `===`), the version up to whitespace, `;`, `#` or `\`.
 const PIN = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==(?!=)\s*([^\s;#\\]+)/
 
-/** Options that send pip to another index, whose publish times PyPI cannot vouch for. */
-const INDEX_OPTION = /^\s*(?:-i\b|--index-url\b|--extra-index-url\b|-f\b|--find-links\b)/m
+/** The index PyPI publish times hold for, as `--index-url` may name it. */
+const PYPI_SIMPLE = new Set(['https://pypi.org/simple', 'https://pypi.org/simple/'])
+
+/** Most requirement files followed through `-r` and `-c` before a file is given up on. */
+const MAX_INCLUDED_FILES = 20
+
+/** One logical line: continuation lines joined, with the offset of its first character. */
+interface LogicalLine {
+  text: string
+  start: number
+}
+
+/**
+ * The logical lines of a requirements file as pip reads them: a trailing backslash joins the
+ * next line, except on a comment line (pip keeps those apart, so a comment ending in `\` does
+ * not swallow the requirement after it).
+ */
+function logicalLines(text: string): LogicalLine[] {
+  const out: LogicalLine[] = []
+  const lines = text.split('\n')
+  let offset = 0
+  let current: LogicalLine | null = null
+  for (const line of lines) {
+    const start = offset
+    offset += line.length + 1
+    const comment = /^\s*#/.test(line)
+    if (current) current.text += `\n${line}`
+    else current = { text: line, start }
+    if (comment || !line.trimEnd().endsWith('\\')) {
+      out.push(current)
+      current = null
+    }
+  }
+  if (current) out.push(current)
+  return out
+}
+
+/** A logical line without its comment, continuations as spaces. */
+function withoutComment(line: string): string {
+  return line
+    .replace(/\\\n/g, ' ')
+    .replace(/(?:^|\s)#.*$/gm, '')
+    .trim()
+}
 
 /** Every exact pin of a requirements.txt, continuation lines joined. */
 export function requirementPins(text: string): RequirementPin[] {
   const pins: RequirementPin[] = []
-  const lines = text.split('\n')
-  let offset = 0
-  for (let i = 0; i < lines.length; i++) {
-    const start = offset
-    let logical = lines[i] ?? ''
-    offset += logical.length + 1
-    // A trailing backslash continues the requirement on the next line (hashes, mostly).
-    while (logical.trimEnd().endsWith('\\') && i + 1 < lines.length) {
-      i++
-      logical += `\n${lines[i] ?? ''}`
-      offset += (lines[i] ?? '').length + 1
-    }
+  for (const { text: logical, start } of logicalLines(text)) {
     const lead = logical.length - logical.trimStart().length
     const match = PIN.exec(logical.slice(lead))
     if (!match?.[1] || !match[2]) continue
@@ -51,10 +84,64 @@ export function requirementPins(text: string): RequirementPin[] {
       version: match[2],
       start: versionAt,
       end: versionAt + match[2].length,
-      hashed: /(?:^|\s)--hash[=\s]/.test(logical.replace(/(?:^|\s)#.*$/gm, '')),
+      hashed: /(?:^|\s)--hash[=\s]/.test(withoutComment(logical)),
     })
   }
   return pins
+}
+
+/** An option line split into its name and value: `-i URL`, `-iURL`, `--index-url=URL`. */
+function optionOf(line: string): { name: string; value: string } | null {
+  const long = /^(--[a-z-]+)(?:[=\s]\s*(.*))?$/.exec(line)
+  if (long?.[1]) return { name: long[1], value: (long[2] ?? '').trim() }
+  const short = /^(-[a-zA-Z])\s*(.*)$/.exec(line)
+  if (short?.[1]) return { name: short[1], value: (short[2] ?? '').trim() }
+  return null
+}
+
+const INCLUDE_OPTIONS = new Set(['-r', '--requirement', '-c', '--constraint'])
+const INDEX_URL_OPTIONS = new Set(['-i', '--index-url'])
+const OTHER_INDEX_OPTIONS = new Set(['--extra-index-url', '-f', '--find-links', '--no-index'])
+
+/**
+ * Whether the requirements file, and every file it pulls in with `-r` or `-c`, leaves PyPI as
+ * the only index: an `--index-url` other than PyPI, `--extra-index-url`, `--find-links` or
+ * `--no-index` anywhere, or an included file Hinomi cannot read inside the repo, means the
+ * package may come from somewhere PyPI's publish times say nothing about.
+ */
+export async function onlyPypi(fs: RepoFs, file: string): Promise<boolean> {
+  const queue = [file]
+  const seen = new Set<string>()
+  while (queue.length > 0) {
+    const path = queue.shift() ?? ''
+    if (seen.has(path)) continue
+    seen.add(path)
+    if (seen.size > MAX_INCLUDED_FILES) return false
+    const text = await fs.read(path).catch(() => null)
+    if (text === null) return false
+    for (const { text: logical } of logicalLines(text)) {
+      const line = withoutComment(logical)
+      if (!line.startsWith('-')) continue
+      const option = optionOf(line)
+      if (!option) return false
+      if (OTHER_INDEX_OPTIONS.has(option.name)) return false
+      if (INDEX_URL_OPTIONS.has(option.name) && !PYPI_SIMPLE.has(option.value)) return false
+      if (INCLUDE_OPTIONS.has(option.name)) {
+        const target = option.value
+        if (
+          !target ||
+          posix.isAbsolute(target) ||
+          target.includes('\\') ||
+          /^[a-z][a-z0-9+.-]*:/i.test(target)
+        )
+          return false
+        const joined = posix.normalize(posix.join(repoDirname(path), target))
+        if (joined === '..' || joined.startsWith('../')) return false
+        queue.push(joined)
+      }
+    }
+  }
+  return true
 }
 
 async function pinsOf(
@@ -116,8 +203,7 @@ export const pipApplier: Applier = {
   releaseAgeGate: () => Promise.resolve(null),
 
   async publishedAt(ctx, name, version) {
-    const text = await ctx.fs.read(ctx.lockfile)
-    if (text === null || INDEX_OPTION.test(text)) return null
+    if (!(await onlyPypi(ctx.fs, ctx.lockfile))) return null
     return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API)
   },
 
