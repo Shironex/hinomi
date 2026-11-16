@@ -56,6 +56,15 @@ function main(argv: string[]): number {
       process.stdout.write(`Removed ${passkeys} passkeys and ended ${sessions} sessions.\n`)
     }
     const { code, expiresAt } = issueSetupCode(settings, now)
+    // The expiry only: the code itself is never written anywhere but this terminal.
+    audit.record(
+      {
+        action: 'setup_code_issued',
+        actor: 'cli',
+        detail: `valid until ${expiresAt.toISOString()}`,
+      },
+      now,
+    )
     if (!config.auth) {
       process.stdout.write('Note: HINOMI_AUTH is off, so the login page is not shown yet.\n')
     }
@@ -67,5 +76,10 @@ function main(argv: string[]): number {
     storage.close()
   }
 }
+
+// A closed pipe (`| head`) is not an error worth a stack trace.
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code !== 'EPIPE') throw error
+})
 
 process.exitCode = main(process.argv.slice(2))

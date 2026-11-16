@@ -3,8 +3,8 @@ import { OidcError } from './oidc.js'
 
 /**
  * Sign in with GitHub through an OAuth app. GitHub does not speak OpenID Connect for people, so
- * the code is traded for a short lived token that reads the login and the verified emails, and
- * the token is dropped. Only `read:user` and `user:email` are asked for.
+ * the code is traded for a short lived token that reads the account id, the login and the
+ * primary verified email, and the token is dropped. Only `read:user` and `user:email` are asked for.
  * See https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
  */
 
@@ -89,16 +89,30 @@ export function createGithubLogin({
         'x-github-api-version': '2022-11-28',
       }
       const user = await getJson(`${API}/user`, { headers })
-      if (!isRecord(user) || typeof user.login !== 'string') {
-        throw new OidcError('GitHub sent no login')
+      if (
+        !isRecord(user) ||
+        typeof user.login !== 'string' ||
+        typeof user.id !== 'number' ||
+        !Number.isSafeInteger(user.id) ||
+        user.id <= 0
+      ) {
+        throw new OidcError('GitHub sent no account id')
       }
+      // Only the primary email, and only when GitHub verified it. A verified secondary email
+      // proves less: anyone can add one at a domain they control a mailbox of.
       const emails = await getJson(`${API}/user/emails`, { headers })
       const verifiedEmails = Array.isArray(emails)
         ? emails
-            .filter((e) => isRecord(e) && e.verified === true && typeof e.email === 'string')
+            .filter(
+              (e) =>
+                isRecord(e) &&
+                e.primary === true &&
+                e.verified === true &&
+                typeof e.email === 'string',
+            )
             .map((e) => (e as { email: string }).email)
         : []
-      return { provider: 'github', id: user.login, verifiedEmails }
+      return { provider: 'github', id: String(user.id), login: user.login, verifiedEmails }
     },
   }
 }

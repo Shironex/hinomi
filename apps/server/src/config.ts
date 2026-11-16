@@ -13,7 +13,14 @@ export interface AuthConfig {
   secure: boolean
   /** The WebAuthn relying party id: the host name of the public URL. */
   rpId: string
-  oidc: { issuer: string; clientId: string; clientSecret: string; name: string } | null
+  oidc: {
+    issuer: string
+    clientId: string
+    clientSecret: string
+    name: string
+    /** HINOMI_AUTH_OIDC_TOKEN_ORIGIN: another origin the token endpoint may be on, or null. */
+    tokenOrigin: string | null
+  } | null
   github: { clientId: string; clientSecret: string } | null
   /** HINOMI_AUTH_ALLOWED, for OpenID Connect and GitHub sign in. */
   allowed: AllowRule[]
@@ -160,6 +167,7 @@ const envSchema = z.object({
   }),
   HINOMI_CF_ACCESS_AUD: optionalString,
   HINOMI_AUTH: flagSetting('HINOMI_AUTH'),
+  HINOMI_AUTH_ALLOW_HTTP: flagSetting('HINOMI_AUTH_ALLOW_HTTP'),
   HINOMI_AUTH_PUBLIC_URL: optionalString.transform((value, ctx) => {
     if (value === undefined) return undefined
     const origin = parsePublicOrigin(value)
@@ -187,6 +195,18 @@ const envSchema = z.object({
   HINOMI_AUTH_OIDC_CLIENT_ID: optionalString,
   HINOMI_AUTH_OIDC_CLIENT_SECRET: optionalString,
   HINOMI_AUTH_OIDC_NAME: optionalString,
+  HINOMI_AUTH_OIDC_TOKEN_ORIGIN: optionalString.transform((value, ctx) => {
+    if (value === undefined) return undefined
+    const origin = parsePublicOrigin(value)
+    if (!origin?.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `HINOMI_AUTH_OIDC_TOKEN_ORIGIN must be an https origin without a path, like https://oauth2.googleapis.com, got "${value}"`,
+      })
+      return z.NEVER
+    }
+    return origin
+  }),
   HINOMI_AUTH_GITHUB_CLIENT_ID: optionalString,
   HINOMI_AUTH_GITHUB_CLIENT_SECRET: optionalString,
   HINOMI_AUTH_ALLOWED: optionalString.transform((value, ctx) => {
@@ -243,7 +263,7 @@ function parseIssuer(value: string): string | null {
 
 type ParsedEnv = z.output<typeof envSchema>
 
-function loadAuthConfig(parsed: ParsedEnv): AuthConfig | null {
+function loadAuthConfig(parsed: ParsedEnv, env: NodeJS.ProcessEnv): AuthConfig | null {
   const oidcValues = [
     parsed.HINOMI_AUTH_OIDC_ISSUER,
     parsed.HINOMI_AUTH_OIDC_CLIENT_ID,
@@ -264,12 +284,35 @@ function loadAuthConfig(parsed: ParsedEnv): AuthConfig | null {
       'Invalid configuration: set HINOMI_AUTH_GITHUB_CLIENT_ID and HINOMI_AUTH_GITHUB_CLIENT_SECRET together, or neither',
     )
   }
-  if (!parsed.HINOMI_AUTH) return null
+  if (!parsed.HINOMI_AUTH) {
+    // Login settings without the switch look like a protected install that is not: refuse to
+    // start, unless the login was turned off on purpose with HINOMI_AUTH=0.
+    const explicitOff = ['0', 'false', 'no'].includes((env.HINOMI_AUTH ?? '').trim().toLowerCase())
+    const stray = Object.keys(env)
+      .filter((key) => key.startsWith('HINOMI_AUTH_') && (env[key] ?? '').trim() !== '')
+      .sort()
+    if (stray.length > 0 && !explicitOff) {
+      throw new Error(
+        `Invalid configuration: ${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} set but HINOMI_AUTH is not, so the login would be off. Set HINOMI_AUTH=1 to turn it on, or HINOMI_AUTH=0 to keep it off on purpose`,
+      )
+    }
+    return null
+  }
 
   const origin = parsed.HINOMI_AUTH_PUBLIC_URL
   if (!origin) {
     throw new Error(
       'Invalid configuration: HINOMI_AUTH=1 needs HINOMI_AUTH_PUBLIC_URL, the address people open Hinomi at (for example https://hinomi.example.dev)',
+    )
+  }
+  const publicUrl = new URL(origin)
+  if (
+    publicUrl.protocol === 'http:' &&
+    !isLocalHost(publicUrl.hostname) &&
+    !parsed.HINOMI_AUTH_ALLOW_HTTP
+  ) {
+    throw new Error(
+      'Invalid configuration: HINOMI_AUTH_PUBLIC_URL is http on a host other than localhost, so the session cookie would cross the network in the clear. Use https, or set HINOMI_AUTH_ALLOW_HTTP=1 to accept that',
     )
   }
   const oidc =
@@ -281,6 +324,7 @@ function loadAuthConfig(parsed: ParsedEnv): AuthConfig | null {
           clientId: parsed.HINOMI_AUTH_OIDC_CLIENT_ID,
           clientSecret: parsed.HINOMI_AUTH_OIDC_CLIENT_SECRET,
           name: parsed.HINOMI_AUTH_OIDC_NAME?.trim() ?? 'single sign on',
+          tokenOrigin: parsed.HINOMI_AUTH_OIDC_TOKEN_ORIGIN ?? null,
         }
       : null
   const github =
@@ -292,14 +336,13 @@ function loadAuthConfig(parsed: ParsedEnv): AuthConfig | null {
       : null
   if ((oidc || github) && parsed.HINOMI_AUTH_ALLOWED.length === 0) {
     throw new Error(
-      'Invalid configuration: OpenID Connect or GitHub sign in needs HINOMI_AUTH_ALLOWED (emails, @domains, github:<login> or oidc:<subject>), or anyone with an account there could sign in',
+      'Invalid configuration: OpenID Connect or GitHub sign in needs HINOMI_AUTH_ALLOWED (emails, @domains, github:id:<number>, github:<login> or oidc:<subject>), or anyone with an account there could sign in',
     )
   }
-  const url = new URL(origin)
   return {
     publicOrigin: origin,
-    secure: url.protocol === 'https:',
-    rpId: url.hostname,
+    secure: publicUrl.protocol === 'https:',
+    rpId: publicUrl.hostname,
     oidc,
     github,
     allowed: parsed.HINOMI_AUTH_ALLOWED,
@@ -359,6 +402,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       path: parsed.PATH ?? '/usr/local/bin:/usr/bin:/bin',
     },
     build: readBuildInfo(env),
-    auth: loadAuthConfig(parsed),
+    auth: loadAuthConfig(parsed, env),
   }
 }

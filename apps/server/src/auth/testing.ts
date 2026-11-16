@@ -183,7 +183,11 @@ export interface FakeIdp {
   /** Claims the next ID token carries on top of the defaults; `nonce` is taken from the login. */
   claims: Record<string, unknown>
   /** GitHub answers for the next GitHub login. */
-  github: { login: string; emails: { email: string; verified: boolean }[] }
+  github: {
+    login: string
+    id: number
+    emails: { email: string; verified: boolean; primary?: boolean }[]
+  }
   /** Authorization requests seen, by state. */
   authorizations: Map<string, URLSearchParams>
   /** Requests made, as `METHOD url`. */
@@ -204,7 +208,11 @@ export function createFakeIdp(): FakeIdp {
   const jwk = publicKey.export({ format: 'jwk' })
   const idp: FakeIdp = {
     claims: {},
-    github: { login: 'kestrel-ops', emails: [{ email: 'ops@example.dev', verified: true }] },
+    github: {
+      login: 'kestrel-ops',
+      id: 583231,
+      emails: [{ email: 'ops@example.dev', verified: true, primary: true }],
+    },
     authorizations: new Map(),
     calls: [],
     failToken: false,
@@ -289,7 +297,8 @@ export function createFakeIdp(): FakeIdp {
         return json({ error: 'bad_verification_code' })
       return json({ access_token: 'gho-fictional', token_type: 'bearer' })
     }
-    if (url.href === 'https://api.github.com/user') return json({ login: idp.github.login, id: 1 })
+    if (url.href === 'https://api.github.com/user')
+      return json({ login: idp.github.login, id: idp.github.id })
     if (url.href === 'https://api.github.com/user/emails') return json(idp.github.emails)
     return new Response('not found', { status: 404 })
   }

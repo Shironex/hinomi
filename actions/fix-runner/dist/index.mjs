@@ -7454,6 +7454,12 @@ const AUTH_METHODS = [
 	"passkey"
 ];
 const authMethodSchema = _enum(AUTH_METHODS);
+const PASSKEY_OWNER_METHODS = [
+	"setup-code",
+	"oidc",
+	"github"
+];
+const passkeyOwnerMethodSchema = _enum(PASSKEY_OWNER_METHODS);
 const LOGIN_ERRORS = [
 	"not_allowed",
 	"expired",
@@ -7551,7 +7557,9 @@ const passkeySchema = object({
 	id: id$3,
 	name: string(),
 	createdAt: isoDate$5,
-	lastUsedAt: isoDate$5.nullable()
+	lastUsedAt: isoDate$5.nullable(),
+	owner: string(),
+	ownerMethod: passkeyOwnerMethodSchema
 });
 const passkeysResponseSchema = object({ passkeys: array(passkeySchema) });
 const authSessionRowSchema = object({
@@ -7573,6 +7581,7 @@ const AUDIT_ACTIONS = [
 	"passkey_added",
 	"passkey_removed",
 	"session_revoked",
+	"setup_code_issued",
 	"setup_code_used",
 	"auth_reset",
 	"change"

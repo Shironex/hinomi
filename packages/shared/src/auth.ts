@@ -11,6 +11,17 @@ export const AUTH_METHODS = ['oidc', 'github', 'passkey'] as const
 export const authMethodSchema = z.enum(AUTH_METHODS)
 export type AuthMethod = z.infer<typeof authMethodSchema>
 
+/**
+ * How the owner of a passkey signed in when it was registered: with a setup code from the
+ * container, or through a provider. A provider owned passkey stops working when its owner leaves
+ * HINOMI_AUTH_ALLOWED.
+ */
+export const PASSKEY_OWNER_METHODS = ['setup-code', 'oidc', 'github'] as const
+export const passkeyOwnerMethodSchema = z.enum(PASSKEY_OWNER_METHODS)
+export type PasskeyOwnerMethod = z.infer<typeof passkeyOwnerMethodSchema>
+/** The subject of passkeys registered with a setup code, and of their sessions. */
+export const SETUP_CODE_OWNER = 'admin'
+
 /** The header the SPA sends with every change, carrying the session's CSRF token. */
 export const CSRF_HEADER = 'x-hinomi-csrf'
 
@@ -148,6 +159,9 @@ export const passkeySchema = z.object({
   name: z.string(),
   createdAt: isoDate,
   lastUsedAt: isoDate.nullable(),
+  /** Who registered it: `admin` for a setup code, else the provider subject of that session. */
+  owner: z.string(),
+  ownerMethod: passkeyOwnerMethodSchema,
 })
 export type Passkey = z.infer<typeof passkeySchema>
 export const passkeysResponseSchema = z.object({ passkeys: z.array(passkeySchema) })
@@ -178,6 +192,7 @@ export const AUDIT_ACTIONS = [
   'passkey_added',
   'passkey_removed',
   'session_revoked',
+  'setup_code_issued',
   'setup_code_used',
   /** `hinomi-auth reset` from the container: every passkey and session removed. */
   'auth_reset',

@@ -122,11 +122,58 @@ describe('loadConfig', () => {
   describe('built in login', () => {
     const on = { HINOMI_AUTH: '1', HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev/' }
 
-    it('stays off unless HINOMI_AUTH is set, whatever else is', () => {
-      expect(loadConfig({ HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev' }).auth).toBeNull()
+    it('stays off by default, and off on purpose with HINOMI_AUTH=0', () => {
+      expect(loadConfig({}).auth).toBeNull()
       expect(
         loadConfig({ HINOMI_AUTH: '0', HINOMI_AUTH_PUBLIC_URL: 'https://x.example.dev' }).auth,
       ).toBeNull()
+    })
+
+    it('refuses to start with login settings but no HINOMI_AUTH (fails closed)', () => {
+      expect(() =>
+        loadConfig({
+          HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev',
+          HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+        }),
+      ).toThrow(
+        'Invalid configuration: HINOMI_AUTH_ALLOWED, HINOMI_AUTH_PUBLIC_URL are set but HINOMI_AUTH is not, so the login would be off. Set HINOMI_AUTH=1 to turn it on, or HINOMI_AUTH=0 to keep it off on purpose',
+      )
+      expect(() =>
+        loadConfig({ HINOMI_AUTH: '', HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL is set but HINOMI_AUTH is not/)
+    })
+
+    it('refuses an http public URL off this machine unless HINOMI_AUTH_ALLOW_HTTP=1', () => {
+      expect(() =>
+        loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'http://hinomi.example.dev' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL is http on a host other than localhost/)
+      for (const local of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000']) {
+        expect(loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: local }).auth?.secure).toBe(false)
+      }
+      expect(
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_PUBLIC_URL: 'http://hinomi.example.dev',
+          HINOMI_AUTH_ALLOW_HTTP: '1',
+        }).auth,
+      ).toMatchObject({ secure: false, rpId: 'hinomi.example.dev' })
+    })
+
+    it('reads the token origin of an OpenID Connect provider such as Google', () => {
+      const env = {
+        ...on,
+        HINOMI_AUTH_OIDC_ISSUER: 'https://accounts.google.com',
+        HINOMI_AUTH_OIDC_CLIENT_ID: 'a',
+        HINOMI_AUTH_OIDC_CLIENT_SECRET: 'b',
+        HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+      }
+      expect(
+        loadConfig({ ...env, HINOMI_AUTH_OIDC_TOKEN_ORIGIN: 'https://oauth2.googleapis.com/' }).auth
+          ?.oidc?.tokenOrigin,
+      ).toBe('https://oauth2.googleapis.com')
+      expect(() =>
+        loadConfig({ ...env, HINOMI_AUTH_OIDC_TOKEN_ORIGIN: 'http://oauth2.googleapis.com' }),
+      ).toThrow(/HINOMI_AUTH_OIDC_TOKEN_ORIGIN must be an https origin/)
     })
 
     it('turns on with passkeys only', () => {
@@ -172,6 +219,7 @@ describe('loadConfig', () => {
         clientId: 'hinomi',
         clientSecret: 'fictional-secret',
         name: 'Kestrel ID',
+        tokenOrigin: null,
       })
       expect(auth?.github).toEqual({ clientId: 'gh', clientSecret: 'gh-fictional' })
       expect(auth?.allowed).toHaveLength(2)

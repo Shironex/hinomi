@@ -10,7 +10,8 @@ import {
   currentTime,
   nowMs,
 } from '@hinomi/shared'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import {
   createAuthCore,
   issueSetupCode,
@@ -44,6 +45,7 @@ function authConfig(overrides: Partial<AuthConfig> = {}): AuthConfig {
       clientId: IDP_CLIENT_ID,
       clientSecret: IDP_CLIENT_SECRET,
       name: 'Kestrel ID',
+      tokenOrigin: null,
     },
     github: { clientId: 'gh-client', clientSecret: 'gh-secret-fictional-0001' },
     allowed: parseAllowRules('ops@example.dev, github:kestrel-ops'),
@@ -231,7 +233,7 @@ describe('built in login on', () => {
     const w = setup()
     await enroll(w)
     const session = await w.b.session()
-    expect(session.session).toMatchObject({ subject: 'MacBook', method: 'passkey' })
+    expect(session.session).toMatchObject({ subject: 'admin', method: 'passkey' })
     expect((await w.b.call('GET', '/api/overview')).status).toBe(200)
     expect(w.repos.auth.passkeys.list().map((p) => p.name)).toEqual(['MacBook'])
   })
@@ -336,6 +338,23 @@ describe('built in login on', () => {
       const fromElsewhere = await other.call('POST', '/api/auth/setup/verify', { body: { code } })
       expect(fromElsewhere.status).toBe(429)
       w.clock.now += 2000
+      expect((await w.b.call('POST', '/api/auth/setup/verify', { body: { code } })).status).toBe(
+        200,
+      )
+    })
+
+    it('a code issued after a lockout can be redeemed at once', async () => {
+      const w = setup()
+      issueSetupCode(w.repos.settings, new Date(w.clock.now))
+      for (let i = 0; i < 8; i++) {
+        await w.b.call('POST', '/api/auth/setup/verify', { body: { code: 'AAAA-BBBB-CCCC' } })
+      }
+      expect(
+        (await w.b.call('POST', '/api/auth/setup/verify', { body: { code: 'AAAA-BBBB-CCCC' } }))
+          .status,
+      ).toBe(429)
+      // The operator runs setup-code again: the lock was on the old code, not on recovery.
+      const { code } = issueSetupCode(w.repos.settings, new Date(w.clock.now))
       expect((await w.b.call('POST', '/api/auth/setup/verify', { body: { code } })).status).toBe(
         200,
       )
@@ -494,7 +513,7 @@ describe('built in login on', () => {
       const authenticator = await enroll(w)
       await w.b.call('POST', '/api/auth/logout')
       expect((await passkeyLogin(w, authenticator)).status).toBe(204)
-      expect((await w.b.session()).session?.subject).toBe('MacBook')
+      expect((await w.b.session()).session?.subject).toBe('admin')
     })
 
     it('refuse a forged signature, a replayed challenge, another origin and another rp', async () => {
@@ -544,7 +563,7 @@ describe('built in login on', () => {
       const audit = auditResponseSchema.parse((await w.b.call('GET', '/api/audit')).json)
       expect(audit.events[0]).toMatchObject({
         action: 'login_failed',
-        actor: 'MacBook',
+        actor: 'admin',
         detail: 'passkey: bad signature',
       })
     })
@@ -695,12 +714,16 @@ describe('built in login on', () => {
       const back = await w.b.call('GET', `/api/auth/github/callback?code=${state}&state=${state}`)
       expect(back.headers.get('location')).toBe('/')
       expect((await w.b.session()).session).toMatchObject({
-        subject: 'github:kestrel-ops',
+        subject: 'github:id:583231',
         method: 'github',
       })
 
       const other = browser(w.app)
-      w.idp.github = { login: 'someone', emails: [{ email: 'ops@example.dev', verified: false }] }
+      w.idp.github = {
+        login: 'someone',
+        id: 9001,
+        emails: [{ email: 'ops@example.dev', verified: false, primary: true }],
+      }
       const start2 = await other.call('GET', '/api/auth/github/start')
       const state2 = recordAuthorization(w.idp, start2.headers.get('location') as string)
       const refused = await other.call(
@@ -710,6 +733,177 @@ describe('built in login on', () => {
       expect(refused.headers.get('location')).toBe('/login?error=not_allowed')
     })
   })
+
+  describe('GitHub account ids', () => {
+    async function githubLogin(w: World, b = w.b) {
+      const start = await b.call('GET', '/api/auth/github/start')
+      const state = recordAuthorization(w.idp, start.headers.get('location') as string)
+      return b.call('GET', `/api/auth/github/callback?code=${state}&state=${state}`)
+    }
+
+    it('pins a github:<login> rule to the first account id and refuses a reclaimed login', async () => {
+      const w = setup({ config: authConfig({ allowed: parseAllowRules('github:kestrel-ops') }) })
+      expect((await githubLogin(w)).headers.get('location')).toBe('/')
+      expect(w.repos.settings.get('auth.githubPins', z.record(z.string(), z.string()))).toEqual({
+        'kestrel-ops': '583231',
+      })
+      // The owner renames the account; someone else registers the old login.
+      w.idp.github = {
+        login: 'kestrel-ops',
+        id: 7777,
+        emails: [{ email: 'squatter@example.net', verified: true, primary: true }],
+      }
+      const other = browser(w.app)
+      expect((await githubLogin(w, other)).headers.get('location')).toBe('/login?error=not_allowed')
+      const audit = auditResponseSchema.parse((await w.b.call('GET', '/api/audit')).json)
+      expect(audit.events[0]).toMatchObject({
+        action: 'login_failed',
+        actor: 'github:kestrel-ops (id 7777)',
+        detail: 'github: the login kestrel-ops is pinned to another account id',
+      })
+      // A login rule names a login: after a rename the account needs github:id:<n> or the new name.
+      w.idp.github = { login: 'kestrel-renamed', id: 583231, emails: [] }
+      expect((await githubLogin(w, browser(w.app))).headers.get('location')).toBe(
+        '/login?error=not_allowed',
+      )
+    })
+
+    it('admits github:id:<n> whatever the login is now', async () => {
+      const w = setup({ config: authConfig({ allowed: parseAllowRules('github:id:583231') }) })
+      w.idp.github = { login: 'kestrel-renamed', id: 583231, emails: [] }
+      expect((await githubLogin(w)).headers.get('location')).toBe('/')
+      expect((await w.b.session()).session?.subject).toBe('github:id:583231')
+    })
+
+    it('counts only the primary verified email', async () => {
+      const w = setup({ config: authConfig({ allowed: parseAllowRules('@example.dev') }) })
+      w.idp.github = {
+        login: 'someone',
+        id: 31337,
+        emails: [
+          { email: 'someone@example.net', verified: true, primary: true },
+          { email: 'someone@example.dev', verified: true, primary: false },
+        ],
+      }
+      expect((await githubLogin(w)).headers.get('location')).toBe('/login?error=not_allowed')
+    })
+  })
+
+  describe('passkeys registered through a provider', () => {
+    async function contractorWithPasskey(w: World) {
+      const start = await w.b.call('GET', '/api/auth/github/start')
+      const state = recordAuthorization(w.idp, start.headers.get('location') as string)
+      await w.b.call('GET', `/api/auth/github/callback?code=${state}&state=${state}`)
+      await w.b.session()
+      const authenticator = createSoftAuthenticator({ origin: ORIGIN })
+      const options = passkeyCreationOptionsSchema.parse(
+        (await w.b.call('POST', '/api/auth/passkeys/options')).json,
+      )
+      const added = await w.b.call('POST', '/api/auth/passkeys', {
+        body: { name: 'Contractor laptop', credential: authenticator.register(options) },
+      })
+      expect(added.status).toBe(204)
+      return authenticator
+    }
+
+    it('belong to the subject that registered them, not to their name', async () => {
+      const w = setup()
+      const authenticator = await contractorWithPasskey(w)
+      const list = passkeysResponseSchema.parse((await w.b.call('GET', '/api/auth/passkeys')).json)
+      expect(
+        list.passkeys.map(({ name, owner, ownerMethod }) => ({ name, owner, ownerMethod })),
+      ).toEqual([{ name: 'Contractor laptop', owner: 'github:id:583231', ownerMethod: 'github' }])
+      const other = browser(w.app)
+      expect((await passkeyLogin(w, authenticator, other)).status).toBe(204)
+      expect((await other.session()).session).toMatchObject({
+        subject: 'github:id:583231',
+        method: 'passkey',
+      })
+      // A passkey added from that passkey session still belongs to the contractor.
+      const second = createSoftAuthenticator({ origin: ORIGIN })
+      const options = passkeyCreationOptionsSchema.parse(
+        (await other.call('POST', '/api/auth/passkeys/options')).json,
+      )
+      await other.call('POST', '/api/auth/passkeys', {
+        body: { name: 'Contractor phone', credential: second.register(options) },
+      })
+      expect(w.repos.auth.passkeys.list().map((p) => p.ownerSubject)).toEqual([
+        'github:id:583231',
+        'github:id:583231',
+      ])
+    })
+
+    it('stop working when the contractor leaves the allow list (at login)', async () => {
+      const config = authConfig()
+      const w = setup({ config })
+      const authenticator = await contractorWithPasskey(w)
+      // The operator drops the contractor; this core has not restarted yet.
+      config.allowed.splice(0, config.allowed.length, ...parseAllowRules('ops@example.dev'))
+      const res = await passkeyLogin(w, authenticator, browser(w.app))
+      expect(res.status).toBe(401)
+      expect(w.repos.auth.passkeys.list()).toEqual([])
+      const kinds = w.repos.audit.list({ limit: 3 }).map((e) => [e.action, e.detail])
+      expect(kinds).toEqual([
+        ['login_failed', 'passkey: its owner is no longer allowed'],
+        ['passkey_removed', 'Contractor laptop: its owner is no longer in HINOMI_AUTH_ALLOWED'],
+        expect.any(Array),
+      ])
+    })
+
+    it('are removed at boot with their sessions when the contractor leaves', async () => {
+      const w = setup()
+      const authenticator = await contractorWithPasskey(w)
+      const other = browser(w.app)
+      expect((await passkeyLogin(w, authenticator, other)).status).toBe(204)
+      await enroll(w, browser(w.app), 'Admin key')
+      createAuthCore({
+        config: authConfig({ allowed: parseAllowRules('ops@example.dev') }),
+        repositories: w.repos,
+      }).startup()
+      expect(w.repos.auth.passkeys.list().map((p) => p.name)).toEqual(['Admin key'])
+      expect(w.repos.auth.sessions.list().map((s) => s.subject)).toEqual(['admin'])
+    })
+
+    it('are removed at boot when their provider is no longer configured', async () => {
+      const w = setup()
+      await contractorWithPasskey(w)
+      createAuthCore({ config: authConfig({ github: null }), repositories: w.repos }).startup()
+      expect(w.repos.auth.passkeys.list()).toEqual([])
+    })
+  })
+
+  it('refuses the login when the audit row cannot be written', async () => {
+    const w = setup()
+    const authenticator = await enroll(w)
+    const original = w.repos.audit.record.bind(w.repos.audit)
+    const record = vi.spyOn(w.repos.audit, 'record').mockImplementation((input, at) => {
+      if (input.action === 'login') throw new Error('disk full')
+      return original(input, at)
+    })
+    const other = browser(w.app)
+    const res = await passkeyLogin(w, authenticator, other)
+    expect(res.status).toBe(500)
+    expect(res.setCookies.some((line) => line.startsWith(`${COOKIE}=`))).toBe(false)
+    expect(w.repos.auth.sessions.list()).toHaveLength(1)
+    record.mockRestore()
+  })
+
+  it('anonymous passkey challenges cannot push out a pending setup challenge', async () => {
+    const w = setup()
+    const authenticator = createSoftAuthenticator({ origin: ORIGIN })
+    const { code } = issueSetupCode(w.repos.settings, new Date(w.clock.now))
+    const { enrollmentId, options } = setupCodeResponseSchema.parse(
+      (await w.b.call('POST', '/api/auth/setup/verify', { body: { code } })).json,
+    )
+    const flood = browser(w.app)
+    for (let i = 0; i < 1100; i++) {
+      await flood.call('POST', '/api/auth/passkey/login/options')
+    }
+    const register = await w.b.call('POST', '/api/auth/setup/register', {
+      body: { enrollmentId, name: 'MacBook', credential: authenticator.register(options) },
+    })
+    expect(register.status).toBe(204)
+  }, 30_000)
 
   it('ends provider sessions at boot when the allow list no longer covers them', async () => {
     const w = setup()
@@ -739,9 +933,9 @@ describe('built in login on', () => {
     await w.b.call('PATCH', '/api/settings', { body: { osvEnabled: false } })
     const audit = auditResponseSchema.parse((await w.b.call('GET', '/api/audit')).json)
     expect(audit.events.map((e) => [e.action, e.actor, e.httpMethod, e.path, e.detail])).toEqual([
-      ['change', 'MacBook', 'PATCH', '/api/settings', null],
-      ['login', 'MacBook', null, null, 'passkey'],
-      ['passkey_added', 'MacBook', null, null, 'with a setup code'],
+      ['change', 'admin', 'PATCH', '/api/settings', null],
+      ['login', 'admin', null, null, 'passkey'],
+      ['passkey_added', 'admin', null, null, 'MacBook, with a setup code'],
       ['setup_code_used', null, null, null, null],
     ])
   })

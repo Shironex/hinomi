@@ -12,10 +12,11 @@ import type { Context, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { clientAddress, remoteAddress, type AccessOptions } from '../access/index.js'
 import type { AuthConfig } from '../config.js'
-import type { AuthSessionRow } from '../db/schema.js'
+import type { AuthPasskeyRow, AuthSessionRow } from '../db/schema.js'
 import { silentLogger, type Logger } from '../log.js'
 import type { AuditInput, Repositories } from '../repository/index.js'
 import { stillAdmitted } from './allowlist.js'
+import { readGithubPins } from './github-pins.js'
 import { safeEqual } from './oidc.js'
 import { createThrottle, type Throttle } from './throttle.js'
 
@@ -70,6 +71,8 @@ export interface CoreOptions {
   log?: Logger
   now?: () => Date
   throttle?: Throttle
+  /** Counts anonymous starts (passkey challenges, provider redirects) per client address. */
+  starts?: Throttle
 }
 
 export interface StartSession {
@@ -90,17 +93,40 @@ export function createAuthCore({
   log = silentLogger,
   now = currentTime,
   throttle = createThrottle({ now: () => now().getTime() }),
+  starts = createThrottle({
+    freeFailures: 30,
+    baseDelayMs: 1000,
+    maxDelayMs: 5 * 60 * 1000,
+    forgetAfterMs: 15 * 60 * 1000,
+    now: () => now().getTime(),
+  }),
 }: CoreOptions) {
   const store = repositories.auth
   const cookieName = config?.secure ? '__Host-hinomi_session' : 'hinomi_session'
   const sessions = new WeakMap<Request, AuthSessionRow>()
+
+  let warnedUntrustedForward = false
 
   function ipOf(c: Context): string | null {
     const client = clientAddress(
       { remoteAddress: remoteAddress(c), header: (name) => c.req.header(name) },
       access,
     )
+    if (!client.forwarded && !warnedUntrustedForward && c.req.header('x-forwarded-for')) {
+      // Behind a proxy that is not in HINOMI_TRUSTED_PROXIES every client shares the proxy's
+      // address, so the backoff and the audit log see one client. Said once, not per request.
+      warnedUntrustedForward = true
+      log.warn(
+        'auth: X-Forwarded-For came from a peer that is not in HINOMI_TRUSTED_PROXIES, so it is ignored; list your reverse proxy there',
+        { peer: client.ip?.address ?? null },
+      )
+    }
     return client.ip?.address ?? null
+  }
+
+  /** Writes the audit row or throws: for logins, which must not happen unrecorded. */
+  function auditOrThrow(c: Context | null, input: AuditInput): void {
+    repositories.audit.record({ ...input, ip: input.ip ?? (c ? ipOf(c) : null) }, now())
   }
 
   function audit(c: Context | null, input: AuditInput): void {
@@ -170,10 +196,22 @@ export function createAuthCore({
       ip,
       userAgent: c.req.header('user-agent')?.slice(0, 200) ?? null,
     })
+    // The audit row first: a login that cannot be recorded does not happen.
+    try {
+      auditOrThrow(c, { action: 'login', actor: input.subject, ip, detail: input.method })
+    } catch (error) {
+      store.sessions.removeByTokenHash(row.tokenHash)
+      log.error('auth: login refused, the audit log could not be written', {
+        error: error instanceof Error ? error.message : 'unexpected error',
+      })
+      throw new Error('could not record the login', { cause: error })
+    }
     setCookie(c, cookieName, token, cookieOptions(SESSION_ABSOLUTE_MS / 1000))
     sessions.set(c.req.raw, row)
-    if (ip) throttle.succeed([`ip:${ip}`])
-    audit(c, { action: 'login', actor: input.subject, ip, detail: input.method })
+    if (ip) {
+      throttle.succeed([`ip:${ip}`])
+      starts.succeed([`ip:${ip}`])
+    }
     return row
   }
 
@@ -245,6 +283,34 @@ export function createAuthCore({
     }
   }
 
+  /**
+   * Whether the owner of a passkey may still sign in: always for a setup code; for a provider,
+   * only while that provider is configured and its subject is still on the allow list.
+   */
+  function ownerAdmitted(passkey: Pick<AuthPasskeyRow, 'ownerMethod' | 'ownerSubject'>): boolean {
+    if (passkey.ownerMethod === 'setup-code') return true
+    if (!config?.[passkey.ownerMethod]) return false
+    return stillAdmitted(
+      config.allowed,
+      passkey.ownerSubject,
+      readGithubPins(repositories.settings),
+    )
+  }
+
+  /** Removes a passkey whose owner left the allow list, with the sessions it started. */
+  function prunePasskey(c: Context | null, passkey: AuthPasskeyRow): void {
+    if (!store.passkeys.remove(passkey.id)) return
+    store.sessions.removeByPasskey(passkey.id)
+    audit(c, {
+      action: 'passkey_removed',
+      actor: passkey.ownerSubject,
+      detail: `${passkey.name}: its owner is no longer in HINOMI_AUTH_ALLOWED`,
+    })
+    log.info('auth: removed a passkey whose owner is no longer allowed', {
+      passkeyId: passkey.id,
+    })
+  }
+
   /** Housekeeping at boot: expired sessions, and sessions a changed configuration no longer allows. */
   function startup(): void {
     if (!config) {
@@ -255,22 +321,29 @@ export function createAuthCore({
     }
     const at = now()
     store.sessions.removeExpired(at, new Date(at.getTime() - SESSION_IDLE_MS))
+    const pins = readGithubPins(repositories.settings)
     const dropped =
       store.sessions.removeWhere(
         ['oidc'],
-        (s) => !!config.oidc && stillAdmitted(config.allowed, s),
+        (s) => !!config.oidc && stillAdmitted(config.allowed, s, pins),
       ) +
       store.sessions.removeWhere(
         ['github'],
-        (s) => !!config.github && stillAdmitted(config.allowed, s),
+        (s) => !!config.github && stillAdmitted(config.allowed, s, pins),
       )
     if (dropped > 0) log.info('auth: ended sessions the allow list no longer covers', { dropped })
+    for (const passkey of store.passkeys.list()) {
+      if (!ownerAdmitted(passkey)) prunePasskey(null, passkey)
+    }
   }
 
   return {
     config,
     cookieName,
     throttle,
+    starts,
+    ownerAdmitted,
+    prunePasskey,
     now,
     log,
     store,

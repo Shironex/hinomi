@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, inArray, lte, ne, or } from 'drizzle-orm'
-import type { AuthMethod } from '@hinomi/shared'
+import type { AuthMethod, PasskeyOwnerMethod } from '@hinomi/shared'
 import type { Db } from '../db/client.js'
 import {
   authPasskeys,
@@ -28,6 +28,8 @@ export interface NewPasskey {
   signCount: number
   name: string
   transports: string[] | null
+  ownerMethod: PasskeyOwnerMethod
+  ownerSubject: string
 }
 
 export type AuthRepository = ReturnType<typeof createAuthRepository>

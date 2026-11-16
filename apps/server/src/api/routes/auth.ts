@@ -10,6 +10,7 @@ import {
   setupCodeRequestSchema,
   setupCodeResponseSchema,
   setupRegisterRequestSchema,
+  SETUP_CODE_OWNER,
   type AuthSession,
   type LoginError,
   type PasskeyRegistration,
@@ -26,9 +27,12 @@ import {
   createPendingStore,
   creationOptions,
   OidcError,
+  pinGithubLogin,
   readClientData,
+  readGithubPins,
   requestOptions,
   safeEqual,
+  setupCodeId,
   verifyAssertion,
   verifyRegistration,
   WebAuthnError,
@@ -43,9 +47,11 @@ import { HttpError, notFound, readJson, readParams, send } from '../http.js'
 /** A login attempt at a provider may take this long, from the redirect to the callback. */
 const FLOW_TTL_MS = 10 * 60 * 1000
 const USER_HANDLE_KEY = 'auth.userHandle'
+/** Anonymous challenges and provider redirects one client address may have open at once. */
+const MAX_OPEN_PER_ADDRESS = 10
 
-type Challenge =
-  { kind: 'login' } | { kind: 'setup'; enrollmentId: string } | { kind: 'add'; tokenHash: string }
+/** Registration challenges; they need a setup code or a session, so they live apart. */
+type Challenge = { kind: 'setup'; enrollmentId: string } | { kind: 'add'; tokenHash: string }
 
 interface Flow {
   provider: 'oidc' | 'github'
@@ -108,14 +114,25 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
     ttlMs: CEREMONY_TIMEOUT_MS + 60_000,
     now: () => core.now().getTime(),
   })
+  // Anyone may ask for these, so they get stores of their own (a flood cannot push out a pending
+  // setup or add passkey challenge) and a cap per client address.
+  const loginChallenges = createPendingStore<string | null>({
+    ttlMs: CEREMONY_TIMEOUT_MS + 60_000,
+    maxPerOwner: MAX_OPEN_PER_ADDRESS,
+    now: () => core.now().getTime(),
+  })
   const flows = createPendingStore<Flow>({
     ttlMs: FLOW_TTL_MS,
+    maxPerOwner: MAX_OPEN_PER_ADDRESS,
     now: () => core.now().getTime(),
   })
   const flowCookie = config.secure ? '__Host-hinomi_login' : 'hinomi_login'
   const oidc: OidcClient | null = config.oidc
     ? createOidcClient({
-        ...config.oidc,
+        issuer: config.oidc.issuer,
+        clientId: config.oidc.clientId,
+        clientSecret: config.oidc.clientSecret,
+        tokenOrigin: config.oidc.tokenOrigin,
         redirectUri: `${config.publicOrigin}/api/auth/oidc/callback`,
         ...(fetchImpl && { fetch: fetchImpl }),
         now: () => core.now().getTime(),
@@ -140,6 +157,23 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   function ipKeys(c: Context): string[] {
     const ip = core.ipOf(c)
     return ip ? [`ip:${ip}`] : []
+  }
+
+  /**
+   * An anonymous start (a passkey challenge, a provider redirect): refused while the address is
+   * locked by failed logins or by too many starts, and counted against the starts budget, which
+   * a successful login clears.
+   */
+  function anonymousStart(
+    c: Context,
+  ): { allowed: true } | { allowed: false; retryAfterMs: number } {
+    const keys = ipKeys(c)
+    const failed = throttle.check(keys)
+    if (!failed.allowed) return failed
+    const started = core.starts.check(keys)
+    if (!started.allowed) return started
+    core.starts.fail(keys)
+    return { allowed: true }
   }
 
   /** 429 with Retry-After when any key is locked. */
@@ -206,8 +240,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   // OpenID Connect and GitHub: redirect out, come back to the callback
 
   async function startFlow(c: Context, provider: 'oidc' | 'github'): Promise<Response> {
-    const keys = ipKeys(c)
-    if (!throttle.check(keys).allowed) return c.redirect('/login?error=rate_limited', 302)
+    if (!anonymousStart(c).allowed) return c.redirect('/login?error=rate_limited', 302)
     const flowId = randomToken()
     const flow: Flow = {
       provider,
@@ -236,7 +269,7 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       })
       return c.redirect('/login?error=failed', 302)
     }
-    flows.put(flowId, flow)
+    flows.put(flowId, flow, core.ipOf(c))
     setCookie(c, flowCookie, flowId, {
       httpOnly: true,
       secure: config?.secure ?? false,
@@ -279,21 +312,27 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       core.log.warn('auth: provider login failed', { provider, error: reason })
       return fail('failed')
     }
-    const subject = admit(config?.allowed ?? [], identity)
-    if (!subject) {
+    const admission = admit(config?.allowed ?? [], identity, readGithubPins(core.settings))
+    if (!admission.ok) {
       throttle.fail(keys)
       const who =
-        provider === 'github'
-          ? `github:${identity.id}`
+        identity.provider === 'github'
+          ? `github:${identity.login} (id ${identity.id})`
           : (identity.verifiedEmails[0] ?? `oidc:${identity.id}`)
-      core.audit(c, {
-        action: 'login_failed',
-        actor: who,
-        detail: `${provider}: not in HINOMI_AUTH_ALLOWED`,
-      })
+      const detail =
+        admission.reason === 'github_id_changed'
+          ? `github: the login ${identity.provider === 'github' ? identity.login : ''} is pinned to another account id`
+          : `${provider}: not in HINOMI_AUTH_ALLOWED`
+      core.audit(c, { action: 'login_failed', actor: who, detail })
+      if (admission.reason === 'github_id_changed') {
+        core.log.warn('auth: a pinned GitHub login came back with another account id')
+      }
       return fail('not_allowed')
     }
-    core.startSession(c, { method: provider, subject })
+    if (admission.pin) {
+      pinGithubLogin(core.settings, admission.pin.login, admission.pin.id)
+    }
+    core.startSession(c, { method: provider, subject: admission.subject })
     return c.redirect(flow.next, 302)
   }
 
@@ -310,9 +349,14 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   // Passkey login
 
   app.post('/passkey/login/options', (c) => {
-    checkThrottle(c, ipKeys(c))
+    const verdict = anonymousStart(c)
+    if (!verdict.allowed) {
+      c.header('retry-after', String(Math.ceil(verdict.retryAfterMs / 1000)))
+      throw new HttpError(429, 'rate_limited', 'Too many attempts, wait a moment and try again')
+    }
     const challenge = randomToken()
-    challenges.put(challenge, { kind: 'login' })
+    const ip = core.ipOf(c)
+    loginChallenges.put(challenge, ip, ip)
     return send(c, passkeyRequestOptionsSchema, requestOptions({ rp, challenge }))
   })
 
@@ -320,30 +364,45 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
     const keys = ipKeys(c)
     checkThrottle(c, keys)
     const { credential } = await readJson(c, passkeyLoginRequestSchema)
+    let issuedHere = false
     try {
       const clientData = readClientData(rp, credential.response.clientDataJSON, 'webauthn.get')
-      const pending = challenges.take(clientData.challenge)
-      if (pending?.kind !== 'login') throw new WebAuthnError('unknown or expired challenge')
+      const issuedTo = loginChallenges.take(clientData.challenge)
+      if (issuedTo === undefined) throw new WebAuthnError('unknown or expired challenge')
+      issuedHere = issuedTo === core.ipOf(c)
     } catch (error) {
       if (!(error instanceof WebAuthnError)) throw error
       loginFailed(c, keys, `passkey: ${error.message}`)
     }
     const passkey = store.passkeys.byCredentialId(credential.id)
     if (!passkey) loginFailed(c, keys, 'passkey: unknown credential')
-    const accountKeys = [...keys, `account:passkey:${passkey.id}`]
-    checkThrottle(c, accountKeys)
+    const accountKey = `account:passkey:${passkey.id}`
+    checkThrottle(c, [...keys, accountKey])
+    // A failure counts against the passkey only when its challenge was issued to this client;
+    // otherwise only against the address.
+    const accountKeys = issuedHere ? [...keys, accountKey] : keys
     let signCount: number
     try {
       signCount = verifyAssertion(rp, credential, passkey, userHandle()).signCount
     } catch (error) {
       if (!(error instanceof WebAuthnError)) throw error
-      loginFailed(c, accountKeys, `passkey: ${error.message}`, passkey.name)
+      loginFailed(c, accountKeys, `passkey: ${error.message}`, passkey.ownerSubject)
+    }
+    // A passkey registered through a provider is only as good as its owner's place on the list.
+    if (!core.ownerAdmitted(passkey)) {
+      core.prunePasskey(c, passkey)
+      loginFailed(c, accountKeys, 'passkey: its owner is no longer allowed', passkey.ownerSubject)
     }
     if (!store.passkeys.recordUse(passkey.id, passkey.signCount, signCount, core.now())) {
-      loginFailed(c, accountKeys, 'passkey: counter changed during the login', passkey.name)
+      loginFailed(c, accountKeys, 'passkey: counter changed during the login', passkey.ownerSubject)
     }
-    throttle.succeed(accountKeys)
-    core.startSession(c, { method: 'passkey', subject: passkey.name, passkeyId: passkey.id })
+    throttle.succeed([...keys, accountKey])
+    // The session is the owner's, whatever the passkey was named.
+    core.startSession(c, {
+      method: 'passkey',
+      subject: passkey.ownerSubject,
+      passkeyId: passkey.id,
+    })
     return c.body(null, 204)
   })
 
@@ -351,7 +410,10 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
   // Setup codes: the first passkey, or a new one after `hinomi-auth reset`
 
   app.post('/setup/verify', async (c) => {
-    const keys = [...ipKeys(c), 'account:setup']
+    // Keyed to the code waiting now: guesses lock that code (and the guessing address), and a new
+    // code from the container is never locked out by them.
+    const codeId = setupCodeId(core.settings)
+    const keys = [...ipKeys(c), ...(codeId ? [`account:setup:${codeId}`] : [])]
     checkThrottle(c, keys)
     const { code } = await readJson(c, setupCodeRequestSchema)
     if (!consumeSetupCode(core.settings, code, core.now())) {
@@ -378,10 +440,19 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       if (!(error instanceof WebAuthnError)) throw error
       loginFailed(c, keys, `setup passkey: ${error.message}`)
     }
-    const passkey = store.passkeys.create({ ...verified, name })
+    const passkey = store.passkeys.create({
+      ...verified,
+      name,
+      ownerMethod: 'setup-code',
+      ownerSubject: SETUP_CODE_OWNER,
+    })
     if (!passkey) throw new HttpError(409, 'conflict', 'This passkey is registered already')
-    core.audit(c, { action: 'passkey_added', actor: name, detail: 'with a setup code' })
-    core.startSession(c, { method: 'passkey', subject: name, passkeyId: passkey.id })
+    core.audit(c, {
+      action: 'passkey_added',
+      actor: SETUP_CODE_OWNER,
+      detail: `${name}, with a setup code`,
+    })
+    core.startSession(c, { method: 'passkey', subject: SETUP_CODE_OWNER, passkeyId: passkey.id })
     return c.body(null, 204)
   })
 
@@ -396,6 +467,8 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
         name: p.name,
         createdAt: iso(p.createdAt),
         lastUsedAt: p.lastUsedAt ? iso(p.lastUsedAt) : null,
+        owner: p.ownerSubject,
+        ownerMethod: p.ownerMethod,
       })),
     })
   })
@@ -420,7 +493,17 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
         cause: error,
       })
     }
-    const passkey = store.passkeys.create({ ...verified, name })
+    // The new passkey belongs to whoever this session belongs to: a provider subject directly, or
+    // through a passkey session the owner of that passkey.
+    let owner: { ownerMethod: 'setup-code' | 'oidc' | 'github'; ownerSubject: string }
+    if (row.method === 'passkey') {
+      const via = store.passkeys.list().find((p) => p.id === row.passkeyId)
+      if (!via) throw new HttpError(401, 'unauthenticated', 'Sign in to Hinomi first')
+      owner = { ownerMethod: via.ownerMethod, ownerSubject: via.ownerSubject }
+    } else {
+      owner = { ownerMethod: row.method, ownerSubject: row.subject }
+    }
+    const passkey = store.passkeys.create({ ...verified, name, ...owner })
     if (!passkey) throw new HttpError(409, 'conflict', 'This passkey is registered already')
     core.audit(c, { action: 'passkey_added', actor: row.subject, detail: name })
     return c.body(null, 204)

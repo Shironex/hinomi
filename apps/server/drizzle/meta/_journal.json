@@ -141,6 +141,13 @@
       "when": 1794846846467,
       "tag": "0069_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794850513815,
+      "tag": "0070_passkey_owner",
+      "breakpoints": true
     }
   ]
 }

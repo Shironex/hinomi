@@ -18,6 +18,7 @@ function fullApp() {
           clientId: IDP_CLIENT_ID,
           clientSecret: IDP_CLIENT_SECRET,
           name: 'SSO',
+          tokenOrigin: null,
         },
         github: { clientId: 'gh-client', clientSecret: 'gh-secret-fictional-0001' },
         allowed: parseAllowRules('ops@example.dev'),

@@ -41,6 +41,12 @@ export const AUTH_DOCS_URL = 'https://github.com/Shironex/hinomi/blob/main/docs/
 
 const METHOD_WORD = { passkey: 'a passkey', oidc: 'single sign on', github: 'GitHub' } as const
 
+/** Who a passkey belongs to: whoever registered it, which decides whether it still works. */
+function passkeyOwner(passkey: Pick<Passkey, 'owner' | 'ownerMethod'>): string {
+  if (passkey.ownerMethod === 'setup-code') return 'the admin, with a setup code'
+  return `${passkey.owner}, through ${METHOD_WORD[passkey.ownerMethod]}`
+}
+
 /**
  * The built in login under Settings, Access: whether it is on, who is signed in, the passkeys and
  * the sessions. While it is off, how to turn it on.
@@ -224,7 +230,17 @@ function PasskeyRow({ passkey }: { passkey: Passkey }) {
       as="li"
       icon={<IconFingerprint stroke={1.75} />}
       title={passkey.name}
-      sub={`Added ${formatRelative(passkey.createdAt)}, ${passkey.lastUsedAt ? `last used ${formatRelative(passkey.lastUsedAt)}` : 'never used to sign in'}`}
+      sub={
+        <>
+          <span className="block">Registered by {passkeyOwner(passkey)}</span>
+          <span className="block">
+            Added {formatRelative(passkey.createdAt)},{' '}
+            {passkey.lastUsedAt
+              ? `last used ${formatRelative(passkey.lastUsedAt)}`
+              : 'never used to sign in'}
+          </span>
+        </>
+      }
       aside={
         <Button
           variant="ghost"
@@ -249,7 +265,8 @@ function PasskeyRow({ passkey }: { passkey: Passkey }) {
         pending={remove.isPending}
         error={remove.error ? describeError(remove.error) : null}
       >
-        It can no longer sign in, and sessions it started end now.
+        It can no longer sign in, and sessions it started end now. A passkey registered through a
+        provider also stops working by itself when its owner leaves HINOMI_AUTH_ALLOWED.
       </ConfirmDialog>
     </SetRow>
   )

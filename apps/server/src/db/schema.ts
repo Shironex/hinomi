@@ -1,6 +1,8 @@
 import {
   AUDIT_ACTIONS,
   AUTH_METHODS,
+  PASSKEY_OWNER_METHODS,
+  SETUP_CODE_OWNER,
   BLIND_SPOT_TYPES,
   DEPLOYMENT_REACHES,
   FINDING_KINDS,
@@ -662,6 +664,14 @@ export const authPasskeys = sqliteTable(
     signCount: integer('sign_count').notNull().default(0),
     name: text('name').notNull(),
     transports: text('transports', { mode: 'json' }).$type<string[]>(),
+    /**
+     * Who registered it, so it can be refused when they leave the allow list: a setup code, or the
+     * provider and subject of the session that added it (inherited through passkey sessions).
+     */
+    ownerMethod: text('owner_method', { enum: PASSKEY_OWNER_METHODS })
+      .notNull()
+      .default('setup-code'),
+    ownerSubject: text('owner_subject').notNull().default(SETUP_CODE_OWNER),
     createdAt: createdAt(),
     lastUsedAt: timestamp('last_used_at'),
   },

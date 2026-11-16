@@ -196,6 +196,16 @@ describe('settings with the login on', () => {
             name: 'YubiKey',
             createdAt: '2026-11-01T09:00:00.000Z',
             lastUsedAt: null,
+            owner: 'admin',
+            ownerMethod: 'setup-code',
+          },
+          {
+            id: 2,
+            name: 'Contractor laptop',
+            createdAt: '2026-11-03T09:00:00.000Z',
+            lastUsedAt: '2026-11-04T09:00:00.000Z',
+            owner: 'github:id:583231',
+            ownerMethod: 'github',
           },
         ],
       },
@@ -215,7 +225,7 @@ describe('settings with the login on', () => {
           {
             id: 'bbb',
             method: 'github',
-            subject: 'github:kestrel-ops',
+            subject: 'github:id:583231',
             createdAt: '2026-11-04T09:00:00.000Z',
             lastSeenAt: '2026-11-04T10:00:00.000Z',
             expiresAt: '2026-11-11T09:00:00.000Z',
@@ -233,10 +243,12 @@ describe('settings with the login on', () => {
     expect(await access.findByText('Built in login is on')).toBeVisible()
     const passkeys = within(await access.findByRole('list', { name: 'Passkeys' }))
     expect(passkeys.getByText('YubiKey')).toBeVisible()
+    expect(passkeys.getByText('Registered by the admin, with a setup code')).toBeVisible()
+    expect(passkeys.getByText('Registered by github:id:583231, through GitHub')).toBeVisible()
     const sessions = within(access.getByRole('list', { name: 'Sessions' }))
     expect(sessions.getByText('This browser')).toBeVisible()
     expect(
-      sessions.getByRole('button', { name: 'Sign out the session of github:kestrel-ops' }),
+      sessions.getByRole('button', { name: 'Sign out the session of github:id:583231' }),
     ).toBeVisible()
     await user.click(access.getByRole('button', { name: 'Sign out the other session' }))
     await waitFor(() => expect(api.called('POST', '/auth/sessions/revoke-others')).toHaveLength(1))

@@ -16,6 +16,7 @@ const ACTION_TEXT: Record<AuditAction, string> = {
   passkey_added: 'Passkey added',
   passkey_removed: 'Passkey removed',
   session_revoked: 'Session ended',
+  setup_code_issued: 'Setup code issued in the container',
   setup_code_used: 'Setup code used',
   auth_reset: 'Login reset from the container',
   change: 'Change',
