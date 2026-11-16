@@ -20,6 +20,7 @@ import { createSupportData, type SupportData } from '../support/index.js'
 import type { UpdateChecker } from '../version/index.js'
 import type { ApiDeps } from './deps.js'
 import { errorBody } from './http.js'
+import { auditRoutes } from './routes/audit.js'
 import { deploymentsRoutes, plansRoutes, reposRoutes } from './routes/deployments.js'
 import { findingsRoutes } from './routes/findings.js'
 import { guardsRoutes, overridesRoutes } from './routes/guards.js'
@@ -143,6 +144,7 @@ export function registerApiRoutes(api: Hono, options: ApiOptions): void {
   }
   api.route('/settings/registry-credentials', registryCredentialsRoutes(deps))
   api.route('/settings', settingsRoutes(deps))
+  api.route('/audit', auditRoutes(deps))
   api.route('/scans', scansRoutes(deps))
   api.route('/support', supportRoutes(deps))
   api.route('/shell', shellRoutes(deps))

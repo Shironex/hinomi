@@ -11,8 +11,9 @@ import {
 import { Hono } from 'hono'
 import type { AccessOptions } from './access/index.js'
 import { errorBody, errorHandler } from './api/http.js'
-import { registerApiRoutes, type ApiOptions } from './api/index.js'
+import { authRoutes, registerApiRoutes, type ApiOptions } from './api/index.js'
 import { accessRoutes } from './api/routes/access.js'
+import type { AuthCore } from './auth/index.js'
 import { silentLogger, type Logger } from './log.js'
 import {
   describeBuild,
@@ -34,6 +35,13 @@ export interface AppOptions {
   build?: BuildInfo
   /** The daily update check behind /api/version. Without it no update is ever reported. */
   updates?: Pick<UpdateChecker, 'available' | 'check'>
+  /**
+   * The login guard in front of /api and the /api/auth routes. Without it, or with its config
+   * null (HINOMI_AUTH off), every route is open as before.
+   */
+  auth?: AuthCore
+  /** Fetch for the login providers (OpenID Connect discovery, GitHub). Defaults to the global one. */
+  authFetch?: typeof fetch
 }
 
 /** Files that must always be revalidated so a new build, and its service worker, is seen at once. */
@@ -57,10 +65,15 @@ export function createApp({
   access = {},
   build = readBuildInfo({}),
   updates,
+  auth,
+  authFetch,
 }: AppOptions = {}) {
   const app = new Hono()
   const onError = errorHandler(apiOptions?.log ?? log)
   app.onError(onError)
+  // First, so it runs before every /api route registered below, the webhooks included.
+  if (auth) app.use('/api/*', auth.guard)
+  const authOn = Boolean(auth?.config)
 
   // The webhook first: GitHub's payloads outgrow the API's body limit, and the receiver reads
   // and caps the raw body itself before checking its signature.
@@ -72,7 +85,10 @@ export function createApp({
 
   const api = new Hono()
   api.onError(onError)
-  api.get('/health', (c) => c.json<HealthResponse>({ status: 'ok', version: build.version }))
+  // Public even with the login on, so it says nothing then: not even the version.
+  api.get('/health', (c) =>
+    c.json<HealthResponse>(authOn ? { status: 'ok' } : { status: 'ok', version: build.version }),
+  )
   api.get('/version', (c) => {
     const body: VersionResponse = {
       ...describeBuild(build),
@@ -81,6 +97,7 @@ export function createApp({
     return c.json(versionResponseSchema.parse(body))
   })
   api.route('/access', accessRoutes(access))
+  if (auth) api.route('/auth', authRoutes({ core: auth, ...(authFetch && { fetch: authFetch }) }))
   if (apiOptions) registerApiRoutes(api, { ...(updates && { updates }), ...apiOptions })
   app.route('/api', api)
   // Unknown API routes answer with JSON instead of falling through to the SPA.

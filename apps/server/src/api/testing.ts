@@ -1,6 +1,9 @@
 import type { SourceTestResult } from '@hinomi/shared'
 import { vi } from 'vitest'
 import { createApp } from '../app.js'
+import type { AccessOptions } from '../access/index.js'
+import { createAuthCore, type AuthCore } from '../auth/index.js'
+import type { AuthConfig } from '../config.js'
 import { createSecretBox } from '../crypto/secret-box.js'
 import { createTestRepositories, TEST_SECRET } from '../db/test-db.js'
 import type { Logger } from '../log.js'
@@ -107,7 +110,18 @@ export function createTestApi({
   updates,
   support,
   guards,
+  auth: authOptions,
 }: {
+  /**
+   * The login. Without it no guard runs at all; with `config: null` the guard runs as with
+   * HINOMI_AUTH off (changes audited, nothing refused).
+   */
+  auth?: {
+    config: AuthConfig | null
+    now?: () => Date
+    fetch?: typeof fetch
+    access?: AccessOptions
+  }
   withSecret?: boolean
   sourceFetch?: typeof fetch
   fixRunTracking?: ApiOptions['fixRunTracking']
@@ -208,7 +222,18 @@ export function createTestApi({
       },
     }),
   }
+  const auth: AuthCore | undefined = authOptions
+    ? createAuthCore({
+        config: authOptions.config,
+        repositories: repos,
+        log: logger.log,
+        ...(authOptions.now && { now: authOptions.now }),
+        ...(authOptions.access && { access: authOptions.access }),
+      })
+    : undefined
   const app = createApp({
+    ...(auth && { auth }),
+    ...(authOptions?.fetch && { authFetch: authOptions.fetch }),
     api: {
       repositories: repos,
       scheduler,
@@ -243,6 +268,7 @@ export function createTestApi({
 
   return {
     app,
+    auth,
     repos,
     handle,
     scheduler,
