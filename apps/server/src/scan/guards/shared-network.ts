@@ -1,5 +1,6 @@
 import {
   deploymentGuardCapabilities,
+  destinationTypeLabel,
   type DeploymentFacts,
   type NetworkBasis,
   type NetworkPeer,
@@ -39,7 +40,11 @@ function groupsOf({ row, facts }: Member): NetworkGroup[] {
       key: `destination:${row.sourceId}:${destination.server ?? ''}:${destination.typeName ?? ''}:${destination.id}`,
       basis: 'coolify_destination',
       network: null,
-      destination: { server: destination.server, type: destination.typeName, id: destination.id },
+      destination: {
+        server: destination.server,
+        type: destinationTypeLabel(destination.typeName),
+        id: destination.id,
+      },
     })
   }
   for (const network of facts.networks) {

@@ -122,6 +122,34 @@ export const networkPeerSchema = z.object({
 })
 export type NetworkPeer = z.infer<typeof networkPeerSchema>
 
+const GENERIC_DESTINATION = 'Coolify destination'
+
+/**
+ * A readable name for the type of a Coolify destination. Coolify reports a PHP class
+ * (`App\\Models\\StandaloneDocker`); that never goes into evidence or onto the screen.
+ */
+export function destinationTypeLabel(raw: string | null): string {
+  const type = (raw ?? '').toLowerCase()
+  if (type.includes('standalone')) return 'Docker network'
+  if (type.includes('swarm')) return 'Swarm network'
+  return GENERIC_DESTINATION
+}
+
+/** "Docker network (destination 2) on server 2", from the destination of the evidence. */
+export function destinationLabel(destination: {
+  server: string | null
+  type: string | null
+  id: number
+}): string {
+  const on = destination.server ? ` on server ${destination.server}` : ''
+  const type = destinationTypeLabel(destination.type)
+  const named =
+    type === GENERIC_DESTINATION
+      ? `${type} ${destination.id}`
+      : `${type} (destination ${destination.id})`
+  return `${named}${on}`
+}
+
 export const sharedNetworkEvidenceSchema = z.object({
   check: z.literal('shared_network'),
   basis: networkBasisSchema.nullable(),

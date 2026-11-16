@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guardEvidenceSchema } from './guard-evidence.js'
+import { destinationLabel, guardEvidenceSchema } from './guard-evidence.js'
 import { GUARD_CHECKS, GUARD_COPY, RUNTIMES, RUNTIME_PRODUCTS } from './guards.js'
 
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`)
@@ -145,5 +145,20 @@ describe('guardEvidenceSchema', () => {
       ],
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('destinationLabel', () => {
+  it('reads a Coolify destination without its PHP class', () => {
+    const raw = 'App\\Models\\StandaloneDocker'
+    expect(destinationLabel({ server: '2', type: raw, id: 2 })).toBe(
+      'Docker network (destination 2) on server 2',
+    )
+    expect(destinationLabel({ server: null, type: 'App\\Models\\SwarmDocker', id: 7 })).toBe(
+      'Swarm network (destination 7)',
+    )
+    expect(destinationLabel({ server: '1', type: null, id: 4 })).toBe(
+      'Coolify destination 4 on server 1',
+    )
   })
 })

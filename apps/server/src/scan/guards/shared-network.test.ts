@@ -6,6 +6,22 @@ const SERVER = 'edge-1'
 const blogProject = { key: 'proj-blog', name: 'kestrel-blog', environment: 'production' }
 
 describe('shared_network', () => {
+  it.each([
+    ['App\\Models\\StandaloneDocker', 'Docker network'],
+    ['App\\Models\\SwarmDocker', 'Swarm network'],
+    [null, 'Coolify destination'],
+  ])('never puts the raw class %s into the evidence', (typeName, label) => {
+    const destination = { server: '2', typeName, id: 2 }
+    const shop = deployment(1, 'kestrel-shop-web', { facts: facts({ destination }) })
+    const blog = deployment(2, 'kestrel-blog-web', {
+      facts: facts({ project: blogProject, destination }),
+    })
+    const result = resultFor(evaluateSharedNetwork(context([shop, blog])), 1)
+    const evidence = result.level !== null && result.evidence
+    expect(evidence).toMatchObject({ destination: { server: '2', type: label, id: 2 } })
+    expect(JSON.stringify(evidence)).not.toContain('App\\')
+  })
+
   it('warns for apps of two projects on one destination', () => {
     const shop = deployment(1, 'kestrel-shop-web')
     const blog = deployment(2, 'kestrel-blog-web', { facts: facts({ project: blogProject }) })
