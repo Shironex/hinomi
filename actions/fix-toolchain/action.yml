@@ -180,17 +180,30 @@ runs:
         coverage: none
         github-token: ''
 
+    # The empty github-token above is not enough: setup-php 2.40.0 still writes the job token
+    # into the global auth.json (seen in CI), so it is removed before anything else runs.
+    - name: Remove the GitHub token from composer
+      if: inputs.setup_php == 'true'
+      shell: bash
+      run: |
+        composer config --global --unset github-oauth.github.com --no-plugins --no-interaction || true
+        if [ -n "${COMPOSER_AUTH:-}" ]; then echo "COMPOSER_AUTH=" >> "$GITHUB_ENV"; fi
+
     - name: Check composer holds no GitHub token
       if: inputs.setup_php == 'true'
       shell: bash
       run: |
         home=$(composer config --global home --no-plugins --no-interaction 2>/dev/null || true)
         for file in "$home/auth.json" "$HOME/.composer/auth.json" "$HOME/.config/composer/auth.json"; do
-          if [ -f "$file" ] && grep -q 'github-oauth' "$file"; then
+          if [ -f "$file" ] && grep -qE '"github\.com" *: *"[^"]+"|gh[pousr]_|github_pat_' "$file"; then
             echo "::error::$file holds a GitHub token that every later process could read"
             exit 1
           fi
         done
+        if composer config --global github-oauth.github.com --no-plugins --no-interaction >/dev/null 2>&1; then
+          echo "::error::composer still has a github-oauth token for github.com"
+          exit 1
+        fi
         if [ -n "${COMPOSER_AUTH:-}" ]; then
           echo "::error::COMPOSER_AUTH is set for every later step"
           exit 1
