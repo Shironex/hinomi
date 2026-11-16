@@ -26,6 +26,7 @@ const ERROR_TAXONOMY = [
   'Error',
   'DOMException',
   'ApiError',
+  'CborError',
   'ChannelNotFoundError',
   'ChannelValidationError',
   'ConnectionTestFailed',
@@ -39,8 +40,10 @@ const ERROR_TAXONOMY = [
   'GithubError',
   'GithubRateLimitError',
   'HttpError',
+  'InvalidAllowRuleError',
   'InvalidCidrError',
   'LocalStepError',
+  'OidcError',
   'OsvRequestError',
   'RegistryError',
   'SchedulerClosedError',
@@ -48,6 +51,7 @@ const ERROR_TAXONOMY = [
   'SecretKeyMissingError',
   'SupportDataError',
   'UnsupportedLockfileError',
+  'WebAuthnError',
 ]
 
 // Layers of apps/server/src. A folder may import only the folders listed for
@@ -55,6 +59,7 @@ const ERROR_TAXONOMY = [
 // config, log, storage, index) compose the folders and are not restricted.
 const SERVER_LAYERS = {
   access: [],
+  auth: ['access', 'db', 'repository'],
   crypto: [],
   db: [],
   net: [],
@@ -68,6 +73,7 @@ const SERVER_LAYERS = {
   webhook: ['crypto', 'db', 'net', 'repository'],
   api: [
     'access',
+    'auth',
     'crypto',
     'db',
     'notify',
@@ -84,6 +90,7 @@ const SERVER_LAYERS = {
 const SERVER_BARRELS = [
   'access',
   'api',
+  'auth',
   'notify',
   'repository',
   'runner',

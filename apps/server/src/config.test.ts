@@ -10,6 +10,7 @@ describe('loadConfig', () => {
     expect(config.dataDir).toBe(resolve('data'))
     expect(config.databaseFile).toBe(resolve('data', 'hinomi.db'))
     expect(config.secretKey).toBeUndefined()
+    expect(config.auth).toBeNull()
   })
 
   it('defaults the data dir to /data in production', () => {
@@ -116,5 +117,105 @@ describe('loadConfig', () => {
         HINOMI_CF_ACCESS_AUD: 'a',
       }),
     ).toThrow(/HINOMI_CF_ACCESS_TEAM_DOMAIN must be/)
+  })
+
+  describe('built in login', () => {
+    const on = { HINOMI_AUTH: '1', HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev/' }
+
+    it('stays off unless HINOMI_AUTH is set, whatever else is', () => {
+      expect(loadConfig({ HINOMI_AUTH_PUBLIC_URL: 'https://hinomi.example.dev' }).auth).toBeNull()
+      expect(
+        loadConfig({ HINOMI_AUTH: '0', HINOMI_AUTH_PUBLIC_URL: 'https://x.example.dev' }).auth,
+      ).toBeNull()
+    })
+
+    it('turns on with passkeys only', () => {
+      expect(loadConfig(on).auth).toEqual({
+        publicOrigin: 'https://hinomi.example.dev',
+        secure: true,
+        rpId: 'hinomi.example.dev',
+        oidc: null,
+        github: null,
+        allowed: [],
+      })
+    })
+
+    it('needs the public URL', () => {
+      expect(() => loadConfig({ HINOMI_AUTH: '1' })).toThrow(/needs HINOMI_AUTH_PUBLIC_URL/)
+      expect(() =>
+        loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'https://x.example.dev/hinomi' }),
+      ).toThrow(/HINOMI_AUTH_PUBLIC_URL must be/)
+    })
+
+    it('marks an http public URL as not secure', () => {
+      const auth = loadConfig({ ...on, HINOMI_AUTH_PUBLIC_URL: 'http://localhost:3000' }).auth
+      expect(auth).toMatchObject({
+        secure: false,
+        rpId: 'localhost',
+        publicOrigin: 'http://localhost:3000',
+      })
+    })
+
+    it('reads OpenID Connect and GitHub with an allow list', () => {
+      const auth = loadConfig({
+        ...on,
+        HINOMI_AUTH_OIDC_ISSUER: 'https://id.example.dev/application/o/hinomi/',
+        HINOMI_AUTH_OIDC_CLIENT_ID: 'hinomi',
+        HINOMI_AUTH_OIDC_CLIENT_SECRET: 'fictional-secret',
+        HINOMI_AUTH_OIDC_NAME: 'Kestrel ID',
+        HINOMI_AUTH_GITHUB_CLIENT_ID: 'gh',
+        HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'gh-fictional',
+        HINOMI_AUTH_ALLOWED: 'ops@example.dev,github:kestrel-ops',
+      }).auth
+      expect(auth?.oidc).toEqual({
+        issuer: 'https://id.example.dev/application/o/hinomi',
+        clientId: 'hinomi',
+        clientSecret: 'fictional-secret',
+        name: 'Kestrel ID',
+      })
+      expect(auth?.github).toEqual({ clientId: 'gh', clientSecret: 'gh-fictional' })
+      expect(auth?.allowed).toHaveLength(2)
+    })
+
+    it('refuses a provider without an allow list, so not every account there gets in', () => {
+      expect(() =>
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_GITHUB_CLIENT_ID: 'gh',
+          HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'x',
+        }),
+      ).toThrow(/needs HINOMI_AUTH_ALLOWED/)
+    })
+
+    it('refuses half a provider and a bad allow entry, without echoing secrets', () => {
+      expect(() => loadConfig({ ...on, HINOMI_AUTH_OIDC_CLIENT_SECRET: 'do-not-echo' })).toThrow(
+        /together, or none of them/,
+      )
+      const thrown = (() => {
+        try {
+          loadConfig({ ...on, HINOMI_AUTH_GITHUB_CLIENT_SECRET: 'do-not-echo' })
+          return ''
+        } catch (error) {
+          return String(error)
+        }
+      })()
+      expect(thrown).toMatch(/together, or neither/)
+      expect(thrown).not.toContain('do-not-echo')
+      expect(() => loadConfig({ ...on, HINOMI_AUTH_ALLOWED: 'everyone' })).toThrow(
+        /HINOMI_AUTH_ALLOWED/,
+      )
+    })
+
+    it('refuses an http issuer unless it is on this machine', () => {
+      expect(() =>
+        loadConfig({
+          ...on,
+          HINOMI_AUTH_OIDC_ISSUER: 'http://id.example.dev',
+          HINOMI_AUTH_OIDC_CLIENT_ID: 'a',
+          HINOMI_AUTH_OIDC_CLIENT_SECRET: 'b',
+          HINOMI_AUTH_ALLOWED: 'ops@example.dev',
+        }),
+      ).toThrow(/HINOMI_AUTH_OIDC_ISSUER must be/)
+    })
   })
 })
