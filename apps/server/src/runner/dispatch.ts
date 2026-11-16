@@ -3,10 +3,13 @@ import {
   FixPayloadError,
   currentTime,
   encodeFixDispatch,
+  isMajorStep,
+  isNewerPackageManagerStep,
   newerPackageManagerSteps,
   toFixDispatch,
   type EncodedFixDispatch,
   type FixPayloadCompressor,
+  type FixPlanStep,
   type FixRunnerKind,
 } from '@hinomi/shared'
 import type { FixRunRow } from '../db/schema.js'
@@ -102,22 +105,27 @@ export async function prepareDispatch(
       kind,
       newerPackageManagers: newer,
     })
+    // What a runner not known to take the newer package managers did not get, if anything.
+    const heldFor = (held: FixPlanStep[], what: string) =>
+      newer || held.length === 0
+        ? null
+        : `The plan's ${[...new Set(held.map((s) => s.packageManager))].join(', ')} ${what} need a runner that takes them: pin the caller workflow to the latest Hinomi release, or use the local runner.`
     if (kind === 'majors' && dispatch.risky.length === 0) {
-      return {
-        created: false,
-        code: 'nothing_to_send',
-        message: 'The plan has no major upgrade the agent can take.',
-      }
-    }
-    if (kind === 'fix' && dispatch.steps.length === 0) {
-      const held = newer ? [] : newerPackageManagerSteps(fixPlan)
+      const held = fixPlan.steps.filter((s) => isMajorStep(s) && isNewerPackageManagerStep(s))
       return {
         created: false,
         code: 'nothing_to_send',
         message:
-          held.length > 0
-            ? `The plan's ${[...new Set(held.map((s) => s.packageManager))].join(', ')} steps need a runner that takes them: pin the caller workflow to the latest Hinomi release, or use the local runner.`
-            : 'The plan has no safe step the runner can apply.',
+          heldFor(held, 'major upgrades') ?? 'The plan has no major upgrade the agent can take.',
+      }
+    }
+    if (kind === 'fix' && dispatch.steps.length === 0) {
+      return {
+        created: false,
+        code: 'nothing_to_send',
+        message:
+          heldFor(newerPackageManagerSteps(fixPlan), 'steps') ??
+          'The plan has no safe step the runner can apply.',
       }
     }
     encoded = await encodeFixDispatch(dispatch, {
