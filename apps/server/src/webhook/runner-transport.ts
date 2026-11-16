@@ -8,6 +8,7 @@ import {
   currentTime,
   type WebhookDispatchBody,
 } from '@hinomi/shared'
+import { directAgent } from '../net/direct-agent.js'
 import { publicOnlyLookup } from '../net/public-lookup.js'
 import { checkRunnerUrl } from './ssrf.js'
 import { secretProblem, type WebhookRunnerSettings } from './runner-settings.js'
@@ -85,6 +86,8 @@ export const nodeRunnerPoster: RunnerPoster = (input) =>
         method: 'POST',
         headers: { ...input.headers, 'content-length': String(Buffer.byteLength(input.body)) },
         timeout: input.timeoutMs,
+        // Never through a proxy from the environment: it would resolve the host, not our lookup.
+        agent: directAgent(input.url),
         ...(!input.allowPrivate && { lookup: publicOnlyLookup }),
       },
       (response) => {
