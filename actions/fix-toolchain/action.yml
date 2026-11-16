@@ -159,7 +159,9 @@ runs:
         cache: false
 
     # uv at the version the detect step pins. The fix runner only calls `uv lock --no-build`,
-    # which builds no source distribution.
+    # which builds no downloaded package, and only for a project whose own metadata, and that
+    # of its workspace members and path sources, is static (so no build backend of the repo
+    # runs either).
     - name: Set up uv
       if: inputs.setup_uv == 'true'
       uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2

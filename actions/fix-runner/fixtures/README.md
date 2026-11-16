@@ -33,7 +33,9 @@ nothing here is ever installed (except by the real tool test). Every package nam
   against a file:// module proxy, a folder of wheels (with a source distribution that
   builds, through an in-tree backend that leaves a marker, if `--no-build` is ever dropped)
   plus a committed `.venv` interpreter and a `.python-version` path that leave markers if
-  uv runs them, and an inline package repository with zip dists whose update and install
+  uv runs them, and a project committed with dynamic metadata whose in-tree backend, or
+  backend from the index running a `hatch_build.py`, leaves a marker if uv asks it, and an
+  inline package repository with zip dists whose update and install
   scripts leave a marker, all written by the test itself.
 - `dispatches`: dispatches the runner must refuse.
 - `selftest-npm`, `selftest-pnpm`, `selftest-dispatch.json`: what `.github/workflows/fix-selftest.yml`

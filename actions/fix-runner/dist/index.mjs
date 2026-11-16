@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { access, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { accessSync, appendFileSync, constants, mkdtempSync, realpathSync } from "node:fs";
+import { accessSync, appendFileSync, constants, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -16872,6 +16872,164 @@ const npmApplier = {
 	}
 };
 
+// src/appliers/uv-project.ts
+const MAX_FILES = 200;
+const REQUIREMENT_TABLES = /* @__PURE__ */ new Set([
+	"project.dependencies",
+	"project.optional-dependencies",
+	"dependency-groups",
+	"tool.uv.dev-dependencies",
+	"tool.uv.override-dependencies",
+	"tool.uv.constraint-dependencies"
+]);
+const GROUP_TABLES = ["project.optional-dependencies", "dependency-groups"];
+function arrayStrings(raw) {
+	const out = [];
+	for (const match of raw.matchAll(/"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)'/g)) out.push(match[1] ?? match[2] ?? "");
+	return out;
+}
+function isDirectUrlRequirement(requirement) {
+	return /^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*@/.test(requirement);
+}
+function requirementsOf(file) {
+	return file.entries.flatMap((entry) => {
+		const table = entry.table.join(".");
+		const full = [...entry.table, ...entry.key].join(".");
+		return REQUIREMENT_TABLES.has(full) || GROUP_TABLES.some((group) => table === group || full.startsWith(`${group}.`)) ? arrayStrings(file.text.slice(entry.start, entry.end)) : [];
+	});
+}
+function sourcesOf(file) {
+	const out = [];
+	for (const entry of file.entries) if (entry.table.join(".") === "tool.uv.sources" && entry.key[0]) out.push({
+		name: entry.key[0],
+		raw: file.text.slice(entry.start, entry.end)
+	});
+	else if (entry.table.length === 4 && entry.table.slice(0, 3).join(".") === "tool.uv.sources" && entry.table[3]) {
+		const field = entry.key.join(".");
+		out.push({
+			name: entry.table[3],
+			raw: `{ ${field} = ${file.text.slice(entry.start, entry.end)} }`
+		});
+	}
+	return out;
+}
+function stringField(raw, field) {
+	const out = [];
+	const pattern = new RegExp(`(?:^|[{,\\s])${field}\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)')`, "g");
+	for (const match of raw.matchAll(pattern)) out.push(match[1] ?? match[2] ?? "");
+	return out;
+}
+function dynamicProblem(file, virtualAllowed) {
+	const project = file.entries.filter((e) => e.table[0] === "project" && e.table.length === 1);
+	if (!(file.entries.some((e) => e.table[0] === "project") || /^\s*\[\s*project\s*\]/m.test(file.text))) return virtualAllowed ? null : `${file.path} has no [project] table, so uv would build it`;
+	const field = (name) => project.find((e) => e.key.join(".") === name);
+	const dynamic = field("dynamic");
+	if (dynamic && !/^\[\s*\]$/.test(file.text.slice(dynamic.start, dynamic.end).trim())) return `${file.path} declares dynamic metadata, which uv gets by running its build backend`;
+	for (const name of ["name", "version"]) {
+		const entry = field(name);
+		if (!entry || typeof scalarValue(file.text, entry) !== "string") return `${file.path} has no static project ${name}, which uv gets by running its build backend`;
+	}
+	return null;
+}
+function expandMembers(fs, root, pattern) {
+	if (!/^[A-Za-z0-9._*/-]+$/.test(pattern) || pattern.includes("**")) return null;
+	let dirs = [root];
+	for (const segment of pattern.split("/").filter((part) => part !== "" && part !== ".")) {
+		if (segment === "..") return null;
+		if (!segment.includes("*")) {
+			dirs = dirs.map((dir) => repoJoin(dir, segment));
+			continue;
+		}
+		const match = new RegExp(`^${segment.replace(/[.]/g, "\\.").replace(/\*/g, "[^/]*")}$`);
+		dirs = dirs.flatMap((dir) => {
+			try {
+				return readdirSync(fs.absolute(dir), { withFileTypes: true }).filter((item) => item.isDirectory() && match.test(item.name)).map((item) => repoJoin(dir, item.name));
+			} catch {
+				return [];
+			}
+		});
+	}
+	return dirs;
+}
+async function readUvProject(fs, root) {
+	const files = [];
+	const queue = [{
+		path: repoJoin(root, "pyproject.toml"),
+		virtualAllowed: true,
+		members: true
+	}];
+	const seen = /* @__PURE__ */ new Set();
+	const fail = (problem) => ({
+		ok: false,
+		problem
+	});
+	while (queue.length > 0) {
+		const next = queue.shift();
+		if (!next || seen.has(next.path)) continue;
+		seen.add(next.path);
+		if (seen.size > MAX_FILES) return fail(`more than ${MAX_FILES} pyproject.toml files`);
+		const text = await fs.read(next.path).catch(() => null);
+		if (text === null) return fail(`${repoDirname(next.path)} has no pyproject.toml, so uv would build it`);
+		let entries;
+		try {
+			entries = scanToml(text);
+		} catch {
+			return fail(`${next.path} could not be read`);
+		}
+		const file = {
+			path: next.path,
+			text,
+			entries
+		};
+		const problem = dynamicProblem(file, next.virtualAllowed);
+		if (problem) return fail(problem);
+		const url = requirementsOf(file).find(isDirectUrlRequirement);
+		if (url) return fail(`${next.path} requires a direct URL (${url.slice(0, 80)}), which uv would build`);
+		const dir = repoDirname(next.path);
+		for (const source of sourcesOf(file)) {
+			if (/(?:^|[{,\s])(?:git|url)\s*=/.test(source.raw)) return fail(`${next.path} takes ${source.name} from a git or URL source, which uv would build`);
+			for (const target of stringField(source.raw, "path")) {
+				const joined = posix.normalize(posix.join(dir, target));
+				if (posix.isAbsolute(target) || joined === ".." || joined.startsWith("../")) return fail(`${next.path} takes ${source.name} from a path outside the repo`);
+				if (joined.endsWith(".whl")) continue;
+				if (/\.(?:tar\.gz|tgz|zip|tar\.bz2|tar\.xz)$/.test(joined)) return fail(`${next.path} takes ${source.name} from a source archive, which uv would build`);
+				queue.push({
+					path: repoJoin(joined, "pyproject.toml"),
+					virtualAllowed: false,
+					members: false
+				});
+			}
+		}
+		if (next.members) {
+			const workspace = entries.filter((e) => e.table.join(".") === "tool.uv.workspace");
+			const globs = (key) => workspace.filter((e) => e.key.join(".") === key).flatMap((e) => arrayStrings(text.slice(e.start, e.end)));
+			const excluded = /* @__PURE__ */ new Set();
+			for (const pattern of globs("exclude")) {
+				const dirs = expandMembers(fs, dir, pattern);
+				if (dirs === null) return fail(`${next.path} has a workspace exclude Hinomi does not expand`);
+				for (const member of dirs) excluded.add(member);
+			}
+			for (const pattern of globs("members")) {
+				const dirs = expandMembers(fs, dir, pattern);
+				if (dirs === null) return fail(`${next.path} has a workspace member glob Hinomi does not expand`);
+				for (const member of dirs) {
+					if (excluded.has(member) || !await fs.exists(repoJoin(member, "pyproject.toml"))) continue;
+					queue.push({
+						path: repoJoin(member, "pyproject.toml"),
+						virtualAllowed: false,
+						members: false
+					});
+				}
+			}
+		}
+		files.push(file);
+	}
+	return {
+		ok: true,
+		files
+	};
+}
+
 // src/appliers/uv.ts
 const normalizePypiName = (name) => name.toLowerCase().replace(/[-_.]+/g, "-");
 const PYPI_INDEXES = /* @__PURE__ */ new Set(["https://pypi.org/simple", "https://pypi.org/simple/"]);
@@ -16968,20 +17126,8 @@ const UV_INDEX_SETTINGS = /* @__PURE__ */ new Set([
 function entriesUnder(entries, table) {
 	return entries.filter((entry) => entry.table.join(".") === table);
 }
-async function sourceIsPypi(fs, root, name) {
-	for (let dir = root;; dir = repoDirname(dir)) {
-		if (await fs.exists(repoJoin(dir, "uv.toml"))) return false;
-		if (dir === ".") break;
-	}
-	const text = await fs.read(repoJoin(root, "pyproject.toml"));
-	if (text === null) return false;
-	let entries;
-	try {
-		entries = scanToml(text);
-	} catch {
-		return false;
-	}
-	if (entriesUnder(entries, "tool.uv").some((e) => UV_INDEX_SETTINGS.has(e.key[0] ?? ""))) return false;
+function otherIndex({ text, entries }) {
+	if (entriesUnder(entries, "tool.uv").some((e) => UV_INDEX_SETTINGS.has(e.key[0] ?? ""))) return true;
 	const indexes = /* @__PURE__ */ new Map();
 	for (const entry of entriesUnder(entries, "tool.uv.index")) {
 		const index = indexes.get(entry.tableIndex) ?? {
@@ -16992,21 +17138,35 @@ async function sourceIsPypi(fs, root, name) {
 		if (entry.key.join(".") === "explicit") index.explicit = scalarValue(text, entry);
 		indexes.set(entry.tableIndex, index);
 	}
-	for (const { url, explicit } of indexes.values()) if (explicit !== true && !PYPI_INDEXES.has(typeof url === "string" ? url : "")) return false;
-	const wanted = normalizePypiName(name);
-	return !entries.some((entry) => entry.table.join(".") === "tool.uv.sources" && normalizePypiName(entry.key[0] ?? "") === wanted || entry.table.length === 4 && entry.table.slice(0, 3).join(".") === "tool.uv.sources" && normalizePypiName(entry.table[3] ?? "") === wanted);
+	return [...indexes.values()].some(({ url, explicit }) => explicit !== true && !PYPI_INDEXES.has(typeof url === "string" ? url : ""));
 }
-function checkStep(step) {
+async function sourceIsPypi(fs, root, name) {
+	for (let dir = root;; dir = repoDirname(dir)) {
+		if (await fs.exists(repoJoin(dir, "uv.toml"))) return false;
+		if (dir === ".") break;
+	}
+	const project = await readUvProject(fs, root);
+	if (!project.ok) return false;
+	const wanted = normalizePypiName(name);
+	return !project.files.some((file) => otherIndex(file) || sourcesOf(file).some((source) => normalizePypiName(source.name) === wanted));
+}
+async function checkStep(ctx, step) {
 	const { apply } = step;
-	if (apply.type !== "lockfile_update" || apply.tool !== "uv") return Promise.resolve({
+	if (apply.type !== "lockfile_update" || apply.tool !== "uv") return {
 		status: "failed",
 		reason: "edit_failed",
 		detail: `${apply.type} is not a uv lock update`
-	});
-	return Promise.resolve({
+	};
+	const project = await readUvProject(ctx.fs, ctx.root);
+	if (!project.ok) return {
+		status: "skipped",
+		reason: "manual_specifier",
+		detail: `Not locked by Hinomi: ${project.problem}`.slice(0, 500)
+	};
+	return {
 		status: "edited",
 		files: []
-	});
+	};
 }
 const uvApplier = {
 	packageManager: "uv",
@@ -17025,7 +17185,7 @@ const uvApplier = {
 		if (!await sourceIsPypi(ctx.fs, ctx.root, name)) return null;
 		return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API);
 	},
-	applyStep: (_ctx, step) => checkStep(step),
+	applyStep: checkStep,
 	lockfileInstall(ctx, { steps }) {
 		return uvLockCommand(steps, uvEnv(ctx.fs.root, runnerPython(ctx.fs.root, ctx.searchPath ?? ""))) ?? [];
 	},

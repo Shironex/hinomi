@@ -7,14 +7,18 @@ import { PYPI_API } from '../registry.js'
 import { repoDirname, repoJoin, type RepoFs } from '../repo-fs.js'
 import { scalarValue, scanInlineTable, scanToml, type TomlEntry } from '../toml.js'
 import type { Applier, EditOutcome, ProjectContext } from './types.js'
+import { readUvProject, sourcesOf, type UvProjectFile } from './uv-project.js'
 
 // uv with uv.lock. A step is a lockfile_update: `uv lock --no-build --upgrade-package
 // <name>==<to>` re-resolves only that package and writes uv.lock; nothing is installed and
 // pyproject.toml is not edited, so a requirement whose range excludes `to` makes the lock fail
-// and the step is reported as install_failed. `--no-build` is what keeps package code out:
-// without it uv builds source distributions to read their metadata, which runs their setup
-// code. With it uv takes metadata only from wheels and static source metadata, and a package
-// that would need a build fails the lock instead.
+// and the step is reported as install_failed. `--no-build` keeps the code of downloaded
+// packages out: without it uv builds their source distributions to read their metadata, which
+// runs their setup code; with it a package that would need a build fails the lock instead.
+// `--no-build` does not cover the project itself: uv still asks the root, its workspace
+// members and its path sources for their metadata, and runs their build backend when it is
+// dynamic. So before any uv command the step is refused unless every one of those
+// pyproject.toml files has static metadata (readUvProject in uv-project.ts).
 //
 // uv also looks for an interpreter before it resolves, and it runs the one it finds to ask its
 // version: a committed `.venv` or a `.python-version` naming a path in the repo would be repo
@@ -151,26 +155,10 @@ function entriesUnder(entries: TomlEntry[], table: string): TomlEntry[] {
   return entries.filter((entry) => entry.table.join('.') === table)
 }
 
-/**
- * Whether `name` can only come from PyPI under the project's current configuration: no
- * uv.toml in the project folder or above it in the repo, no [tool.uv] index setting, every
- * [[tool.uv.index]] PyPI or explicit, and no [tool.uv.sources] entry for the package.
- */
-export async function sourceIsPypi(fs: RepoFs, root: string, name: string): Promise<boolean> {
-  for (let dir = root; ; dir = repoDirname(dir)) {
-    if (await fs.exists(repoJoin(dir, 'uv.toml'))) return false
-    if (dir === '.') break
-  }
-  const text = await fs.read(repoJoin(root, 'pyproject.toml'))
-  if (text === null) return false
-  let entries: TomlEntry[]
-  try {
-    entries = scanToml(text)
-  } catch {
-    return false
-  }
+/** Whether one pyproject.toml points uv at an index other than PyPI. */
+function otherIndex({ text, entries }: UvProjectFile): boolean {
   if (entriesUnder(entries, 'tool.uv').some((e) => UV_INDEX_SETTINGS.has(e.key[0] ?? ''))) {
-    return false
+    return true
   }
   const indexes = new Map<number, { url: unknown; explicit: unknown }>()
   for (const entry of entriesUnder(entries, 'tool.uv.index')) {
@@ -179,30 +167,53 @@ export async function sourceIsPypi(fs: RepoFs, root: string, name: string): Prom
     if (entry.key.join('.') === 'explicit') index.explicit = scalarValue(text, entry)
     indexes.set(entry.tableIndex, index)
   }
-  for (const { url, explicit } of indexes.values()) {
-    if (explicit !== true && !PYPI_INDEXES.has(typeof url === 'string' ? url : '')) return false
-  }
-  const wanted = normalizePypiName(name)
-  return !entries.some(
-    (entry) =>
-      (entry.table.join('.') === 'tool.uv.sources' &&
-        normalizePypiName(entry.key[0] ?? '') === wanted) ||
-      (entry.table.length === 4 &&
-        entry.table.slice(0, 3).join('.') === 'tool.uv.sources' &&
-        normalizePypiName(entry.table[3] ?? '') === wanted),
+  return [...indexes.values()].some(
+    ({ url, explicit }) =>
+      explicit !== true && !PYPI_INDEXES.has(typeof url === 'string' ? url : ''),
   )
 }
 
-function checkStep(step: FixDispatchStep): Promise<EditOutcome> {
+/**
+ * Whether `name` can only come from PyPI under the project's current configuration: no
+ * uv.toml in the project folder or above it in the repo, and in every pyproject.toml uv reads
+ * (the root, its workspace members and path sources, see readUvProject): no [tool.uv] index
+ * setting, every [[tool.uv.index]] PyPI or explicit, and no [tool.uv.sources] entry for the
+ * package. A direct URL requirement, override or constraint fails readUvProject already.
+ */
+export async function sourceIsPypi(fs: RepoFs, root: string, name: string): Promise<boolean> {
+  for (let dir = root; ; dir = repoDirname(dir)) {
+    if (await fs.exists(repoJoin(dir, 'uv.toml'))) return false
+    if (dir === '.') break
+  }
+  const project = await readUvProject(fs, root)
+  if (!project.ok) return false
+  const wanted = normalizePypiName(name)
+  return !project.files.some(
+    (file) =>
+      otherIndex(file) ||
+      sourcesOf(file).some((source) => normalizePypiName(source.name) === wanted),
+  )
+}
+
+async function checkStep(ctx: ProjectContext, step: FixDispatchStep): Promise<EditOutcome> {
   const { apply } = step
   if (apply.type !== 'lockfile_update' || apply.tool !== 'uv') {
-    return Promise.resolve({
+    return {
       status: 'failed',
       reason: 'edit_failed',
       detail: `${apply.type} is not a uv lock update`,
-    })
+    }
   }
-  return Promise.resolve({ status: 'edited', files: [] })
+  // Refused before uv runs, so neither the lock nor the full mode check touches the project.
+  const project = await readUvProject(ctx.fs, ctx.root)
+  if (!project.ok) {
+    return {
+      status: 'skipped',
+      reason: 'manual_specifier',
+      detail: `Not locked by Hinomi: ${project.problem}`.slice(0, 500),
+    }
+  }
+  return { status: 'edited', files: [] }
 }
 
 export const uvApplier: Applier = {
@@ -229,7 +240,7 @@ export const uvApplier: Applier = {
     return ctx.publishTimes.publishedAt(normalizePypiName(name), version, PYPI_API)
   },
 
-  applyStep: (_ctx, step) => checkStep(step),
+  applyStep: checkStep,
 
   lockfileInstall(ctx, { steps }) {
     return (

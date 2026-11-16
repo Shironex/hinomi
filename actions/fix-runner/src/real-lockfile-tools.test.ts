@@ -206,10 +206,17 @@ describe('real go get', () => {
 // ---------------------------------------------------------------------------
 // uv
 
-function wheel(dir: string, name: string, version: string, requires: string[] = []) {
+function wheel(
+  dir: string,
+  name: string,
+  version: string,
+  requires: string[] = [],
+  modules: Record<string, string> = {},
+) {
   const dist = `${name.replaceAll('-', '_')}-${version}`
   const info = `${dist}.dist-info`
   const files: Record<string, string> = {
+    ...modules,
     [`${info}/METADATA`]: [
       'Metadata-Version: 2.1',
       `Name: ${name}`,
@@ -346,6 +353,137 @@ describe('real uv lock', () => {
       expect(existsSync(built)).toBe(false)
       expect(existsSync(venvRan)).toBe(false)
       expect(existsSync(pinRan)).toBe(false)
+    },
+    120_000,
+  )
+})
+
+/** Python lines of a PEP 517 backend whose every hook first calls `ran()`. */
+const BACKEND_HOOKS = ['wheel', 'editable'].flatMap((kind) => [
+  `def get_requires_for_build_${kind}(config_settings=None):`,
+  '    ran()',
+  '    return []',
+  `def prepare_metadata_for_build_${kind}(directory, config_settings=None):`,
+  '    ran()',
+  '    raise SystemExit(1)',
+  `def build_${kind}(directory, config_settings=None, metadata_directory=None):`,
+  '    ran()',
+  '    raise SystemExit(1)',
+  '',
+])
+
+describe('real uv lock of a project whose metadata is dynamic', () => {
+  /**
+   * The real-uv fixture locked while its metadata was static, then committed with a dynamic
+   * version and a build backend that leaves `marker` if uv ever asks it for metadata.
+   */
+  async function dynamicProject(
+    wheels: string,
+    env: Record<string, string>,
+    buildSystem: string,
+    files: Record<string, string>,
+    extraProject = '',
+  ) {
+    return fixtureRepo('real-uv', (dir) => {
+      const path = join(dir, 'pyproject.toml')
+      const text = readFileSync(path, 'utf8').replace('WHEELS', wheels)
+      writeFileSync(path, text)
+      const r = spawnSync('uv', ['lock', '--no-build', '-P', 'plover-sig==1.0.2'], {
+        cwd: dir,
+        env,
+        encoding: 'utf8',
+      })
+      writeFileSync(
+        path,
+        `${buildSystem}\n${text
+          .replace('version = "0.1.0"\n', 'dynamic = ["version"]\n')
+          .replace('[tool.uv]', `${extraProject}[tool.uv]`)}`,
+      )
+      for (const [file, data] of Object.entries(files)) writeFile(join(dir, file), data)
+      return r.status === 0 ? Promise.resolve() : Promise.reject(new Error(r.stderr))
+    })
+  }
+
+  async function lockStep(root: string, env: Record<string, string>) {
+    const before = readText(root, 'uv.lock')
+    const steps = [toolStep(1, 'uv', 'uv.lock', 'plover-sig', '1.0.2', '1.0.4')]
+    const { result } = await runApply(
+      inputs(dispatch(steps, { checks: 'full' })),
+      runnerDeps(root, env, { 'plover-sig@1.0.4': OLD }, 'uv'),
+    )
+    return { ...result, lockUnchanged: readText(root, 'uv.lock') === before }
+  }
+
+  function registry() {
+    const wheels = tempDir('wheels')
+    for (const version of ['1.0.2', '1.0.4']) wheel(wheels, 'plover-sig', version)
+    wheel(wheels, 'heron-web', '2.3.0', ['plover-sig>=1.0'])
+    const env = {
+      ...baseEnv(),
+      UV_CACHE_DIR: tempDir('uvcache'),
+      UV_PYTHON_DOWNLOADS: 'never',
+      UV_NO_PROGRESS: '1',
+    }
+    return { wheels, env, marker: join(tempDir('marker'), 'backend-ran') }
+  }
+
+  it.skipIf(!available('uv') || !available('python3'))(
+    'refuses an in-tree backend-path and never runs it',
+    async () => {
+      const { wheels, env, marker } = registry()
+      const root = await dynamicProject(
+        wheels,
+        env,
+        '[build-system]\nrequires = []\nbuild-backend = "evil"\nbackend-path = ["_b"]\n',
+        {
+          '_b/evil.py': [
+            'def ran():',
+            `    open(${JSON.stringify(marker)}, 'w').write('ran')`,
+            'ran()',
+            ...BACKEND_HOOKS,
+          ].join('\n'),
+        },
+      )
+      const result = await lockStep(root, env)
+      expect(existsSync(marker)).toBe(false)
+      expect(result.steps.map((s) => [s.status, s.reason])).toEqual([
+        ['skipped', 'manual_specifier'],
+      ])
+      expect(result.steps[0]?.detail).toContain('dynamic metadata')
+      expect(result.patch).toBeNull()
+      expect(result.lockUnchanged).toBe(true)
+    },
+    120_000,
+  )
+
+  it.skipIf(!available('uv') || !available('python3'))(
+    'refuses a backend from the index that runs a hatch_build.py hook, and never runs either',
+    async () => {
+      const { wheels, env, marker } = registry()
+      // Stands in for hatchling from PyPI: a backend that runs the project's hatch_build.py.
+      wheel(wheels, 'hatchling', '1.27.0', [], {
+        'hatchling/__init__.py': '',
+        'hatchling/build.py': [
+          'import os, runpy',
+          'def ran():',
+          "    runpy.run_path(os.path.join(os.getcwd(), 'hatch_build.py'))",
+          ...BACKEND_HOOKS,
+        ].join('\n'),
+      })
+      const root = await dynamicProject(
+        wheels,
+        env,
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n',
+        { 'hatch_build.py': `open(${JSON.stringify(marker)}, 'w').write('ran')\n` },
+        '[tool.hatch.metadata.hooks.custom]\n\n',
+      )
+      const result = await lockStep(root, env)
+      expect(existsSync(marker)).toBe(false)
+      expect(result.steps.map((s) => [s.status, s.reason])).toEqual([
+        ['skipped', 'manual_specifier'],
+      ])
+      expect(result.patch).toBeNull()
+      expect(result.lockUnchanged).toBe(true)
     },
     120_000,
   )
