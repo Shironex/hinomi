@@ -12,8 +12,12 @@ import {
   type FixPlanStep,
   type FixPlanUnfixed,
   type LockfileDependency,
+  type LockfileUpdateTool,
   type PackageManager,
   type RepoRef,
+  LOCKFILE_UPDATE_TOOLS,
+  UNSUPPORTED_PACKAGE_MANAGERS,
+  isUnsupportedPackageManager,
 } from '@hinomi/shared'
 import type { FindingRow, RepoRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
@@ -84,7 +88,17 @@ const LOCKFILE_MANAGERS: Record<string, PackageManager> = {
   'bun.lock': 'bun',
   'bun.lockb': 'bun',
   'Cargo.lock': 'cargo',
+  // Hinomi reads go.mod as Go's lockfile: since Go 1.17 it lists every selected module.
+  'go.mod': 'go',
+  'uv.lock': 'uv',
+  'requirements.txt': 'pip',
+  'composer.lock': 'composer',
+  'poetry.lock': 'poetry',
+  'Gemfile.lock': 'bundler',
 }
+
+const isLockfileUpdateTool = (manager: PackageManager): manager is LockfileUpdateTool =>
+  (LOCKFILE_UPDATE_TOOLS as readonly string[]).includes(manager)
 
 const OVERRIDE_FIELDS = {
   pnpm: 'pnpm.overrides',
@@ -104,11 +118,33 @@ export function packageManagerOf(lockfile: string | null): PackageManager {
   return LOCKFILE_MANAGERS[basename(lockfile)] ?? 'unknown'
 }
 
-/** Lockfiles name the Rust ecosystem `crates.io`; advisories are stored as `rust`. */
+/**
+ * The lockfile (OSV) spelling of a stored ecosystem. GitHub advisories are stored with its
+ * lowercase words (`rust`, `go`, `pip`, `composer`, `rubygems`), OSV findings with OSV's.
+ */
+const LOCKFILE_ECOSYSTEMS: Record<string, LockfileDependency['ecosystem']> = {
+  npm: 'npm',
+  rust: 'crates.io',
+  'crates.io': 'crates.io',
+  go: 'Go',
+  Go: 'Go',
+  pip: 'PyPI',
+  PyPI: 'PyPI',
+  composer: 'Packagist',
+  Packagist: 'Packagist',
+  rubygems: 'RubyGems',
+  RubyGems: 'RubyGems',
+}
+
 function lockfileEcosystem(ecosystem: string): LockfileDependency['ecosystem'] | null {
-  if (ecosystem === 'npm') return 'npm'
-  if (ecosystem === 'rust' || ecosystem === 'crates.io') return 'crates.io'
-  return null
+  return LOCKFILE_ECOSYSTEMS[ecosystem] ?? null
+}
+
+/** Package names as lockfiles store them: PyPI and Packagist names are case insensitive. */
+function lockfileName(ecosystem: LockfileDependency['ecosystem'], name: string): string {
+  if (ecosystem === 'PyPI') return name.toLowerCase().replace(/[-_.]+/g, '-')
+  if (ecosystem === 'Packagist') return name.toLowerCase()
+  return name
 }
 
 const LEVEL_WEIGHT: Record<BumpLevel, number> = { patch: 0, minor: 1, major: 2, unknown: 3 }
@@ -152,10 +188,11 @@ function placementsFromLockfiles(
   const ecosystem = lockfileEcosystem(finding.advisory.ecosystem)
   const installed = finding.finding.installedVersion
   if (!ecosystem || installed === null) return null
+  const name = lockfileName(ecosystem, finding.advisory.packageName)
   const byLockfile = new Map<string, LockfileDependency[]>()
   for (const dep of lockfiles.dependencies) {
     if (!dep.lockfile || dep.ecosystem !== ecosystem) continue
-    if (dep.name !== finding.advisory.packageName || dep.version !== installed) continue
+    if (dep.name !== name || dep.version !== installed) continue
     byLockfile.set(dep.lockfile, [...(byLockfile.get(dep.lockfile) ?? []), dep])
   }
   if (byLockfile.size === 0) return null
@@ -276,15 +313,26 @@ function targetFields(group: Group, findings: readonly FixableFinding[]) {
   }
 }
 
+/** Go's `stdlib` is the toolchain the go and toolchain lines of go.mod name, not a module. */
+const isGoToolchain = (group: Group) =>
+  packageManagerOf(group.lockfile) === 'go' && group.packageName === 'stdlib'
+
 function applyOf(group: Group, from: string[], to: string, level: BumpLevel): FixPlanApply {
   const manager = packageManagerOf(group.lockfile)
   const { packageName } = group
   if (manager === 'unknown' || group.lockfile === null) return { type: 'manual' }
+  if (isUnsupportedPackageManager(manager) || isGoToolchain(group)) return { type: 'manual' }
   if (manager === 'cargo') {
     if (group.relationship === 'direct' && level === 'major') {
       return { type: 'manifest_bump', manifests: [], packageName, version: to }
     }
     return { type: 'lockfile_update', tool: 'cargo', packageName, from, to }
+  }
+  if (isLockfileUpdateTool(manager)) {
+    // go get, uv lock, a requirements.txt pin and composer update move the lockfile entry
+    // whether the package is direct or transitive; a manifest range that excludes `to` makes
+    // the tool fail, and the runner reports that step as install_failed.
+    return { type: 'lockfile_update', tool: manager, packageName, from, to }
   }
   const root = dirname(group.lockfile)
   if (group.relationship === 'direct') {
@@ -309,13 +357,24 @@ function applyOf(group: Group, from: string[], to: string, level: BumpLevel): Fi
 function pinsOtherVersions(group: Group, lockfiles: RepoLockfiles | null): boolean {
   if (!lockfiles || group.lockfile === null) return false
   const ecosystem = lockfileEcosystem(group.ecosystem)
+  if (!ecosystem) return false
   return lockfiles.dependencies.some(
     (d) =>
       d.lockfile === group.lockfile &&
       d.ecosystem === ecosystem &&
-      d.name === group.packageName &&
+      d.name === lockfileName(ecosystem, group.packageName) &&
       !group.installed.has(d.version),
   )
+}
+
+/** Why the runner never applies a step of this group; null when it is not such a step. */
+function unsupportedReason(group: Group): string | null {
+  const manager = packageManagerOf(group.lockfile)
+  if (isUnsupportedPackageManager(manager)) return UNSUPPORTED_PACKAGE_MANAGERS[manager]
+  if (isGoToolchain(group)) {
+    return 'stdlib is the Go toolchain itself: raise the go or toolchain line of go.mod by hand.'
+  }
+  return null
 }
 
 function riskNote(
@@ -323,6 +382,7 @@ function riskNote(
   name: string,
   from: string[],
   to: string,
+  unsupported: string | null,
 ): string | null {
   const notes: Record<FixPlanRiskReason, string> = {
     semver_major: `Semver major (${from.join(', ') || 'unknown'} to ${to}): read the changelog of ${name} before merging.`,
@@ -330,6 +390,7 @@ function riskNote(
     unknown_version: `The versions of ${name} are not semver: read the changelog.`,
     unknown_relationship: `Hinomi could not tell whether ${name} is a direct or a transitive dependency.`,
     unknown_package_manager: `No lockfile Hinomi reads lists ${name}: apply this step by hand.`,
+    unsupported_package_manager: `${unsupported ?? ''} Apply this step by hand.`.trim(),
   }
   return reasons.length === 0 ? null : reasons.map((r) => notes[r]).join(' ')
 }
@@ -368,7 +429,10 @@ function buildStep(
     reasons.push('pins_other_versions')
   }
   if (group.relationship === 'unknown') reasons.push('unknown_relationship')
-  if (apply.type === 'manual') reasons.push('unknown_package_manager')
+  const unsupported = unsupportedReason(group)
+  if (apply.type === 'manual') {
+    reasons.push(unsupported ? 'unsupported_package_manager' : 'unknown_package_manager')
+  }
   return {
     id: `${apply.type}:${group.ecosystem}:${group.packageName}:${to}:${group.lockfile ?? 'unknown'}`,
     ...targetFields(group, findings),
@@ -378,7 +442,7 @@ function buildStep(
     risk: reasons.length > 0 ? 'risky' : 'safe',
     riskReasons: reasons,
     note: joinNotes(
-      riskNote(reasons, group.packageName, from, to),
+      riskNote(reasons, group.packageName, from, to, unsupported),
       target.kind === 'done' ? target.note : null,
     ),
     apply,

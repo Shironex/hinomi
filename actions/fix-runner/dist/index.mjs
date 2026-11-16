@@ -6700,9 +6700,29 @@ const PACKAGE_MANAGERS = [
 	"yarn",
 	"bun",
 	"cargo",
+	"go",
+	"uv",
+	"pip",
+	"composer",
+	"poetry",
+	"bundler",
 	"unknown"
 ];
 const packageManagerSchema = _enum(PACKAGE_MANAGERS);
+const LOCKFILE_UPDATE_TOOLS = [
+	"cargo",
+	"go",
+	"uv",
+	"pip",
+	"composer"
+];
+const UNSUPPORTED_PACKAGE_MANAGERS = {
+	poetry: "Poetry builds source distributions to read their metadata while it locks, which runs package code, and has no option to turn that off, so Hinomi does not update poetry.lock.",
+	bundler: "Bundler runs the code of Gemfile plugins and of git gems while it locks, has no option to turn that off and cannot pin an exact version, so Hinomi does not update Gemfile.lock."
+};
+function isUnsupportedPackageManager(manager) {
+	return Object.hasOwn(UNSUPPORTED_PACKAGE_MANAGERS, manager);
+}
 const dependencyRelationshipSchema = _enum([
 	"direct",
 	"transitive",
@@ -6719,7 +6739,8 @@ const fixPlanRiskReasonSchema = _enum([
 	"pins_other_versions",
 	"unknown_version",
 	"unknown_relationship",
-	"unknown_package_manager"
+	"unknown_package_manager",
+	"unsupported_package_manager"
 ]);
 const releaseAgeSchema = _enum([
 	"clear",
@@ -6746,7 +6767,7 @@ const fixPlanApplySchema = discriminatedUnion("type", [
 	}),
 	object({
 		type: literal("lockfile_update"),
-		tool: literal("cargo"),
+		tool: _enum(LOCKFILE_UPDATE_TOOLS),
 		packageName: string(),
 		from: array(string()),
 		to: string()
@@ -13582,6 +13603,9 @@ const id$2 = number$1().int().positive();
 const count = number$1().int().nonnegative();
 const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
 const CRATE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const GO_MODULE = /^[A-Za-z0-9][A-Za-z0-9._~+-]*(?:\/[A-Za-z0-9._~+-]+)*$/;
+const PYPI_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+const COMPOSER_NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const PLAIN_TOKEN = /^[A-Za-z0-9@/._~+:-]+$/;
 const ADVISORY_KEY = /^[A-Za-z0-9._:-]+$/;
@@ -13591,7 +13615,46 @@ const SHA = /^[a-f0-9]{40}$/;
 const SHA256$1 = /^[a-f0-9]{64}$/;
 const exactVersion = string().max(64).regex(EXACT_VERSION);
 const looseVersion = string().max(64).regex(PLAIN_TOKEN);
-const packageName = string().max(214).refine((name) => NPM_NAME.test(name) || CRATE_NAME.test(name), "not a package name");
+const isGoModule = (name) => GO_MODULE.test(name) && !name.split("/").some((part) => part === "." || part === "..");
+const NAME_GRAMMARS = {
+	npm: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	pnpm: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	yarn: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	bun: {
+		test: (n) => NPM_NAME.test(n),
+		what: "an npm package name"
+	},
+	cargo: {
+		test: (n) => CRATE_NAME.test(n),
+		what: "a crate name"
+	},
+	go: {
+		test: isGoModule,
+		what: "a Go module path"
+	},
+	uv: {
+		test: (n) => PYPI_NAME.test(n),
+		what: "a PyPI package name"
+	},
+	pip: {
+		test: (n) => PYPI_NAME.test(n),
+		what: "a PyPI package name"
+	},
+	composer: {
+		test: (n) => COMPOSER_NAME.test(n),
+		what: "a Packagist package name"
+	}
+};
+const packageName = string().max(214).refine((name) => Object.values(NAME_GRAMMARS).some((grammar) => grammar.test(name)), "not a package name");
 const loosePackageName = string().max(214).regex(PLAIN_TOKEN);
 const advisoryKey = string().max(64).regex(ADVISORY_KEY);
 const ecosystem = string().max(32).regex(PLAIN_TOKEN);
@@ -13627,7 +13690,7 @@ function applySchema(version, name) {
 		}),
 		object({
 			type: literal("lockfile_update"),
-			tool: literal("cargo"),
+			tool: _enum(LOCKFILE_UPDATE_TOOLS),
 			packageName: name,
 			from: array(version).min(1).max(20),
 			to: version
@@ -13641,6 +13704,11 @@ const NPM_FAMILY = /* @__PURE__ */ new Set([
 	"yarn",
 	"bun"
 ]);
+const stepPackageManagerSchema = packageManagerSchema.exclude([
+	"unknown",
+	"poetry",
+	"bundler"
+]);
 const dispatchStepFields = object({
 	id: string().min(1).max(512),
 	order: number$1().int().positive(),
@@ -13649,7 +13717,7 @@ const dispatchStepFields = object({
 	packageName,
 	relationship: dependencyRelationshipSchema,
 	lockfile: repoPath,
-	packageManager: packageManagerSchema.exclude(["unknown"]),
+	packageManager: stepPackageManagerSchema,
 	workspaces: array(repoPath).max(200),
 	from: array(exactVersion).min(1).max(20),
 	to: exactVersion,
@@ -13664,8 +13732,9 @@ function stepProblems(step) {
 	const problems = [];
 	const npmFamily = NPM_FAMILY.has(step.packageManager);
 	if (apply.type !== "override" && apply.packageName !== step.packageName) problems.push("apply.packageName differs from packageName");
-	if (npmFamily && !NPM_NAME.test(step.packageName)) problems.push("not an npm package name");
-	if (!npmFamily && !CRATE_NAME.test(step.packageName)) problems.push("not a crate name");
+	const grammar = NAME_GRAMMARS[step.packageManager];
+	if (grammar && !grammar.test(step.packageName)) problems.push(`not ${grammar.what}`);
+	if (!npmFamily && step.packageManager !== "cargo" && apply.type !== "lockfile_update") problems.push(`${step.packageManager} steps are lockfile updates`);
 	if (apply.type === "manifest_bump") {
 		if (npmFamily && apply.manifests.length === 0) problems.push("manifest_bump lists no manifest");
 		if (!npmFamily && apply.manifests.length > 0) problems.push("cargo bumps name crates instead");
@@ -13675,7 +13744,7 @@ function stepProblems(step) {
 		const { key } = apply;
 		if (key !== step.packageName && !key.startsWith(`${step.packageName}@`)) problems.push("override key is not for this package");
 	}
-	if (apply.type === "lockfile_update" && step.packageManager !== "cargo") problems.push("lockfile_update is cargo only");
+	if (apply.type === "lockfile_update" && apply.tool !== step.packageManager) problems.push(`lockfile_update with ${apply.tool} for a ${step.packageManager} step`);
 	return problems;
 }
 const fixDispatchStepSchema = dispatchStepFields.superRefine((step, ctx) => {
@@ -17121,7 +17190,8 @@ function riskyProjects(risky) {
 	const projects = /* @__PURE__ */ new Map();
 	for (const step of [...risky].sort((a, b) => a.order - b.order)) {
 		const { lockfile, packageManager } = step;
-		if (lockfile === null || packageManager === "unknown" || projects.has(lockfile)) continue;
+		if (lockfile === null || projects.has(lockfile)) continue;
+		if (packageManager === "unknown" || isUnsupportedPackageManager(packageManager)) continue;
 		projects.set(lockfile, {
 			root: repoDirname(lockfile),
 			packageManager

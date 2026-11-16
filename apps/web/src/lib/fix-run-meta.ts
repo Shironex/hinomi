@@ -723,6 +723,7 @@ export const RISK_REASON_LABEL: Record<string, string> = {
   unknown_version: 'Version is not semver',
   unknown_relationship: 'Direct or transitive unknown',
   unknown_package_manager: 'No lockfile Hinomi reads',
+  unsupported_package_manager: 'Hinomi does not apply it',
 }
 
 // ---------------------------------------------------------------------------

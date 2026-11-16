@@ -421,6 +421,229 @@ describe('buildFixPlan with Cargo', () => {
   })
 })
 
+const GO_MOD = `module example.dev/kestrel/edge
+
+go 1.24.2
+
+require (
+\texample.dev/heron/codec v1.4.0
+\texample.dev/wren/net v0.3.1 // indirect
+)
+`
+
+const UV_LOCK = `version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[[package]]
+name = "kestrel-api"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "heron-web" },
+]
+
+[[package]]
+name = "heron-web"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "plover-sig" },
+]
+
+[[package]]
+name = "plover-sig"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+`
+
+const COMPOSER_LOCK = JSON.stringify({
+  packages: [
+    { name: 'kestrel/http', version: 'v3.1.0', require: { 'kestrel/uri': '^1.2' } },
+    { name: 'kestrel/uri', version: '1.2.0' },
+  ],
+  'packages-dev': [],
+})
+
+const POETRY_LOCK = `[[package]]
+name = "heron-web"
+version = "2.3.0"
+description = ""
+optional = false
+python-versions = ">=3.9"
+files = []
+
+[metadata]
+lock-version = "2.1"
+python-versions = ">=3.12"
+content-hash = "0"
+`
+
+const GEMFILE_LOCK = `GEM
+  remote: https://rubygems.org/
+  specs:
+    heron-rack (2.2.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  heron-rack
+
+BUNDLED WITH
+   2.6.2
+`
+
+describe('buildFixPlan with the lockfile update ecosystems', () => {
+  it('updates Go modules in go.mod, direct and indirect, and leaves stdlib to a person', () => {
+    const repo = repos.repos.upsert({ owner: 'kestrel-co', name: 'edge-go' })
+    addFinding(repo, {
+      pkg: 'example.dev/heron/codec',
+      key: 'go-0001',
+      installed: '1.4.0',
+      patched: '1.4.3',
+      ecosystem: 'go',
+    })
+    addFinding(repo, {
+      pkg: 'example.dev/wren/net',
+      key: 'go-0002',
+      installed: '0.3.1',
+      patched: '0.3.2',
+      ecosystem: 'Go',
+    })
+    addFinding(repo, {
+      pkg: 'stdlib',
+      key: 'go-0003',
+      installed: '1.24.2',
+      patched: '1.24.5',
+      ecosystem: 'Go',
+    })
+    const plan = planFor(repo, lockfilesOf({ 'svc/go.mod': GO_MOD }))
+    expect(plan.projects).toEqual([
+      { lockfile: 'svc/go.mod', root: 'svc', packageManager: 'go', workspaces: [] },
+    ])
+    expect(stepOf(plan, 'example.dev/heron/codec')).toMatchObject({
+      packageManager: 'go',
+      relationship: 'direct',
+      risk: 'safe',
+      apply: {
+        type: 'lockfile_update',
+        tool: 'go',
+        packageName: 'example.dev/heron/codec',
+        from: ['1.4.0'],
+        to: '1.4.3',
+      },
+    })
+    expect(stepOf(plan, 'example.dev/wren/net')).toMatchObject({
+      relationship: 'transitive',
+      risk: 'safe',
+      apply: { type: 'lockfile_update', tool: 'go', to: '0.3.2' },
+    })
+    const stdlib = stepOf(plan, 'stdlib')
+    expect(stdlib).toMatchObject({
+      risk: 'risky',
+      riskReasons: ['unsupported_package_manager'],
+      apply: { type: 'manual' },
+    })
+    expect(stdlib.note).toContain('raise the go or toolchain line')
+  })
+
+  it('updates uv.lock and matches GitHub spellings of PyPI names', () => {
+    const repo = repos.repos.upsert({ owner: 'kestrel-co', name: 'api-py' })
+    addFinding(repo, {
+      pkg: 'Plover_Sig',
+      key: 'py-0001',
+      installed: '1.0.2',
+      patched: '1.0.4',
+      ecosystem: 'pip',
+    })
+    const plan = planFor(repo, lockfilesOf({ 'uv.lock': UV_LOCK }))
+    expect(stepOf(plan, 'Plover_Sig')).toMatchObject({
+      packageManager: 'uv',
+      lockfile: 'uv.lock',
+      relationship: 'transitive',
+      via: ['heron-web'],
+      risk: 'safe',
+      apply: { type: 'lockfile_update', tool: 'uv', packageName: 'Plover_Sig', to: '1.0.4' },
+    })
+  })
+
+  it('updates a requirements.txt pin and a composer.lock package', () => {
+    const repo = repos.repos.upsert({ owner: 'kestrel-co', name: 'mixed' })
+    addFinding(repo, {
+      pkg: 'heron-web',
+      key: 'py-0002',
+      installed: '2.3.0',
+      patched: '2.3.1',
+      ecosystem: 'PyPI',
+    })
+    addFinding(repo, {
+      pkg: 'kestrel/uri',
+      key: 'php-0001',
+      installed: '1.2.0',
+      patched: '1.2.4',
+      ecosystem: 'composer',
+    })
+    const plan = planFor(
+      repo,
+      lockfilesOf({
+        'tools/requirements.txt': 'heron-web==2.3.0\n',
+        'web/composer.lock': COMPOSER_LOCK,
+      }),
+    )
+    expect(plan.projects.map((p) => [p.lockfile, p.packageManager])).toEqual([
+      ['tools/requirements.txt', 'pip'],
+      ['web/composer.lock', 'composer'],
+    ])
+    expect(stepOf(plan, 'heron-web').apply).toEqual({
+      type: 'lockfile_update',
+      tool: 'pip',
+      packageName: 'heron-web',
+      from: ['2.3.0'],
+      to: '2.3.1',
+    })
+    expect(stepOf(plan, 'kestrel/uri')).toMatchObject({
+      packageManager: 'composer',
+      relationship: 'transitive',
+      risk: 'safe',
+      apply: { type: 'lockfile_update', tool: 'composer', to: '1.2.4' },
+    })
+  })
+
+  it('leaves poetry.lock and Gemfile.lock to a person, with the reason', () => {
+    const repo = repos.repos.upsert({ owner: 'kestrel-co', name: 'legacy' })
+    addFinding(repo, {
+      pkg: 'heron-web',
+      key: 'py-0003',
+      installed: '2.3.0',
+      patched: '2.3.1',
+      ecosystem: 'pip',
+    })
+    addFinding(repo, {
+      pkg: 'heron-rack',
+      key: 'rb-0001',
+      installed: '2.2.0',
+      patched: '2.2.1',
+      ecosystem: 'rubygems',
+    })
+    const plan = planFor(
+      repo,
+      lockfilesOf({ 'poetry.lock': POETRY_LOCK, 'site/Gemfile.lock': GEMFILE_LOCK }),
+    )
+    const poetry = stepOf(plan, 'heron-web')
+    expect(poetry).toMatchObject({
+      packageManager: 'poetry',
+      risk: 'risky',
+      riskReasons: ['unsupported_package_manager'],
+      apply: { type: 'manual' },
+    })
+    expect(poetry.note).toContain('Poetry builds source distributions')
+    const bundler = stepOf(plan, 'heron-rack')
+    expect(bundler).toMatchObject({ packageManager: 'bundler', apply: { type: 'manual' } })
+    expect(bundler.note).toContain('Bundler runs the code of Gemfile plugins')
+  })
+})
+
 describe('buildFixPlan without lockfile data', () => {
   it('falls back to the manifest and dependency path stored on the finding', () => {
     const repo = repos.repos.upsert({ owner: 'kestrel-co', name: 'billing' })
@@ -437,8 +660,8 @@ describe('buildFixPlan without lockfile data', () => {
       key: 'her-0001',
       installed: null,
       patched: '4.0.1',
-      ecosystem: 'pip',
-      manifestPaths: ['requirements.txt'],
+      ecosystem: 'maven',
+      manifestPaths: ['pom.xml'],
     })
     const plan = planFor(repo, null)
     expect(stepOf(plan, 'plover-parse')).toMatchObject({

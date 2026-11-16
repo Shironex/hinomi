@@ -173,7 +173,7 @@ describe('chooseTarget', () => {
   })
 
   it('skips ecosystems a plan does not apply and versions that are not semver', () => {
-    expect(chooseTarget({ ...base, ecosystem: 'pip', facts: facts([], {}) })).toEqual({
+    expect(chooseTarget({ ...base, ecosystem: 'rubygems', facts: facts([], {}) })).toEqual({
       kind: 'skip',
     })
     expect(chooseTarget({ ...base, minimum: '2026-10-01', facts: facts([], {}) })).toEqual({
@@ -183,22 +183,19 @@ describe('chooseTarget', () => {
 })
 
 describe('osvEcosystemOf', () => {
-  it('maps the ecosystems the fix runner applies', () => {
+  it('maps the ecosystems the fix runner applies, under either spelling', () => {
     expect(osvEcosystemOf('npm')).toBe('npm')
     expect(osvEcosystemOf('rust')).toBe('crates.io')
+    expect(osvEcosystemOf('go')).toBe('Go')
+    expect(osvEcosystemOf('Go')).toBe('Go')
+    expect(osvEcosystemOf('pip')).toBe('PyPI')
+    expect(osvEcosystemOf('PyPI')).toBe('PyPI')
+    expect(osvEcosystemOf('composer')).toBe('Packagist')
+    expect(osvEcosystemOf('Packagist')).toBe('Packagist')
   })
 
-  it('is not supported by the fix runner for the wider ecosystems, under any spelling', () => {
-    for (const name of [
-      'go',
-      'Go',
-      'pip',
-      'PyPI',
-      'composer',
-      'Packagist',
-      'rubygems',
-      'RubyGems',
-    ]) {
+  it('leaves out RubyGems, which the fix runner never updates', () => {
+    for (const name of ['rubygems', 'RubyGems', 'maven', 'nuget']) {
       expect(osvEcosystemOf(name)).toBeNull()
     }
   })

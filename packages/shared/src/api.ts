@@ -503,9 +503,44 @@ export const FIX_PLAN_VERSION = 1
 export const RELEASE_AGE_GATE_DAYS = 7
 
 /** Package managers a plan can target, detected from the lockfile name. */
-export const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'unknown'] as const
+export const PACKAGE_MANAGERS = [
+  'npm',
+  'pnpm',
+  'yarn',
+  'bun',
+  'cargo',
+  'go',
+  'uv',
+  'pip',
+  'composer',
+  'poetry',
+  'bundler',
+  'unknown',
+] as const
 export const packageManagerSchema = z.enum(PACKAGE_MANAGERS)
 export type PackageManager = z.infer<typeof packageManagerSchema>
+
+/** Package managers a lockfile_update names as its tool. All but cargo only ever take that type. */
+export const LOCKFILE_UPDATE_TOOLS = ['cargo', 'go', 'uv', 'pip', 'composer'] as const
+export type LockfileUpdateTool = (typeof LOCKFILE_UPDATE_TOOLS)[number]
+
+/**
+ * Package managers whose lockfiles Hinomi reads but whose fixes the runner never applies, and
+ * why: their lock step runs package code and has no switch to turn that off. Steps for them are
+ * `manual` with the risk reason `unsupported_package_manager`.
+ */
+export const UNSUPPORTED_PACKAGE_MANAGERS = {
+  poetry:
+    'Poetry builds source distributions to read their metadata while it locks, which runs package code, and has no option to turn that off, so Hinomi does not update poetry.lock.',
+  bundler:
+    'Bundler runs the code of Gemfile plugins and of git gems while it locks, has no option to turn that off and cannot pin an exact version, so Hinomi does not update Gemfile.lock.',
+} as const satisfies Partial<Record<PackageManager, string>>
+export type UnsupportedPackageManager = keyof typeof UNSUPPORTED_PACKAGE_MANAGERS
+
+/** True for a package manager the fix runner has no applier for, by design. */
+export function isUnsupportedPackageManager(manager: string): manager is UnsupportedPackageManager {
+  return Object.hasOwn(UNSUPPORTED_PACKAGE_MANAGERS, manager)
+}
 
 /** Direct: a manifest lists the package. Transitive: only pulled in by other packages. */
 export const dependencyRelationshipSchema = z.enum(['direct', 'transitive', 'unknown'])
@@ -520,6 +555,8 @@ export type BumpLevel = z.infer<typeof bumpLevelSchema>
  * the override also moves copies of the package that were not vulnerable. unknown_version: the
  * versions are not semver. unknown_relationship: Hinomi could not tell direct from transitive.
  * unknown_package_manager: no lockfile Hinomi reads, so the step needs a person.
+ * unsupported_package_manager: Hinomi reads the lockfile but the runner never updates it (see
+ * UNSUPPORTED_PACKAGE_MANAGERS), or the package is the toolchain itself (Go's `stdlib`).
  */
 export const fixPlanRiskReasonSchema = z.enum([
   'semver_major',
@@ -527,6 +564,7 @@ export const fixPlanRiskReasonSchema = z.enum([
   'unknown_version',
   'unknown_relationship',
   'unknown_package_manager',
+  'unsupported_package_manager',
 ])
 export type FixPlanRiskReason = z.infer<typeof fixPlanRiskReasonSchema>
 
@@ -540,7 +578,9 @@ export type ReleaseAge = z.infer<typeof releaseAgeSchema>
  *   then install. For Cargo `manifests` is empty and the step's `workspaces` names the crates.
  * - override: set `key` to `value` under `field` of the root `manifest`, then install.
  *   `field` is `pnpm.overrides` (pnpm), `overrides` (npm, bun) or `resolutions` (yarn).
- * - lockfile_update: `cargo update -p <packageName>@<from> --precise <to>` for every `from`.
+ * - lockfile_update: the lockfile alone moves from `from` to `to` with `tool`'s own update
+ *   (`cargo update --precise`, `go get`, `uv lock --upgrade-package`, a pin edit in
+ *   requirements.txt, `composer update`); nothing else is edited.
  * - manual: Hinomi does not know the package manager; a person applies it.
  */
 export const fixPlanApplySchema = z.discriminatedUnion('type', [
@@ -559,7 +599,7 @@ export const fixPlanApplySchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('lockfile_update'),
-    tool: z.literal('cargo'),
+    tool: z.enum(LOCKFILE_UPDATE_TOOLS),
     packageName: z.string(),
     from: z.array(z.string()),
     to: z.string(),

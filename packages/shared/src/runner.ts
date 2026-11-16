@@ -2,12 +2,14 @@ import { z } from 'zod'
 import {
   FINDING_TIERS,
   FIX_PLAN_VERSION,
+  LOCKFILE_UPDATE_TOOLS,
   RELEASE_AGE_GATE_DAYS,
   bumpLevelSchema,
   dependencyRelationshipSchema,
   findingTierSchema,
   fixPlanRiskReasonSchema,
   fixPlanSchema,
+  isUnsupportedPackageManager,
   packageManagerSchema,
   releaseAgeSchema,
   type FindingTier,
@@ -52,6 +54,12 @@ const count = z.number().int().nonnegative()
 // edit or a command line can carry a range, a URL, a path or shell syntax.
 const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/
 const CRATE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+// Go module paths: no leading dash, dot or slash, and no empty, `.` or `..` element.
+const GO_MODULE = /^[A-Za-z0-9][A-Za-z0-9._~+-]*(?:\/[A-Za-z0-9._~+-]+)*$/
+// PEP 508 names (PyPI), as uv.lock and requirements.txt spell them.
+const PYPI_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/
+// Packagist `vendor/package`, lowercase as composer.lock stores it.
+const COMPOSER_NAME = /^[a-z0-9](?:[_.-]?[a-z0-9]+)*\/[a-z0-9](?:(?:[_.]|-{1,2})?[a-z0-9]+)*$/
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 // Risky entries are only read by the optional agent job and the PR body, and may carry
 // versions that are not semver (risk reason unknown_version), so they get a looser check
@@ -65,10 +73,29 @@ const SHA256 = /^[a-f0-9]{64}$/
 
 const exactVersion = z.string().max(64).regex(EXACT_VERSION)
 const looseVersion = z.string().max(64).regex(PLAIN_TOKEN)
+const isGoModule = (name: string) =>
+  GO_MODULE.test(name) && !name.split('/').some((part) => part === '.' || part === '..')
+
+/** The name grammar of each package manager a dispatch step can name. */
+const NAME_GRAMMARS: Record<string, { test: (name: string) => boolean; what: string }> = {
+  npm: { test: (n) => NPM_NAME.test(n), what: 'an npm package name' },
+  pnpm: { test: (n) => NPM_NAME.test(n), what: 'an npm package name' },
+  yarn: { test: (n) => NPM_NAME.test(n), what: 'an npm package name' },
+  bun: { test: (n) => NPM_NAME.test(n), what: 'an npm package name' },
+  cargo: { test: (n) => CRATE_NAME.test(n), what: 'a crate name' },
+  go: { test: isGoModule, what: 'a Go module path' },
+  uv: { test: (n) => PYPI_NAME.test(n), what: 'a PyPI package name' },
+  pip: { test: (n) => PYPI_NAME.test(n), what: 'a PyPI package name' },
+  composer: { test: (n) => COMPOSER_NAME.test(n), what: 'a Packagist package name' },
+}
+
 const packageName = z
   .string()
   .max(214)
-  .refine((name) => NPM_NAME.test(name) || CRATE_NAME.test(name), 'not a package name')
+  .refine(
+    (name) => Object.values(NAME_GRAMMARS).some((grammar) => grammar.test(name)),
+    'not a package name',
+  )
 const loosePackageName = z.string().max(214).regex(PLAIN_TOKEN)
 const advisoryKey = z.string().max(64).regex(ADVISORY_KEY)
 const ecosystem = z.string().max(32).regex(PLAIN_TOKEN)
@@ -107,7 +134,11 @@ const branchName = z
  *   `pnpm.overrides` in `manifest`. An override that already exists for the package is updated
  *   where it is, never added twice. `overrides` (npm, bun) and `resolutions` (yarn) go in
  *   `manifest`.
- * - lockfile_update: `cargo update -p <packageName>@<from> --precise <to>` for every `from`.
+ * - lockfile_update: only the lockfile moves, with `tool` (the step's package manager): cargo
+ *   `cargo update -p <packageName>@<from> --precise <to>` for every `from`; go `go get
+ *   <packageName>@v<to>`; uv `uv lock --no-build --upgrade-package <packageName>==<to>`; pip the
+ *   `==<from>` pin in requirements.txt becomes `==<to>`; composer `composer update
+ *   <packageName>:<to> --no-install --no-scripts --no-plugins`.
  */
 function applySchema(version: z.ZodString, name: z.ZodType<string>) {
   return z.discriminatedUnion('type', [
@@ -126,7 +157,7 @@ function applySchema(version: z.ZodString, name: z.ZodType<string>) {
     }),
     z.object({
       type: z.literal('lockfile_update'),
-      tool: z.literal('cargo'),
+      tool: z.enum(LOCKFILE_UPDATE_TOOLS),
       packageName: name,
       from: z.array(version).min(1).max(20),
       to: version,
@@ -139,6 +170,9 @@ export type FixDispatchApply = z.infer<typeof fixDispatchApplySchema>
 
 const NPM_FAMILY = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 
+/** Package managers a dispatch step can name: every one the runner has an applier for. */
+const stepPackageManagerSchema = packageManagerSchema.exclude(['unknown', 'poetry', 'bundler'])
+
 const dispatchStepFields = z.object({
   /** The FixPlan step id, echoed in the result. */
   id: z.string().min(1).max(512),
@@ -150,7 +184,7 @@ const dispatchStepFields = z.object({
   packageName,
   relationship: dependencyRelationshipSchema,
   lockfile: repoPath,
-  packageManager: packageManagerSchema.exclude(['unknown']),
+  packageManager: stepPackageManagerSchema,
   workspaces: z.array(repoPath).max(200),
   from: z.array(exactVersion).min(1).max(20),
   to: exactVersion,
@@ -170,8 +204,12 @@ function stepProblems(step: z.infer<typeof dispatchStepFields>): string[] {
   if (apply.type !== 'override' && apply.packageName !== step.packageName) {
     problems.push('apply.packageName differs from packageName')
   }
-  if (npmFamily && !NPM_NAME.test(step.packageName)) problems.push('not an npm package name')
-  if (!npmFamily && !CRATE_NAME.test(step.packageName)) problems.push('not a crate name')
+  const grammar = NAME_GRAMMARS[step.packageManager]
+  if (grammar && !grammar.test(step.packageName)) problems.push(`not ${grammar.what}`)
+  const lockfileOnly = !npmFamily && step.packageManager !== 'cargo'
+  if (lockfileOnly && apply.type !== 'lockfile_update') {
+    problems.push(`${step.packageManager} steps are lockfile updates`)
+  }
   if (apply.type === 'manifest_bump') {
     if (npmFamily && apply.manifests.length === 0) problems.push('manifest_bump lists no manifest')
     if (!npmFamily && apply.manifests.length > 0) problems.push('cargo bumps name crates instead')
@@ -183,8 +221,8 @@ function stepProblems(step: z.infer<typeof dispatchStepFields>): string[] {
       problems.push('override key is not for this package')
     }
   }
-  if (apply.type === 'lockfile_update' && step.packageManager !== 'cargo') {
-    problems.push('lockfile_update is cargo only')
+  if (apply.type === 'lockfile_update' && apply.tool !== step.packageManager) {
+    problems.push(`lockfile_update with ${apply.tool} for a ${step.packageManager} step`)
   }
   return problems
 }
@@ -548,14 +586,16 @@ function toDispatchRisky(step: FixPlanStep): FixDispatchRisky | null {
 
 /**
  * True for a plan step the majors job takes: risky because it crosses a semver major, with a
- * lockfile and a package manager the runner knows, so the agent has a project to work in.
+ * lockfile and a package manager the runner knows and supports, so the agent has a project to
+ * work in.
  */
 export function isMajorStep(step: FixPlanStep): boolean {
   return (
     step.risk === 'risky' &&
     (step.level === 'major' || step.riskReasons.includes('semver_major')) &&
     step.lockfile !== null &&
-    step.packageManager !== 'unknown'
+    step.packageManager !== 'unknown' &&
+    !isUnsupportedPackageManager(step.packageManager)
   )
 }
 
@@ -570,7 +610,8 @@ function majorsRisky(sorted: FixPlanStep[]): FixDispatchRisky[] {
  * Projects a plan into what the runner needs. Safe steps that the runner can apply go in
  * `steps`; a safe step it cannot (manual, no lockfile, or a value that fails the strict
  * checks) is left out and shows in the PR body as not sent. Risky steps go in `risky` only
- * when the agent is on; the PR body lists them either way, from the plan. With `kind: 'majors'`
+ * when the agent is on, except those of an unsupported package manager (poetry, bundler); the PR
+ * body lists them either way, from the plan. With `kind: 'majors'`
  * it builds the agent's own dispatch instead: no safe step, the major upgrades in `risky`.
  */
 export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDispatchV1 {
@@ -586,7 +627,7 @@ export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDi
     ? majorsRisky(sorted)
     : agent
       ? sorted
-          .filter((s) => s.risk === 'risky')
+          .filter((s) => s.risk === 'risky' && !isUnsupportedPackageManager(s.packageManager))
           .map(toDispatchRisky)
           .filter((s): s is FixDispatchRisky => s !== null)
       : []

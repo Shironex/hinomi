@@ -1,6 +1,7 @@
 import {
   FIX_RESULT_SCHEMA,
   decodeFixDispatch,
+  isUnsupportedPackageManager,
   parseFixResult,
   truncateCheckOutput,
   type FixCheckResult,
@@ -125,7 +126,8 @@ export function riskyProjects(
   const projects = new Map<string, { root: string; packageManager: StepPackageManager }>()
   for (const step of [...risky].sort((a, b) => a.order - b.order)) {
     const { lockfile, packageManager } = step
-    if (lockfile === null || packageManager === 'unknown' || projects.has(lockfile)) continue
+    if (lockfile === null || projects.has(lockfile)) continue
+    if (packageManager === 'unknown' || isUnsupportedPackageManager(packageManager)) continue
     projects.set(lockfile, { root: repoDirname(lockfile), packageManager })
   }
   return [...projects.values()]
