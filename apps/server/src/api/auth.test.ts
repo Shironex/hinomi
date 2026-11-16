@@ -64,7 +64,7 @@ interface Answer {
  * A browser for app.request: keeps cookies, sends the public Origin and, once signed in, the CSRF
  * token, unless a call says otherwise.
  */
-function browser(app: ReturnType<typeof createTestApi>['app']) {
+function browser(app: ReturnType<typeof createTestApi>['app'], ip?: string) {
   const jar = new Map<string, string>()
   let csrf: string | null = null
 
@@ -88,11 +88,15 @@ function browser(app: ReturnType<typeof createTestApi>['app']) {
     if (origin && method !== 'GET') h.set('origin', origin)
     if (sendCsrf && csrf && method !== 'GET') h.set('x-hinomi-csrf', csrf)
     if (body !== undefined) h.set('content-type', 'application/json')
-    const res = await app.request(path, {
-      method,
-      headers: h,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
+    // The socket peer, as the Node server would hand it to getConnInfo.
+    const env = ip
+      ? { incoming: { socket: { remoteAddress: ip, remoteFamily: 'IPv4', remotePort: 40000 } } }
+      : undefined
+    const res = await app.request(
+      path,
+      { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) },
+      env,
+    )
     const setCookies = res.headers.getSetCookie()
     for (const line of setCookies) {
       const [pair] = line.split(';')
@@ -886,6 +890,63 @@ describe('built in login on', () => {
     expect(res.setCookies.some((line) => line.startsWith(`${COOKIE}=`))).toBe(false)
     expect(w.repos.auth.sessions.list()).toHaveLength(1)
     record.mockRestore()
+  })
+
+  it('counts a passkey failure against the passkey only for a challenge issued to that client', async () => {
+    const w = setup()
+    const authenticator = await enroll(w)
+    const forger = createSoftAuthenticator({ origin: ORIGIN })
+    // Each attempt comes from a new address with a challenge another address asked for.
+    for (let i = 1; i <= 8; i++) {
+      const asker = browser(w.app, `198.51.100.${i}`)
+      const options = passkeyRequestOptionsSchema.parse(
+        (await asker.call('POST', '/api/auth/passkey/login/options')).json,
+      )
+      const res = await browser(w.app, `203.0.113.${i}`).call('POST', '/api/auth/passkey/login', {
+        body: { credential: authenticator.assert(options, { signWith: forger.privateKey }) },
+      })
+      expect(res.status).toBe(401)
+    }
+    // The owner, from yet another address, is not locked out of their passkey.
+    expect((await passkeyLogin(w, authenticator, browser(w.app, '192.0.2.10'))).status).toBe(204)
+  })
+
+  it('locks a passkey after failures on challenges issued to the failing client', async () => {
+    const w = setup()
+    const authenticator = await enroll(w)
+    const forger = createSoftAuthenticator({ origin: ORIGIN })
+    for (let i = 1; i <= 6; i++) {
+      const res = await passkeyLogin(w, authenticator, browser(w.app, `203.0.113.${i}`), {
+        signWith: forger.privateKey,
+      })
+      expect(res.status).toBe(401)
+    }
+    expect((await passkeyLogin(w, authenticator, browser(w.app, '192.0.2.10'))).status).toBe(429)
+  })
+
+  it('caps anonymous starts per address and warns once about an untrusted X-Forwarded-For', async () => {
+    const w = setup()
+    const flood = browser(w.app, '203.0.113.9')
+    const statuses: number[] = []
+    // 30 free starts, the 31st starts the doubling lock, so the 32nd waits.
+    for (let i = 0; i < 32; i++) {
+      statuses.push(
+        (
+          await flood.call('POST', '/api/auth/passkey/login/options', {
+            headers: { 'x-forwarded-for': '10.0.0.1' },
+          })
+        ).status,
+      )
+    }
+    expect(statuses.filter((s) => s === 200)).toHaveLength(31)
+    expect(statuses.at(-1)).toBe(429)
+    // Another address is not affected.
+    expect(
+      (await browser(w.app, '198.51.100.7').call('POST', '/api/auth/passkey/login/options')).status,
+    ).toBe(200)
+    expect(
+      w.logger.lines.filter((l) => l.message.includes('X-Forwarded-For came from a peer')),
+    ).toHaveLength(1)
   })
 
   it('anonymous passkey challenges cannot push out a pending setup challenge', async () => {
