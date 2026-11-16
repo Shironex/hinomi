@@ -15,6 +15,7 @@ import {
   FIX_MAJORS_MAX_STEPS,
   fixDispatchStepSchema,
   isMajorStep,
+  newerPackageManagerSteps,
   isSafeRepoPath,
   parseFixDispatch,
   parseFixPlan,
@@ -407,8 +408,15 @@ describe('toFixDispatch', () => {
       unsupported('bundler', 7, 'Gemfile.lock'),
     ])
     const base = { runId: 'run-0001', baseBranch: 'main', visibility: 'public' as const, now: NOW }
-    const fix = toFixDispatch(mixed, { ...base, agent: true })
+    const fix = toFixDispatch(mixed, { ...base, agent: true, newerPackageManagers: true })
     expect(fix.steps.find((s) => s.packageManager === 'go')?.apply).toEqual(goStep.apply)
+    // A runner not known to take Go gets the npm steps alone, not a dispatch it would refuse.
+    const legacy = toFixDispatch(mixed, base)
+    expect(legacy.steps.map((s) => s.packageManager)).toEqual(
+      toFixDispatch(harbor, base).steps.map((s) => s.packageManager),
+    )
+    expect(legacy.steps.some((s) => s.packageManager === 'go')).toBe(false)
+    expect(newerPackageManagerSteps(mixed).map((s) => s.id)).toEqual([goStep.id])
     expect(fix.risky.map((s) => s.packageName)).toEqual(['heron-ui'])
     const majors = toFixDispatch(mixed, { ...base, kind: 'majors' })
     expect(majors.risky.map((s) => s.packageName)).toEqual(['heron-ui'])

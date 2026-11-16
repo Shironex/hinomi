@@ -15,6 +15,7 @@ import {
   type FindingTier,
   type FixPlan,
   type FixPlanStep,
+  type PackageManager,
 } from './api.js'
 import { currentTime } from './clock.js'
 
@@ -531,7 +532,26 @@ export interface FixDispatchOptions {
   agentPreset?: FixAgentPreset
   /** Overrides the checks mode the visibility picks. */
   checks?: FixChecksMode
+  /**
+   * The runner takes steps of the NEWER_PACKAGE_MANAGERS. Default false: those steps are left
+   * out, because a runner from before them refuses the whole dispatch on its first such step.
+   */
+  newerPackageManagers?: boolean
   now?: Date
+}
+
+/**
+ * Package managers a runner from before the go, uv, pip and composer appliers does not know. A dispatch carrying one of their
+ * steps fails that runner's validation as a whole, the npm and Cargo steps with it, so they are
+ * sent only to a runner known to take them (FixDispatchOptions.newerPackageManagers).
+ */
+export const NEWER_PACKAGE_MANAGERS: readonly PackageManager[] = ['go', 'uv', 'pip', 'composer']
+
+/** The plan's safe steps a runner from before NEWER_PACKAGE_MANAGERS would refuse. */
+export function newerPackageManagerSteps(plan: FixPlan): FixPlanStep[] {
+  return plan.steps.filter(
+    (step) => step.risk === 'safe' && NEWER_PACKAGE_MANAGERS.includes(step.packageManager),
+  )
 }
 
 /** Most urgent tier with findings in a tier count record, `not_deployed` when none. */
@@ -619,9 +639,12 @@ export function toFixDispatch(plan: FixPlan, options: FixDispatchOptions): FixDi
   const majors = options.kind === 'majors'
   const agent = majors || (options.agent ?? false)
   const sorted = [...checked.steps].sort((a, b) => a.order - b.order)
+  const sendable = options.newerPackageManagers
+    ? sorted
+    : sorted.filter((s) => !NEWER_PACKAGE_MANAGERS.includes(s.packageManager))
   const steps = majors
     ? []
-    : sorted.map(toDispatchStep).filter((s): s is FixDispatchStep => s !== null)
+    : sendable.map(toDispatchStep).filter((s): s is FixDispatchStep => s !== null)
   const maxRisky = majors ? FIX_MAJORS_MAX_STEPS : FIX_DISPATCH_MAX_STEPS
   const risky = majors
     ? majorsRisky(sorted)

@@ -11,7 +11,13 @@ import { FixWithHinomi } from '@/components/views/fix-with-hinomi'
 import { Section } from '@/components/views/panel'
 import { PlanDiff } from '@/components/views/plan-diff'
 import { planQuery, runnerQuery } from '@/lib/fix-api'
-import { previewPlan, RISK_REASON_LABEL, runnerKindOf, type PlanPreview } from '@/lib/fix-run-meta'
+import {
+  previewPlan,
+  RISK_REASON_LABEL,
+  runnerKindOf,
+  takesNewerPackageManagers,
+  type PlanPreview,
+} from '@/lib/fix-run-meta'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { RunStateText } from './run-state-text'
@@ -184,7 +190,9 @@ export function PlanPane({
   const agent =
     (runner.data?.settings.majorsAgent ?? 'off') !== 'off' && runnerKindOf(runner.data) !== 'local'
   const plan = query.data
-  const preview = plan ? previewPlan(plan) : null
+  const preview = plan
+    ? previewPlan(plan, { newerPackageManagers: takesNewerPackageManagers(runner.data) })
+    : null
   const latest = runs[0]
   return (
     <>

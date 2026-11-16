@@ -7,6 +7,7 @@ import {
 import type { RepoRow } from '../db/schema.js'
 import type { Repositories } from '../repository/index.js'
 import { GithubError, dispatchWorkflow } from '../sources/github/index.js'
+import { callerIsCurrent, type LatestFixWorkflow } from './caller.js'
 import { clipReason as clip, finishDispatch, isRefusal, prepareDispatch } from './dispatch.js'
 import type { RunnerGithubFor } from './github.js'
 import type { FixRunDispatchOutcome, FixRunDispatchRequest, FixRunner } from './runner.js'
@@ -77,6 +78,8 @@ export interface GithubActionsRunnerOptions {
   now?: () => Date
   /** The correlation id sent as `run_id`. Random by default. */
   correlationId?: () => string
+  /** The release callers should pin; LATEST_FIX_WORKFLOW by default (tests set one). */
+  latest?: LatestFixWorkflow | null
 }
 
 export class GithubActionsRunner implements FixRunner {
@@ -90,10 +93,24 @@ export class GithubActionsRunner implements FixRunner {
   async dispatch(request: FixRunDispatchRequest): Promise<FixRunDispatchOutcome> {
     const { repositories } = this.#options
     const now = this.#options.now ?? currentTime
-    const prepared = await prepareDispatch(this.#options, this.kind, request)
+    const workflow = callerWorkflowOf(request.repo)
+    const prepared = await prepareDispatch(
+      {
+        ...this.#options,
+        newerPackageManagers: (source, meta) =>
+          callerIsCurrent(source.client, {
+            owner: meta.owner,
+            name: meta.name,
+            workflow,
+            ref: meta.defaultBranch,
+            latest: this.#options.latest,
+          }),
+      },
+      this.kind,
+      request,
+    )
     if (isRefusal(prepared)) return prepared
     const { meta, source, correlationId, encoded } = prepared
-    const workflow = callerWorkflowOf(request.repo)
 
     try {
       const accepted = await dispatchWorkflow(source.client, {

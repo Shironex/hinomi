@@ -8,6 +8,7 @@ import {
   orderedChecks,
   parseStepId,
   previewPlan,
+  takesNewerPackageManagers,
   runNext,
   runnerKindOf,
   runSummary,
@@ -144,6 +145,51 @@ describe('previewPlan', () => {
     const preview = previewPlan({ ...plan, steps: [...plan.steps, manual] })
     expect(preview.notSent.map((s) => s.packageName)).toEqual(['left-pad'])
     expect(preview.files.some((f) => f.lines.some((l) => l.text.includes('left-pad')))).toBe(false)
+  })
+})
+
+describe('previewPlan with go, uv, pip or composer steps', () => {
+  const plan = PLANS[0]!
+  const go = {
+    ...plan.steps[0]!,
+    id: 'lockfile_update:Go:example.dev/heron/codec:1.4.3:go.mod',
+    order: 99,
+    ecosystem: 'Go',
+    packageName: 'example.dev/heron/codec',
+    lockfile: 'go.mod',
+    packageManager: 'go' as const,
+    workspaces: [],
+    from: ['1.4.0'],
+    to: '1.4.3',
+    risk: 'safe' as const,
+    riskReasons: [],
+    note: null,
+    apply: {
+      type: 'lockfile_update' as const,
+      tool: 'go' as const,
+      packageName: 'example.dev/heron/codec',
+      from: ['1.4.0'],
+      to: '1.4.3',
+    },
+  }
+  const mixed = { ...plan, steps: [...plan.steps, go] }
+
+  it('shows them as not sent unless the runner takes them', () => {
+    expect(previewPlan(mixed).notSent.map((s) => s.id)).toContain(go.id)
+    const taken = previewPlan(mixed, { newerPackageManagers: true })
+    expect(taken.sent.map((s) => s.id)).toContain(go.id)
+    expect(taken.files.map((f) => f.path)).toContain('go.mod')
+  })
+
+  it('knows which runners take them', () => {
+    const status = (kind: 'github_actions' | 'local' | 'webhook', state: string) =>
+      ({ settings: { kind }, caller: { state } }) as Parameters<typeof takesNewerPackageManagers>[0]
+    expect(takesNewerPackageManagers(status('local', 'missing'))).toBe(true)
+    expect(takesNewerPackageManagers(status('github_actions', 'current'))).toBe(true)
+    expect(takesNewerPackageManagers(status('github_actions', 'outdated'))).toBe(false)
+    expect(takesNewerPackageManagers(status('github_actions', 'pinned'))).toBe(false)
+    expect(takesNewerPackageManagers(status('webhook', 'current'))).toBe(false)
+    expect(takesNewerPackageManagers(undefined)).toBe(false)
   })
 })
 

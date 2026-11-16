@@ -209,3 +209,18 @@ export async function readCaller(
     message: messageFor(inspected.state, path, inspected.ref, inspected.missingInputs),
   }
 }
+
+/**
+ * Whether the caller runs a workflow that takes every package manager this server plans for:
+ * only when it is pinned to the latest release's commit (`current`). A caller pinned to another
+ * commit, a moving ref, or one that could not be read may run a workflow from before go, uv,
+ * pip and composer, which would refuse the whole dispatch.
+ */
+export async function callerIsCurrent(
+  client: GithubClient,
+  options: ReadCallerOptions,
+): Promise<boolean> {
+  const latest = options.latest === undefined ? LATEST_FIX_WORKFLOW : options.latest
+  if (!latest) return false
+  return (await readCaller(client, { ...options, latest })).state === 'current'
+}

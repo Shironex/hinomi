@@ -3,6 +3,7 @@ import {
   FixPayloadError,
   currentTime,
   encodeFixDispatch,
+  newerPackageManagerSteps,
   toFixDispatch,
   type EncodedFixDispatch,
   type FixPayloadCompressor,
@@ -44,6 +45,12 @@ export interface PrepareDispatchOptions {
   now?: () => Date
   /** The correlation id. Random by default. */
   correlationId?: () => string
+  /**
+   * Whether this runner takes steps of the NEWER_PACKAGE_MANAGERS (go, uv, pip, composer).
+   * Absent means no: a runner from before them refuses the whole dispatch, so those steps are
+   * left out and the npm and Cargo steps still go.
+   */
+  newerPackageManagers?: (source: GithubSource, meta: RunnerRepoMeta) => Promise<boolean>
 }
 
 /** A pending run with its encoded payload, ready to hand over. */
@@ -86,12 +93,14 @@ export async function prepareDispatch(
       ...plan.plan,
       repo: { ...plan.plan.repo, owner: meta.owner, name: meta.name, fullName: meta.fullName },
     }
+    const newer = (await options.newerPackageManagers?.(source, meta)) ?? false
     const dispatch = toFixDispatch(fixPlan, {
       runId: correlationId,
       baseBranch: meta.defaultBranch,
       visibility: meta.visibility,
       now: now(),
       kind,
+      newerPackageManagers: newer,
     })
     if (kind === 'majors' && dispatch.risky.length === 0) {
       return {
@@ -101,10 +110,14 @@ export async function prepareDispatch(
       }
     }
     if (kind === 'fix' && dispatch.steps.length === 0) {
+      const held = newer ? [] : newerPackageManagerSteps(fixPlan)
       return {
         created: false,
         code: 'nothing_to_send',
-        message: 'The plan has no safe step the runner can apply.',
+        message:
+          held.length > 0
+            ? `The plan's ${[...new Set(held.map((s) => s.packageManager))].join(', ')} steps need a runner that takes them: pin the caller workflow to the latest Hinomi release, or use the local runner.`
+            : 'The plan has no safe step the runner can apply.',
       }
     }
     encoded = await encodeFixDispatch(dispatch, {

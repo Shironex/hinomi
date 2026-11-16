@@ -210,6 +210,18 @@ export const RUNNER_KIND_INFO: Record<FixRunnerKind, RunnerKindInfo> = {
 export const runnerKindOf = (status: Pick<RunnerStatus, 'settings'> | undefined): FixRunnerKind =>
   status?.settings.kind ?? 'github_actions'
 
+/**
+ * Whether the repo's runner takes go, uv, pip and composer steps, as the server decides it: the
+ * local runner always (it is this server's own action), a GitHub Actions caller only when it is
+ * pinned to the latest release, a webhook runner never. The others get those steps left out.
+ */
+export const takesNewerPackageManagers = (
+  status: Pick<RunnerStatus, 'settings' | 'caller'> | undefined,
+): boolean => {
+  const kind = runnerKindOf(status)
+  return kind === 'local' || (kind === 'github_actions' && status?.caller.state === 'current')
+}
+
 /** Where the runner kinds are described, for the settings and the runner panel. */
 export const RUNNERS_DOCS_URL = 'https://github.com/Shironex/hinomi/blob/main/docs/runners.md'
 
@@ -640,12 +652,13 @@ export interface PlanPreview {
 const RUN_ID_PREVIEW = 'preview'
 
 /** The step ids a dispatch would carry, computed by the same projection the server uses. */
-function sentIds(plan: FixPlan): Set<string> | null {
+function sentIds(plan: FixPlan, newerPackageManagers: boolean): Set<string> | null {
   try {
     const dispatch = toFixDispatch(plan, {
       runId: RUN_ID_PREVIEW,
       baseBranch: 'main',
       visibility: 'private',
+      newerPackageManagers,
     })
     return new Set(dispatch.steps.map((s) => s.id))
   } catch {
@@ -664,8 +677,8 @@ function addLines(files: Map<string, DiffFile>, path: string, lines: DiffLine[])
  * Cargo lockfile updates, then the lockfiles the install regenerates. Range prefixes are kept
  * by the runner, so a manifest line shows the version only.
  */
-export function previewPlan(plan: FixPlan): PlanPreview {
-  const ids = sentIds(plan)
+export function previewPlan(plan: FixPlan, { newerPackageManagers = false } = {}): PlanPreview {
+  const ids = sentIds(plan, newerPackageManagers)
   const ordered = [...plan.steps].sort((a, b) => a.order - b.order)
   const safe = ordered.filter((s) => s.risk === 'safe')
   const canSend = (s: FixPlanStep) =>
