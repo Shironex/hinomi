@@ -4,6 +4,7 @@ import {
   type WatchPathsSkipEvidence,
 } from '@hinomi/shared'
 import type { DeploymentRow } from '../../db/schema.js'
+import { reposByDeployment } from '../deployments.js'
 import type { Guard, GuardContext, GuardSubjectResult } from './types.js'
 
 // watch_paths_skip (docs/design/phase-2.md section 4.4): will a change to the Dockerfile or a
@@ -75,17 +76,6 @@ function evidence(over: Partial<WatchPathsSkipEvidence>): WatchPathsSkipEvidence
   }
 }
 
-/** Repo ids each deployment runs, from the index (manual mappings honoured). */
-function reposByDeployment(ctx: GuardContext): Map<number, number[]> {
-  const map = new Map<number, number[]>()
-  for (const [repoId, deployments] of ctx.index.byRepo) {
-    for (const deployment of deployments) {
-      map.set(deployment.id, [...(map.get(deployment.id) ?? []), repoId])
-    }
-  }
-  return map
-}
-
 function evaluate(
   row: DeploymentRow,
   repoIds: readonly number[],
@@ -140,7 +130,7 @@ function evaluate(
 }
 
 export function evaluateWatchPathsSkip(ctx: GuardContext): GuardSubjectResult[] {
-  const repoIds = reposByDeployment(ctx)
+  const repoIds = reposByDeployment(ctx.index)
   const results: GuardSubjectResult[] = []
   for (const row of ctx.deployments) {
     const result = evaluate(row, repoIds.get(row.id) ?? [], ctx)
