@@ -23,7 +23,27 @@ A hand built image reports itself as `dev`. To record the commit, add `--build-a
 
 The rail footer shows the running version (hover for the build commit), and Settings, About lists the version, commit, build date, release notes link and image tag. The release workflow bakes these in through the `HINOMI_BUILD_VERSION`, `HINOMI_BUILD_COMMIT` and `HINOMI_BUILD_DATE` build args; `GET /api/version` serves them.
 
-Once a day (and shortly after boot) Hinomi reads the latest final release from the GitHub releases API: one unauthenticated GET with an ETag and nothing else, no version, no instance id. When a newer release exists, the rail and About say so and link its notes; upgrade with `HINOMI_VERSION=<version> docker compose up -d` or by pulling the image tag. Pre-releases are ignored unless the running build is itself a pre-release. A dev build never checks. It is the only outbound call Hinomi makes that is not to a source you connected (apart from the registries your images name, when you turn the `sbom` [image scan](#image-scan) on), and Settings, About, "Check for new releases" turns it off. Offline or rate limited, it fails quietly.
+Once a day (and shortly after boot) Hinomi reads the latest final release from the GitHub releases API: one unauthenticated GET with an ETag and nothing else, no version, no instance id. When a newer release exists, the rail and About say so and link its notes; upgrade with `HINOMI_VERSION=<version> docker compose up -d` or by pulling the image tag. Pre-releases are ignored unless the running build is itself a pre-release. A dev build never checks. Settings, About, "Check for new releases" turns it off. Offline or rate limited, it fails quietly. It is one of several outbound calls, all listed under [Outbound connections](#outbound-connections).
+
+## Outbound connections
+
+Hinomi makes outbound calls only for the jobs below. It sends no telemetry and no instance id, and it never calls a host that is not in this list or that you did not enter. If the container may only reach some hosts, allow these.
+
+| Host | Why | What triggers it | How to turn it off |
+|---|---|---|---|
+| `api.github.com`, or the API URL of your GitHub source (GitHub Enterprise) | The latest Hinomi release, read without a token (one GET with an ETag, nothing sent about you). | Daily, and shortly after boot. A dev build never asks. | Settings, About, "Check for new releases". |
+| `endoflife.date` (`/api/v1/products/full`, one conditional GET) | Support windows for runtimes and frameworks (the `runtime_support` and `framework_support` guards). | Daily, once at least one repo is known. The last good copy is stored and used when the call fails. | No switch. Block the host and those two guards say `unknown`. |
+| `api.osv.dev` | Advisories for the packages of your lockfiles. Sends package names and versions only. | Every scan, when there are lockfiles to check. | Settings, Sources, "OSV.dev lockfile scan". Without it, no advisories are matched, and neither are image SBOMs. |
+| `api.github.com`, or your GitHub source's API URL | Repo health, Dependabot alerts, lockfiles and pin files, your account's repos, latest releases of your repos. Uses the token you connected. | Every scan. | Disable or remove the GitHub source. |
+| Your Coolify, Dokploy or Docker host (the URL or socket you entered) | The inventory: resources, their facts and, with the `coolify` image scan, Coolify's vulnerability results. GET only. | Every scan. | Disable or remove the source. Set `imageScan` to `off` to stop only the Coolify vulnerability reads. |
+| The registry host an image names (`registry-1.docker.io` and `auth.docker.io` for Docker Hub, `ghcr.io`, or a private registry), plus the redirect targets it names (blob storage, https only) | The SBOM an image carries, for image only deployments. Stored registry credentials go only to the exact host they were saved for. | Every scan, for image only deployments, and only with the image scan set to `sbom`. | Set the image scan to `coolify` or `off` (Settings, Scans, Image scan). |
+| `api.github.com`, for the repository that holds the fix runner (`Shironex/hinomi`) | The commit to pin in the fix runner workflow, from the latest release. Falls back to a built in value when it fails. | When you open a repo's fix runner status or create its setup PR. | Do not use the fix runner. There is no separate switch. |
+| `api.github.com` and GitHub's artifact storage | Fix runs on the `github_actions` runner: dispatch the workflow, follow the run and read its result, open the PR. Uses your GitHub token. | When a fix run is dispatched, and while it runs. | Do not dispatch fix runs. |
+| The runner URL you entered | The `webhook` runner: a signed POST of the fix plan. | When a fix run is dispatched. | Clear the URL under Settings, Webhook runner. |
+| Each notification channel you added: a Discord webhook URL, a webhook URL of your own, or your SMTP server | The notifications you asked for. | When a finding or fix run event reaches the channel's severity. | Disable or remove the channel (Settings, Notifications). |
+| `<team>.cloudflareaccess.com` (`/cdn-cgi/access/certs`) | The keys that verify the Cloudflare Access token. | On the first request, and again when a token names an unknown key (rate limited). | Unset `HINOMI_CF_ACCESS_TEAM_DOMAIN`. |
+
+A manual list source makes no call. Inbound webhooks (the optional GitHub webhook and the runner callback) are connections to Hinomi, not from it.
 
 ## Configuration in short
 
