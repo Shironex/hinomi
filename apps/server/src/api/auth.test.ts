@@ -902,11 +902,27 @@ describe('built in login on', () => {
       expect(w.repos.auth.sessions.list().map((s) => s.subject)).toEqual(['admin'])
     })
 
-    it('are removed at boot when their provider is no longer configured', async () => {
-      const w = setup()
-      await contractorWithPasskey(w)
-      createAuthCore({ config: authConfig({ github: null }), repositories: w.repos }).startup()
-      expect(w.repos.auth.passkeys.list()).toEqual([])
+    it('are kept while their provider is not configured, but cannot sign in', async () => {
+      const config = authConfig()
+      const w = setup({ config })
+      const authenticator = await contractorWithPasskey(w)
+      expect((await passkeyLogin(w, authenticator, browser(w.app))).status).toBe(204)
+      // The operator takes the GitHub app out for a while and restarts.
+      const github = config.github
+      config.github = null
+      createAuthCore({ config, repositories: w.repos }).startup()
+      expect(w.repos.auth.passkeys.list().map((p) => p.name)).toEqual(['Contractor laptop'])
+      // Its sessions end like the provider's own sessions do.
+      expect(w.repos.auth.sessions.list().filter((s) => s.method === 'passkey')).toEqual([])
+      expect((await passkeyLogin(w, authenticator, browser(w.app))).status).toBe(401)
+      expect(w.repos.auth.passkeys.list()).toHaveLength(1)
+      expect(w.repos.audit.list({ limit: 1 })[0]).toMatchObject({
+        action: 'login_failed',
+        detail: 'passkey: its provider is not configured',
+      })
+      // With GitHub back the passkey works again.
+      config.github = github
+      expect((await passkeyLogin(w, authenticator, browser(w.app))).status).toBe(204)
     })
   })
 

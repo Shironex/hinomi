@@ -303,17 +303,22 @@ export function createAuthCore({
   }
 
   /**
-   * Whether the owner of a passkey may still sign in: always for a setup code; for a provider,
-   * only while that provider is configured and its subject is still on the allow list.
+   * Whether the owner of a passkey may still sign in. A setup code owner always may. A provider
+   * owner is `refused` when that provider is configured and its allow list no longer covers the
+   * subject (the passkey is then removed), and `provider_off` while that provider is not
+   * configured (the login is refused, the passkey is kept for when it comes back).
    */
-  function ownerAdmitted(passkey: Pick<AuthPasskeyRow, 'ownerMethod' | 'ownerSubject'>): boolean {
-    if (passkey.ownerMethod === 'setup-code') return true
-    if (!config?.[passkey.ownerMethod]) return false
-    return stillAdmitted(
+  function ownerStatus(
+    passkey: Pick<AuthPasskeyRow, 'ownerMethod' | 'ownerSubject'>,
+  ): 'ok' | 'provider_off' | 'refused' {
+    if (passkey.ownerMethod === 'setup-code') return 'ok'
+    if (!config?.[passkey.ownerMethod]) return 'provider_off'
+    const allowed = stillAdmitted(
       config.allowed,
       passkey.ownerSubject,
       readGithubPins(repositories.settings),
     )
+    return allowed ? 'ok' : 'refused'
   }
 
   /** Removes a passkey whose owner left the allow list, with the sessions it started. */
@@ -352,7 +357,10 @@ export function createAuthCore({
       )
     if (dropped > 0) log.info('auth: ended sessions the allow list no longer covers', { dropped })
     for (const passkey of store.passkeys.list()) {
-      if (!ownerAdmitted(passkey)) prunePasskey(null, passkey)
+      const owner = ownerStatus(passkey)
+      if (owner === 'refused') prunePasskey(null, passkey)
+      // Kept, but its sessions end like the provider's own sessions do.
+      if (owner === 'provider_off') store.sessions.removeByPasskey(passkey.id)
     }
   }
 
@@ -361,7 +369,7 @@ export function createAuthCore({
     cookieName,
     throttle,
     starts,
-    ownerAdmitted,
+    ownerStatus,
     prunePasskey,
     now,
     log,

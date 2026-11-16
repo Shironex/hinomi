@@ -104,7 +104,7 @@ An `@domain` rule trusts the provider to say that the person controls that addre
 
 A refused login is recorded in the audit log, with what the provider said, and the browser is told only that the account is not on the list. Removing someone from the list ends their provider sessions at the next restart; to end them right away, run `revoke-sessions` (below) or end them under Settings, Access.
 
-Passkeys belong to whoever registered them. A passkey added while signed in through a provider (directly, or through another passkey of that person) carries that provider subject, and Settings, Access shows it. When the subject leaves the list, or its provider is no longer configured, the passkey is refused at its next use and removed at the next restart, together with the sessions it started. Passkeys registered with a setup code belong to the admin and do not go through the list. A passkey session is signed in as its owner, not as the name the passkey was given.
+Passkeys belong to whoever registered them. A passkey added while signed in through a provider (directly, or through another passkey of that person) carries that provider subject, and Settings, Access shows it. When the subject leaves the list while its provider is configured, the passkey is refused at its next use and removed at the next restart, together with the sessions it started. While its provider is not configured (taken out for a while, say), the passkey is refused and its sessions end at the next restart, but it is kept, and it works again once the provider is back. Passkeys registered with a setup code belong to the admin and do not go through the list. A passkey session is signed in as its owner, not as the name the passkey was given.
 
 ## Lost access
 

@@ -382,9 +382,13 @@ export function authRoutes({ core, fetch: fetchImpl }: AuthRouteOptions) {
       loginFailed(c, keys, `passkey: ${error.message}`, passkey.ownerSubject)
     }
     // A passkey registered through a provider is only as good as its owner's place on the list.
-    if (!core.ownerAdmitted(passkey)) {
+    const owner = core.ownerStatus(passkey)
+    if (owner === 'refused') {
       core.prunePasskey(c, passkey)
       loginFailed(c, keys, 'passkey: its owner is no longer allowed', passkey.ownerSubject)
+    }
+    if (owner === 'provider_off') {
+      loginFailed(c, keys, 'passkey: its provider is not configured', passkey.ownerSubject)
     }
     if (!store.passkeys.recordUse(passkey.id, passkey.signCount, signCount, core.now())) {
       loginFailed(c, keys, 'passkey: counter changed during the login', passkey.ownerSubject)
