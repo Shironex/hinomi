@@ -196,6 +196,10 @@ export interface FakeIdp {
   failToken: boolean
   /** Sign ID tokens with this key instead of the published one. */
   forgeWith: KeyObject | null
+  /** Fields the next ID token header carries on top of the defaults (`alg`, `kid`). */
+  header: Record<string, unknown>
+  /** Signs the next ID token instead of the provider key: gets the signing input. */
+  signToken: ((signingInput: Buffer) => Buffer) | null
 }
 
 /**
@@ -217,6 +221,8 @@ export function createFakeIdp(): FakeIdp {
     calls: [],
     failToken: false,
     forgeWith: null,
+    header: {},
+    signToken: null,
     fetch: (input: string | URL | Request, init?: RequestInit) =>
       Promise.resolve(answer(input, init)),
   }
@@ -261,7 +267,9 @@ export function createFakeIdp(): FakeIdp {
         return json({ error: 'invalid_grant' }, 400)
       }
       const now = Math.floor(nowMs() / 1000)
-      const header = b64url(Buffer.from(JSON.stringify({ alg: 'ES256', kid: 'k1', typ: 'JWT' })))
+      const header = b64url(
+        Buffer.from(JSON.stringify({ alg: 'ES256', kid: 'k1', typ: 'JWT', ...idp.header })),
+      )
       const payload = b64url(
         Buffer.from(
           JSON.stringify({
@@ -277,10 +285,13 @@ export function createFakeIdp(): FakeIdp {
           }),
         ),
       )
-      const signature = sign('sha256', Buffer.from(`${header}.${payload}`), {
-        key: idp.forgeWith ?? privateKey,
-        dsaEncoding: 'ieee-p1363',
-      })
+      const signingInput = Buffer.from(`${header}.${payload}`)
+      const signature = idp.signToken
+        ? idp.signToken(signingInput)
+        : sign('sha256', signingInput, {
+            key: idp.forgeWith ?? privateKey,
+            dsaEncoding: 'ieee-p1363',
+          })
       return json({
         access_token: 'at-fictional',
         token_type: 'Bearer',

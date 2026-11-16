@@ -1,9 +1,10 @@
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, generateKeyPairSync, sign } from 'node:crypto'
 import { nowMs } from '@hinomi/shared'
 import { describe, expect, it } from 'vitest'
 import { createOidcClient, OidcError, safeEqual } from './oidc.js'
 import {
   createFakeIdp,
+  type FakeIdp,
   IDP_CLIENT_ID,
   IDP_CLIENT_SECRET,
   IDP_ISSUER,
@@ -21,10 +22,15 @@ function client(fetchImpl: typeof fetch, tokenOrigin: string | null = null) {
   })
 }
 
-/** One full login against the fake provider, with the claims of the ID token changed. */
-async function loginWith(claims: Record<string, unknown>) {
+/** One full login against the fake provider, with the ID token changed. */
+async function loginWith(
+  claims: Record<string, unknown>,
+  token: Pick<FakeIdp, 'header' | 'signToken'> = { header: {}, signToken: null },
+) {
   const idp = createFakeIdp()
   idp.claims = claims
+  idp.header = token.header
+  idp.signToken = token.signToken
   const oidc = client(idp.fetch)
   const url = await oidc.authorizationUrl({ state: 's1', nonce: 'n1', codeChallenge: 'pkce' })
   recordAuthorization(idp, url.replace('code_challenge=pkce', `code_challenge=${s256('v1')}`))
@@ -103,6 +109,84 @@ describe('createOidcClient', () => {
     ['an iat an hour old', { iat: Math.floor(nowMs() / 1000) - 3600 }, 'issued too long ago'],
   ])('refuses an ID token with %s', async (_why, claims, message) => {
     await expect(loginWith(claims)).rejects.toThrow(message)
+  })
+
+  describe('refuses a forged or malformed ID token', () => {
+    const now = () => Math.floor(nowMs() / 1000)
+    const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
+
+    it.each([
+      [
+        'alg none',
+        { header: { alg: 'none' }, signToken: () => Buffer.alloc(0) },
+        'unsupported ID token algorithm',
+      ],
+      [
+        'HS256 keyed with the public key',
+        {
+          header: { alg: 'HS256' },
+          signToken: (input: Buffer) =>
+            createHmac('sha256', 'public-key-as-secret').update(input).digest(),
+        },
+        'unsupported ID token algorithm',
+      ],
+      [
+        'RS256 over the EC key',
+        {
+          header: { alg: 'RS256', kid: 'k1' },
+          signToken: (input: Buffer) => sign('sha256', input, rsa),
+        },
+        'no provider key for the ID token',
+      ],
+      [
+        'an unknown kid',
+        { header: { kid: 'k9' }, signToken: null },
+        'no provider key for the ID token',
+      ],
+    ])('with %s', async (_why, token, message) => {
+      await expect(loginWith({}, token)).rejects.toThrow(message)
+    })
+
+    it.each([
+      ['an aud array without azp', { aud: [IDP_CLIENT_ID, 'other-client'] }, 'authorized party'],
+      [
+        'a wrong azp',
+        { aud: [IDP_CLIENT_ID, 'other-client'], azp: 'other-client' },
+        'authorized party',
+      ],
+      ['a string exp', { exp: String(now() + 300) }, 'ID token expired'],
+      ['a string iat', { iat: String(now()) }, 'ID token has no iat'],
+      ['no nonce', { nonce: undefined }, 'ID token nonce does not match'],
+    ])('with %s', async (_why, claims, message) => {
+      await expect(loginWith(claims)).rejects.toThrow(message)
+    })
+  })
+
+  it('refuses discovery endpoints that are neither http nor https', async () => {
+    const local = createFakeIdp()
+    const oidc = createOidcClient({
+      issuer: 'http://localhost:9000/hinomi',
+      clientId: IDP_CLIENT_ID,
+      clientSecret: IDP_CLIENT_SECRET,
+      redirectUri: 'http://localhost:3000/api/auth/oidc/callback',
+      tokenOrigin: null,
+      fetch: (input) => {
+        if (!urlOf(input).includes('openid-configuration')) return local.fetch(input)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              issuer: 'http://localhost:9000/hinomi',
+              authorization_endpoint: 'data:text/html,<p>hi</p>',
+              token_endpoint: 'http://localhost:9000/token',
+              jwks_uri: 'http://localhost:9000/jwks',
+            }),
+          ),
+        )
+      },
+    })
+    await expect(
+      oidc.authorizationUrl({ state: 's', nonce: 'n', codeChallenge: 'c' }),
+    ).rejects.toThrow('discovery authorization_endpoint is not https')
   })
 
   it('refuses a token endpoint off the issuer origin unless it is configured', async () => {

@@ -82,7 +82,9 @@ function endpoint(value: unknown, issuer: string, name: string): string {
     throw new OidcError(`discovery ${name} is not a URL`)
   }
   // Same rule as the issuer: https, or http only when the issuer itself is a local http one.
-  if (url.protocol !== 'https:' && new URL(issuer).protocol !== 'http:') {
+  // Nothing else (data:, file:, ...) ever.
+  const localHttp = url.protocol === 'http:' && new URL(issuer).protocol === 'http:'
+  if (url.protocol !== 'https:' && !localHttp) {
     throw new OidcError(`discovery ${name} is not https`)
   }
   return url.href
