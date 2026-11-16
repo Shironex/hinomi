@@ -201,10 +201,12 @@ No environment variables are required; see [.env.example](.env.example).
 | `HINOMI_TRUSTED_PROXIES` | unset | Comma separated IPs or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `CF-Connecting-IP` and Tailscale identity headers are believed. Unset, they are all ignored. See [docs/access.md](docs/access.md). |
 | `HINOMI_CF_ACCESS_TEAM_DOMAIN` | unset | Cloudflare Access team name or `https://<team>.cloudflareaccess.com`. With `HINOMI_CF_ACCESS_AUD`, Hinomi verifies the Access token and shows "Protected by Cloudflare Access". |
 | `HINOMI_CF_ACCESS_AUD` | unset | Application Audience (AUD) tag of the Access application. Set both Cloudflare variables or neither. |
-| `HINOMI_AUTH` | unset | `1` turns on the [built in login](docs/auth.md). Needs `HINOMI_AUTH_PUBLIC_URL`. |
+| `HINOMI_AUTH` | unset | `1` turns on the [built in login](docs/auth.md). Needs `HINOMI_AUTH_PUBLIC_URL`. Any other `HINOMI_AUTH_*` set without it is a startup error, unless `HINOMI_AUTH=0`. |
 | `HINOMI_AUTH_PUBLIC_URL` | unset | The address people open Hinomi at, an origin without a path (https in production). |
-| `HINOMI_AUTH_ALLOWED` | unset | Who may sign in through a provider: emails, `@domains`, `github:<login>`, `oidc:<sub>`. Required with a provider. |
+| `HINOMI_AUTH_ALLOWED` | unset | Who may sign in through a provider: `github:id:<n>`, emails, `@domains`, `github:<login>`, `oidc:<sub>`. Required with a provider. |
+| `HINOMI_AUTH_ALLOW_HTTP` | unset | `1` accepts an http public URL on a host other than localhost. The session cookie then crosses the network in the clear. |
 | `HINOMI_AUTH_OIDC_ISSUER`, `HINOMI_AUTH_OIDC_CLIENT_ID`, `HINOMI_AUTH_OIDC_CLIENT_SECRET`, `HINOMI_AUTH_OIDC_NAME` | unset | OpenID Connect sign in (Authentik, Authelia, Google). Set the first three together. |
+| `HINOMI_AUTH_OIDC_TOKEN_ORIGIN` | unset | Another https origin the provider's token endpoint may be on, for example `https://oauth2.googleapis.com` for Google. |
 | `HINOMI_AUTH_GITHUB_CLIENT_ID`, `HINOMI_AUTH_GITHUB_CLIENT_SECRET` | unset | GitHub sign in through an OAuth app. Set both or neither. |
 | `HINOMI_WEBHOOK_PORT` | unset | A second port that serves only the optional GitHub webhook path, so a tunnel pointed at it reaches nothing else. Must differ from `PORT`. See [docs/github-webhook.md](docs/github-webhook.md). |
 | `HINOMI_SHUTDOWN_TIMEOUT_SECONDS` | `25` | How long a stop (SIGTERM or SIGINT) waits for a running scan before it is marked interrupted. Whole seconds from 0 to 3600. Keep it below the stop grace of your platform, or the container is killed first. |

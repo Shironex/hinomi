@@ -373,12 +373,12 @@ The [built in login](auth.md). `GET /api/auth/session` always exists; the rest o
 | `GET /api/auth/oidc/callback`, `GET /api/auth/github/callback` | Public. Finish the provider login and redirect to `next`, or to `/login?error=not_allowed\|expired\|failed\|rate_limited` |
 | `POST /api/auth/passkey/login/options`, `POST /api/auth/passkey/login` | Public. A passkey challenge, then `{ credential }` to sign in: 204 with the cookie |
 | `POST /api/auth/setup/verify`, `POST /api/auth/setup/register` | Public. `{ code }` from `cli.mjs setup-code` returns `{ enrollmentId, options }`; then `{ enrollmentId, name, credential }` registers the passkey and signs in |
-| `GET /api/auth/passkeys` | `{ passkeys: [{ id, name, createdAt, lastUsedAt }] }` |
+| `GET /api/auth/passkeys` | `{ passkeys: [{ id, name, createdAt, lastUsedAt, owner, ownerMethod }] }`; `ownerMethod` is `setup-code` (owner `admin`), `oidc` or `github`, how the registering session signed in |
 | `POST /api/auth/passkeys/options`, `POST /api/auth/passkeys` | Add a passkey: the options, then `{ name, credential }`: 204 |
 | `DELETE /api/auth/passkeys/:id` | Removes it and ends the sessions it started: 204. 409 for the last passkey when no provider is set |
 | `GET /api/auth/sessions` | `{ sessions: [{ id, method, subject, createdAt, lastSeenAt, expiresAt, ip, userAgent, current }] }` |
 | `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others` | End one session, or every one but this: 204 |
-| `GET /api/audit?before=&limit=` | `{ events: [{ id, at, action, actor, ip, httpMethod, path, status, detail }], nextBefore }`, newest first, `limit` up to 200 (default 50). Recorded with the login off too |
+| `GET /api/audit?before=&limit=` | `{ events: [{ id, at, action, actor, ip, httpMethod, path, status, detail }], nextBefore }`, newest first, `limit` up to 200 (default 50). Recorded with the login off too. Refused sign ins are capped separately |
 
 ### GitHub webhook
 
