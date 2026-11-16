@@ -185,7 +185,7 @@ export function guardFindings(world: GuardWorld): FindingListItem[] {
         check: 'shared_network',
         basis: 'coolify_destination',
         network: 'coolify',
-        destination: { server: 'edge-1', type: 'standalone_docker', id: 1 },
+        destination: { server: 'edge-1', type: 'App\\Models\\StandaloneDocker', id: 1 },
         project: 'billing',
         peers: [
           { deploymentId: 11, name: 'billing-db', project: 'ledger', database: true },
