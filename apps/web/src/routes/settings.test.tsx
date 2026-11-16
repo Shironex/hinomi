@@ -121,9 +121,9 @@ describe('settings', () => {
     await user.click(await region.findByRole('button', { name: 'Add channel' }))
     await user.click(region.getByRole('radio', { name: 'Webhook' }))
     await user.click(region.getByRole('button', { name: 'Add channel' }))
-    const url = region.getByLabelText('Webhook webhook URL')
+    const url = region.getByLabelText('Webhook URL')
     expect(url).toHaveAttribute('aria-invalid', 'true')
-    expect(url).toHaveAccessibleDescription(/Paste the webhook URL\./)
+    expect(url).toHaveAccessibleDescription(/Paste the URL\./)
     expect(api.called('POST', '/notifications/channels')).toHaveLength(0)
 
     await user.type(region.getByLabelText('Name'), 'Incident bot')

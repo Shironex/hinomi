@@ -3,6 +3,7 @@ import type { FixRunRow, RepoRow } from '../db/schema.js'
 import { escapeHtml, type EmailContent } from './email.js'
 import type { FixRunEventKey } from './fix-run-events.js'
 import type { DiscordMessage } from './format.js'
+import { safeLink, truncate } from './text.js'
 
 /** One fix run event, flattened to what a message needs. Source of the Discord, JSON and email forms. */
 export interface FixRunMessage {
@@ -35,13 +36,6 @@ export interface FixRunMessage {
 }
 
 const REASON_MAX = 500
-
-const truncate = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1)}…` : text
-
-/** Only http and https links go into a message. */
-const safeLink = (url: string | null): string | null =>
-  url && /^https?:\/\//i.test(url) ? url : null
 
 /**
  * The link back to the run in Hinomi. Like the fix PR body, only for private repos (the run's
@@ -163,7 +157,7 @@ export function fixRunRows(message: FixRunMessage): [string, string][] {
 }
 
 /** The link a message opens: the PR on GitHub when there is one, else the run in Hinomi. */
-function mainLink(message: FixRunMessage): string | null {
+export function mainLink(message: FixRunMessage): string | null {
   return message.pr?.url ?? message.hinomiUrl
 }
 

@@ -20,6 +20,8 @@ export const NOTIFY_SETTING_KEYS = {
   fixRunEvents: 'notify.fixRunEvents',
   /** Fix run events already sent, per run and channel (see fix-runs-state.ts). */
   fixRunState: 'notify.fixRunState',
+  /** The VAPID key pair of web push (see web-push.ts). The private key is encrypted when a secret key is set. */
+  vapid: 'notify.vapid',
 } as const
 
 export const DEFAULT_DIGEST_HOUR = 8

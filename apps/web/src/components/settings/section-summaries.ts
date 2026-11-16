@@ -15,6 +15,7 @@ import { versionQuery } from '@/lib/queries'
 import { useTheme } from '@/lib/theme'
 import { versionLabel } from '@/lib/version'
 import { THEME_LABEL } from '@/components/shell/theme-meta'
+import { KIND_COPY } from '@/components/notifications/channel-kinds'
 
 export type SettingsSectionKey =
   | 'sources'
@@ -27,8 +28,6 @@ export type SettingsSectionKey =
   | 'access'
   | 'appearance'
   | 'about'
-
-const KIND_WORD = { discord: 'Discord', webhook: 'webhook', email: 'email' } as const
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
@@ -79,7 +78,7 @@ export function useSectionSummaries(): Partial<Record<SettingsSectionKey, string
 
   if (channels.data) {
     const on = channels.data.items.filter((c) => c.enabled)
-    const kinds = [...new Set(on.map((c) => KIND_WORD[c.kind]))]
+    const kinds = [...new Set(on.map((c) => KIND_COPY[c.kind].word))]
     out.notifications =
       channels.data.items.length === 0
         ? 'No channels yet'

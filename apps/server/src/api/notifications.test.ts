@@ -1,5 +1,6 @@
 import { notifyChannelsResponseSchema } from '@hinomi/shared'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { connectNotifier, startDigestTimer } from '../scheduler/index.js'
 import { createTestApi, seedWorld } from './testing.js'
 
@@ -316,5 +317,101 @@ describe('email channels', () => {
     const failed = await call('POST', `/notifications/channels/${id}/test`)
     expect(failed.json).toEqual({ ok: false, error: 'Invalid login' })
     expect(failed.text).not.toContain('SECRET')
+  })
+})
+
+describe('Slack, ntfy, Gotify and Telegram channels', () => {
+  // Fake secrets, built from parts so no literal in the source looks like a real one.
+  const NTFY_TOKEN = ['tk', 'SECRETfakeNTFY'].join('_')
+  const BOT_TOKEN = ['42', `fake_SECRET_bot_${'x'.repeat(10)}`].join(':')
+
+  it('stores the token, shows only that one is set, and lets it be replaced', async () => {
+    const { call, logger } = createTestApi()
+    const created = await call('POST', '/notifications/channels', {
+      kind: 'ntfy',
+      name: 'phone',
+      url: 'https://ntfy.example.dev/hinomi-SECRET-topic',
+      secret: NTFY_TOKEN,
+    })
+    expect(created.status).toBe(201)
+    expect(created.json).toMatchObject({ kind: 'ntfy', secretSet: true, allowPrivate: false })
+    expect(created.text).not.toContain('SECRET')
+    const id = (created.json as { id: string }).id
+    const cleared = await call('PATCH', `/notifications/channels/${id}`, { secret: '' })
+    expect(cleared.json).toMatchObject({ secretSet: false })
+
+    const telegram = await call('POST', '/notifications/channels', {
+      kind: 'telegram',
+      name: 'ops chat',
+      secret: BOT_TOKEN,
+      chatId: '-1001234567890',
+    })
+    expect(telegram.status).toBe(201)
+    expect(telegram.json).toMatchObject({ chatId: '-1001234567890', secretSet: true })
+    expect(telegram.text).not.toContain('SECRET')
+    expect(logger.text()).not.toContain('SECRET')
+  })
+
+  it('rejects what a kind does not take, and private addresses unless allowed', async () => {
+    const { call } = createTestApi()
+    const post = (body: Record<string, unknown>) => call('POST', '/notifications/channels', body)
+    expect((await post({ kind: 'telegram', name: 't', secret: BOT_TOKEN })).status).toBe(400)
+    expect(
+      (await post({ kind: 'gotify', name: 'g', url: 'https://gotify.example.dev' })).status,
+    ).toBe(400)
+    expect(
+      (
+        await post({
+          kind: 'slack',
+          name: 's',
+          url: 'https://hooks.slack.com/services/x',
+          secret: 'x',
+        })
+      ).status,
+    ).toBe(400)
+    const metadata = await post({
+      kind: 'webhook',
+      name: 'w',
+      url: 'http://169.254.169.254/latest/meta-data',
+    })
+    expect(metadata.status).toBe(400)
+    expect(errorOf(metadata.json).message).toMatch(/private/)
+    const allowed = await post({
+      kind: 'webhook',
+      name: 'w',
+      url: 'http://10.0.0.8:8080/hook',
+      allowPrivate: true,
+    })
+    expect(allowed.status).toBe(201)
+    expect(allowed.json).toMatchObject({ allowPrivate: true })
+  })
+})
+
+describe('web push key', () => {
+  it('hands out one VAPID public key, made on first use', async () => {
+    const { call } = createTestApi()
+    const first = await call('GET', '/notifications/push-key')
+    expect(first.status).toBe(200)
+    const { publicKey } = first.json as { publicKey: string }
+    expect(Buffer.from(publicKey, 'base64url')).toHaveLength(65)
+    expect((await call('GET', '/notifications/push-key')).json).toEqual({ publicKey })
+  })
+
+  it('answers 409 secret_key_missing for a sealed key without HINOMI_SECRET_KEY, and keeps it', async () => {
+    const { call, repos } = createTestApi({ withSecret: false })
+    const sealed = {
+      publicKey: 'BPub',
+      x: 'x',
+      y: 'y',
+      privateKey: 'v1:sealed',
+      privateKeyEncrypted: true,
+    }
+    repos.settings.set('notify.vapid', sealed)
+    const answer = await call('GET', '/notifications/push-key')
+    expect(answer.status).toBe(409)
+    const { error } = answer.json as { error: { code: string; message: string } }
+    expect(error.code).toBe('secret_key_missing')
+    expect(error.message).toMatch(/HINOMI_SECRET_KEY/)
+    expect(repos.settings.get('notify.vapid', z.unknown())).toEqual(sealed)
   })
 })

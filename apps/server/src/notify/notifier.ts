@@ -11,16 +11,12 @@ import {
   type ScanSummary,
 } from '../scan/index.js'
 import { ChannelNotFoundError, createChannelStore, type ResolvedChannel } from './channels.js'
-import { defaultSleep, deliver, type DeliverOptions } from './deliver.js'
+import { publicFetch } from '../net/public-fetch.js'
+import type { ScanBatch } from './chat-format.js'
+import { defaultSleep, deliver, DeliveryError, type DeliverOptions } from './deliver.js'
 import { createSmtpSender, emailContent, type MailSender } from './email.js'
 import { eventsOf, isEnabled } from './fix-run-events.js'
-import {
-  fixRunDiscord,
-  fixRunEmail,
-  fixRunMessage,
-  fixRunWebhook,
-  type FixRunMessage,
-} from './fix-run-format.js'
+import { fixRunEmail, fixRunMessage, type FixRunMessage } from './fix-run-format.js'
 import {
   markSent,
   pruneFixRunState,
@@ -30,7 +26,6 @@ import {
 } from './fix-run-state.js'
 import {
   digestSummary,
-  discordMessages,
   exposureUrl,
   immediateSummary,
   limitDigest,
@@ -39,7 +34,6 @@ import {
   SUMMARY_TOP,
   summaryCounts,
   summaryText,
-  webhookPayload,
   type MessageType,
   type SummaryCounts,
 } from './format.js'
@@ -51,6 +45,14 @@ import {
   type MessageFinding,
   type NotificationItem,
 } from './items.js'
+import {
+  fixRunRequest,
+  isHttpChannel,
+  scanRequests,
+  type HttpChannel,
+  type OutboundContext,
+} from './outbound.js'
+import { vapidKeys, vapidSubject, type VapidKeys } from './web-push.js'
 import { readFixRunEvents, readNotifySettings } from './settings.js'
 import { isPrimed, pruneState, readState, writeState, type NotifyState } from './state.js'
 import { currentTime } from '@hinomi/shared'
@@ -59,7 +61,13 @@ export interface NotifierOptions {
   repositories: Repositories
   /** Needed to encrypt webhook URLs. Without it they are stored in clear text. */
   secretBox?: SecretBox | null
+  /**
+   * Replaces both ways of posting (tests). By default a channel that allows private addresses
+   * posts with the global fetch, every other one through `publicFetch` (public addresses only).
+   */
   fetch?: typeof fetch
+  /** Replaces only the public addresses way of posting (tests). */
+  publicFetch?: typeof fetch
   now?: () => Date
   log?: ScanLogger
   /** Waits between delivery retries. Tests replace it. */
@@ -80,6 +88,17 @@ export interface TestResult {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Why web push cannot send while the sealed VAPID key has no secret key to open it. */
+const WEB_PUSH_SECRET_MISSING =
+  'HINOMI_SECRET_KEY is not set, so the web push key cannot be read. Set it again to send web push.'
+
+/** Why the web push key cannot be handed out. */
+export type WebPushKeyProblem = 'secret_key_missing' | 'unavailable'
+
+/** Why a web push channel was turned off after the VAPID key was replaced. */
+const WEB_PUSH_KEY_CHANGED =
+  'The web push key changed because HINOMI_SECRET_KEY changed. Remove this channel and add the browser again.'
 const silent: ScanLogger = { info() {}, warn() {}, error() {} }
 
 /** Event types in the finding history that a digest reports, and what they mean. */
@@ -133,7 +152,8 @@ function isImmediate(ranked: RankedFinding): ranked is MessageFinding {
 }
 
 /**
- * Sends Discord, generic webhook and email notifications about findings. Self
+ * Sends notifications about findings to every kind of channel (Discord, Slack,
+ * ntfy, Gotify, Telegram, generic webhook, email). Self
  * contained: the scheduler calls `handleScanFinished` after every scan and
  * `sendDigest` once a day (see `msUntilNextDigest`).
  */
@@ -141,9 +161,17 @@ export function createNotifier(options: NotifierOptions) {
   const { repositories } = options
   const now = options.now ?? (() => currentTime())
   const log = options.log ?? silent
-  const channels = createChannelStore(repositories.settings, options.secretBox ?? null)
+  const channels = createChannelStore(repositories.settings, options.secretBox ?? null, {
+    // A subscription is checked against the key browsers subscribe with now.
+    webPushKey: () => {
+      const vapid = currentVapid()
+      return 'problem' in vapid ? null : vapid.keys.publicKey
+    },
+  })
   const delivery: DeliverOptions = {
     fetch: options.fetch ?? fetch,
+    publicFetch: options.publicFetch ?? options.fetch ?? publicFetch,
+    now,
     sleep: options.sleep ?? defaultSleep,
     log,
     ...options.delivery,
@@ -156,6 +184,37 @@ export function createNotifier(options: NotifierOptions) {
       ...(delivery.maxAttempts !== undefined && { maxAttempts: delivery.maxAttempts }),
       ...(delivery.baseDelayMs !== undefined && { baseDelayMs: delivery.baseDelayMs }),
     })
+
+  /**
+   * The VAPID keys, or why web push cannot send. When the old pair could not be decrypted and a
+   * new one replaced it, every web push channel was subscribed under the old key and can never be
+   * delivered to again: they are turned off with the reason.
+   */
+  function currentVapid(): { keys: VapidKeys } | { problem: string; code: WebPushKeyProblem } {
+    const state = vapidKeys(repositories.settings, options.secretBox ?? null)
+    if (state.kind === 'secret-missing') {
+      return { problem: WEB_PUSH_SECRET_MISSING, code: 'secret_key_missing' }
+    }
+    if (state.kind === 'unavailable') {
+      return { problem: 'The web push key cannot be read.', code: 'unavailable' }
+    }
+    if (state.rotated) {
+      const count = channels.disableKind('webpush', WEB_PUSH_KEY_CHANGED)
+      log.warn('the web push key could not be decrypted and was replaced', {
+        channelsTurnedOff: count,
+      })
+    }
+    return { keys: state.keys }
+  }
+
+  /** What a request needs besides the message; the VAPID keys are read only for web push. */
+  function outboundContext(channel: HttpChannel): OutboundContext {
+    if (channel.kind !== 'webpush') return { sentAt: now(), webPush: null }
+    const vapid = currentVapid()
+    if ('problem' in vapid) return { sentAt: now(), webPush: null, webPushProblem: vapid.problem }
+    const { publicBaseUrl } = readNotifySettings(repositories.settings)
+    return { sentAt: now(), webPush: { keys: vapid.keys, subject: vapidSubject(publicBaseUrl) } }
+  }
 
   // One send at a time: the sent-state is read, then written after the awaits.
   let queue: Promise<unknown> = Promise.resolve()
@@ -186,7 +245,9 @@ export function createNotifier(options: NotifierOptions) {
     omitted = 0,
     extra?: SummaryExtra,
   ): Promise<void> {
-    if (channel.kind === 'email' && channel.email) {
+    if (!isHttpChannel(channel)) {
+      // resolve() only yields email channels whose settings could be read.
+      if (!channel.email) return
       await sendMail(channel.email, {
         from: channel.email.from,
         to: channel.email.to,
@@ -195,25 +256,21 @@ export function createNotifier(options: NotifierOptions) {
       onSent(items)
       return
     }
-    if (channel.kind === 'webhook') {
-      const body = webhookPayload(
-        type,
-        items,
-        summary,
-        now(),
-        omitted,
-        extra ? { counts: extra.counts, link: extra.link } : {},
-      )
-      await deliver(channel.url, body, delivery)
-      onSent(items)
-      return
+    const batch: ScanBatch = {
+      type,
+      items,
+      summary,
+      omitted,
+      details: extra?.details ?? [],
+      link:
+        items.length === 1 && type !== 'summary' ? (items[0]?.url ?? null) : (extra?.link ?? null),
     }
-    const content = extra ? [summary, ...extra.details].join('\n') : summary
+    const webhookExtra = extra ? { counts: extra.counts, link: extra.link } : {}
     let offset = 0
-    for (const message of discordMessages(type, items, content)) {
-      await deliver(channel.url, message, delivery)
-      onSent(items.slice(offset, offset + message.embeds.length))
-      offset += message.embeds.length
+    for (const request of scanRequests(channel, batch, outboundContext(channel), webhookExtra)) {
+      await deliver(request.target, request.body, delivery)
+      onSent(items.slice(offset, offset + request.items))
+      offset += request.items
     }
   }
 
@@ -223,6 +280,23 @@ export function createNotifier(options: NotifierOptions) {
       channel: channel.name,
       channelId: channel.id,
       error: error instanceof Error ? error.message : 'unknown error',
+    })
+    // The browser unsubscribed or the subscription expired: it will never work again.
+    const gone = error instanceof DeliveryError && [403, 404, 410].includes(error.status ?? 0)
+    if (channel.kind !== 'webpush' || !gone || !channel.enabled) return
+    try {
+      channels.disable(
+        channel.id,
+        'The browser is no longer subscribed. Remove this channel and add the browser again.',
+      )
+    } catch (failure) {
+      // Removed while it was being sent to: nothing to turn off, and the other channels go on.
+      if (failure instanceof ChannelNotFoundError) return
+      throw failure
+    }
+    log.warn('a web push subscription is gone, its channel is turned off', {
+      channel: channel.name,
+      channelId: channel.id,
     })
   }
 
@@ -415,16 +489,15 @@ export function createNotifier(options: NotifierOptions) {
 
   /** Posts one fix run message to one channel in the channel's own form. */
   async function sendFixRun(channel: ResolvedChannel, message: FixRunMessage): Promise<void> {
-    if (channel.kind === 'email' && channel.email) {
+    if (isHttpChannel(channel)) {
+      const request = fixRunRequest(channel, message, outboundContext(channel))
+      await deliver(request.target, request.body, delivery)
+    } else if (channel.email) {
       await sendMail(channel.email, {
         from: channel.email.from,
         to: channel.email.to,
         ...fixRunEmail(message),
       })
-    } else if (channel.kind === 'webhook') {
-      await deliver(channel.url, fixRunWebhook(message, now()), delivery)
-    } else {
-      await deliver(channel.url, fixRunDiscord(message), delivery)
     }
   }
 
@@ -506,6 +579,15 @@ export function createNotifier(options: NotifierOptions) {
           })
         }
       })
+    },
+
+    /**
+     * The VAPID public key browsers subscribe with, made on first use, and made again (turning
+     * the old web push channels off) when the stored one no longer decrypts. Otherwise why not.
+     */
+    webPushKey(): { publicKey: string } | { problem: string; code: WebPushKeyProblem } {
+      const vapid = currentVapid()
+      return 'problem' in vapid ? vapid : { publicKey: vapid.keys.publicKey }
     },
 
     /** Sends a sample message to one channel, enabled or not. Throws ChannelNotFoundError for an unknown id. */

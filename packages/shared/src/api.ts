@@ -1535,7 +1535,47 @@ export type ScanStatusDto = z.infer<typeof scanStatusSchema>
 // ---------------------------------------------------------------------------
 // Notifications
 
-export const NOTIFY_CHANNEL_KINDS = ['discord', 'webhook', 'email'] as const
+export const NOTIFY_CHANNEL_KINDS = [
+  'discord',
+  'webhook',
+  'email',
+  'slack',
+  'ntfy',
+  'gotify',
+  'telegram',
+  'webpush',
+] as const
+export type NotifyChannelKind = (typeof NOTIFY_CHANNEL_KINDS)[number]
+
+/**
+ * What each kind of channel is configured with, apart from email (SMTP settings, see below).
+ * `url`: the webhook, topic or server URL. `secret`: a second secret beside the URL (the signing
+ * secret of a generic webhook, the access token of ntfy, the app token of Gotify, the bot token
+ * of Telegram, the keys of a web push subscription). `chatId`: the Telegram chat. `allowPrivate`: the channel may be allowed to post
+ * to a private address (a self-hosted server on the same network); the other kinds post to one
+ * fixed public service.
+ */
+export const CHANNEL_KIND_FIELDS: Record<
+  Exclude<NotifyChannelKind, 'email'>,
+  {
+    url: 'none' | 'required'
+    secret: 'none' | 'optional' | 'required'
+    chatId: boolean
+    allowPrivate: boolean
+  }
+> = {
+  discord: { url: 'required', secret: 'none', chatId: false, allowPrivate: false },
+  slack: { url: 'required', secret: 'none', chatId: false, allowPrivate: false },
+  webhook: { url: 'required', secret: 'optional', chatId: false, allowPrivate: true },
+  ntfy: { url: 'required', secret: 'optional', chatId: false, allowPrivate: true },
+  gotify: { url: 'required', secret: 'required', chatId: false, allowPrivate: true },
+  telegram: { url: 'none', secret: 'required', chatId: true, allowPrivate: false },
+  /** A browser's push subscription: `url` is its endpoint, `secret` is `<p256dh>.<auth>`, optionally followed by `.<applicationServerKey>` it was made under (refused when that is not the current key). */
+  webpush: { url: 'required', secret: 'required', chatId: false, allowPrivate: false },
+}
+
+/** A Telegram chat: a numeric id (negative for groups and channels) or a public `@channelname`. */
+export const TELEGRAM_CHAT_ID = /^(-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{3,31})$/
 
 /** How the SMTP connection is secured: implicit TLS, STARTTLS (required), or whatever the server offers. */
 export const SMTP_SECURITY_MODES = ['tls', 'starttls', 'none'] as const
@@ -1570,6 +1610,14 @@ export const notifyChannelSchema = z.object({
   urlEncrypted: z.boolean(),
   /** Present on email channels only. */
   email: emailChannelViewSchema.optional(),
+  /** True when the channel may post to private and loopback addresses (see CHANNEL_KIND_FIELDS). */
+  allowPrivate: z.boolean(),
+  /** Kinds with a secret beside the URL: true when one is stored. The secret is never returned. */
+  secretSet: z.boolean().optional(),
+  /** Telegram only. */
+  chatId: z.string().optional(),
+  /** Why Hinomi turned the channel off by itself (a web push subscription that is gone). */
+  disabledReason: z.string().optional(),
 })
 export type NotifyChannel = z.infer<typeof notifyChannelSchema>
 
@@ -1578,6 +1626,12 @@ export const notifyChannelsResponseSchema = z.object({ items: z.array(notifyChan
 export const channelParamSchema = z.object({ id: z.uuid() })
 
 const webhookUrl = z.string().trim().min(1).max(1000)
+/** The signing secret, access token, app token or bot token of a channel. */
+const channelSecret = z.string().trim().min(1).max(1000)
+const telegramChatId = z
+  .string()
+  .trim()
+  .regex(TELEGRAM_CHAT_ID, 'A chat id is a number like -1001234567890, or @channelname')
 
 const smtpHost = z
   .string()
@@ -1624,32 +1678,44 @@ export const emailChannelPatchSchema = z
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type EmailChannelPatch = z.infer<typeof emailChannelPatchSchema>
 
-/** Discord and webhook channels need `url`; an email channel needs `email` and has no `url`. */
+/**
+ * An email channel needs `email`; every other kind takes `url`, `secret` and `chatId` as
+ * CHANNEL_KIND_FIELDS says.
+ */
 export const createNotifyChannelRequestSchema = z
   .strictObject({
     kind: z.enum(NOTIFY_CHANNEL_KINDS),
     name: z.string().trim().min(1).max(80),
     url: webhookUrl.optional(),
+    secret: channelSecret.optional(),
+    chatId: telegramChatId.optional(),
+    allowPrivate: z.boolean().optional(),
     email: emailChannelInputSchema.optional(),
     enabled: z.boolean().optional(),
     minSeverity: severitySchema.optional(),
   })
   .superRefine((value, ctx) => {
+    const issue = (path: string, message: string) =>
+      ctx.addIssue({ code: 'custom', path: [path], message })
     if (value.kind === 'email') {
-      if (!value.email)
-        ctx.addIssue({ code: 'custom', path: ['email'], message: 'The SMTP settings are required' })
-      if (value.url !== undefined)
-        ctx.addIssue({ code: 'custom', path: ['url'], message: 'An email channel has no URL' })
+      if (!value.email) issue('email', 'The SMTP settings are required')
+      for (const key of ['url', 'secret', 'chatId', 'allowPrivate'] as const) {
+        if (value[key] !== undefined) issue(key, `An email channel has no ${key}`)
+      }
       return
     }
-    if (value.url === undefined)
-      ctx.addIssue({ code: 'custom', path: ['url'], message: 'The webhook URL is required' })
-    if (value.email !== undefined)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['email'],
-        message: 'Only an email channel has SMTP settings',
-      })
+    if (value.email !== undefined) issue('email', 'Only an email channel has SMTP settings')
+    const fields = CHANNEL_KIND_FIELDS[value.kind]
+    if (fields.url === 'required' && value.url === undefined) issue('url', 'The URL is required')
+    if (fields.url === 'none' && value.url !== undefined) issue('url', 'This channel has no URL')
+    if (fields.secret === 'required' && value.secret === undefined)
+      issue('secret', 'The token is required')
+    if (fields.secret === 'none' && value.secret !== undefined)
+      issue('secret', 'This channel has no token or secret')
+    if (fields.chatId && value.chatId === undefined) issue('chatId', 'The chat id is required')
+    if (!fields.chatId && value.chatId !== undefined) issue('chatId', 'Only Telegram has a chat id')
+    if (!fields.allowPrivate && value.allowPrivate)
+      issue('allowPrivate', 'This channel always posts to a public service')
   })
 export type CreateNotifyChannelRequest = z.infer<typeof createNotifyChannelRequestSchema>
 
@@ -1657,12 +1723,23 @@ export const updateNotifyChannelRequestSchema = z
   .strictObject({
     name: z.string().trim().min(1).max(80).optional(),
     url: webhookUrl.optional(),
+    /** A new secret or token. An empty string removes an optional one. */
+    secret: z.union([z.literal(''), channelSecret]).optional(),
+    chatId: telegramChatId.optional(),
+    allowPrivate: z.boolean().optional(),
     email: emailChannelPatchSchema.optional(),
     enabled: z.boolean().optional(),
     minSeverity: severitySchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update')
 export type UpdateNotifyChannelRequest = z.infer<typeof updateNotifyChannelRequestSchema>
+
+/** The VAPID public key a browser subscribes to push with (its applicationServerKey). */
+export const webPushKeySchema = z.object({
+  /** Uncompressed P-256 public key, base64url. */
+  publicKey: z.string(),
+})
+export type WebPushKey = z.infer<typeof webPushKeySchema>
 
 export const notifyChannelTestResultSchema = z.object({
   ok: z.boolean(),

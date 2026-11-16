@@ -91,6 +91,7 @@ A run that sends no result within 2 hours of the dispatch is marked `lost`.
 - Whoever holds the secret can report on runs whose id they know. Run ids are random and sent only to the configured URL. Rotate the secret if it leaks.
 - With private addresses allowed, the URL may point anywhere on Hinomi's network. Leave the switch off unless the runner really lives there.
 - Without private addresses allowed, the address check runs when the connection resolves the name, so a name cannot resolve to a public address for the check and a private one for the request.
+- Plans are always sent straight to the runner, never through a proxy: with `NODE_USE_ENV_PROXY` set, `HTTP_PROXY` and `HTTPS_PROXY` are ignored for them, because a proxy would resolve the name instead of the address check.
 
 ## The local runner
 

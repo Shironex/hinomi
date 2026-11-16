@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { lookup as dnsLookup, type LookupAddress } from 'node:dns'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import type { LookupFunction } from 'node:net'
 import {
   RUNNER_DELIVERY_HEADER,
   RUNNER_EVENT_HEADER,
@@ -10,7 +8,9 @@ import {
   currentTime,
   type WebhookDispatchBody,
 } from '@hinomi/shared'
-import { checkRunnerUrl, isPublicAddress } from './ssrf.js'
+import { directAgent } from '../net/direct-agent.js'
+import { publicOnlyLookup } from '../net/public-lookup.js'
+import { checkRunnerUrl } from './ssrf.js'
 import { secretProblem, type WebhookRunnerSettings } from './runner-settings.js'
 import { signRunnerPayload } from './signature.js'
 
@@ -48,37 +48,6 @@ export interface RunnerPostAnswer {
 /** Sends one request. Replaced in tests. Rejects on network errors and refused addresses. */
 export type RunnerPoster = (request: RunnerPostRequest) => Promise<RunnerPostAnswer>
 
-/** An error whose message is safe to store as the run's failure reason. */
-function refusedAddress(hostname: string, address: string): Error {
-  return Object.assign(
-    new Error(
-      `${hostname} resolves to ${address}, which is not a public address. Allow private addresses to use it.`,
-    ),
-    { code: 'ENOTPUBLIC' },
-  )
-}
-
-/** dns.lookup that refuses names resolving to any address that is not public. */
-export const publicOnlyLookup: LookupFunction = (hostname, options, callback) => {
-  dnsLookup(hostname, { ...options, all: true }, (error, addresses: LookupAddress[]) => {
-    if (error) {
-      callback(error, '', 4)
-      return
-    }
-    const bad = addresses.find((entry) => !isPublicAddress(entry.address))
-    const first = addresses[0]
-    if (bad || !first) {
-      callback(refusedAddress(hostname, bad?.address ?? 'nothing'), '', 4)
-      return
-    }
-    if (options.all) {
-      ;(callback as unknown as (error: null, addresses: LookupAddress[]) => void)(null, addresses)
-      return
-    }
-    callback(null, first.address, first.family)
-  })
-}
-
 function readAnswer(response: IncomingMessage): Promise<RunnerPostAnswer> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = []
@@ -105,6 +74,8 @@ function readAnswer(response: IncomingMessage): Promise<RunnerPostAnswer> {
   })
 }
 
+export { publicOnlyLookup }
+
 /** The real poster: one request, no redirects, the address guard unless private is allowed. */
 export const nodeRunnerPoster: RunnerPoster = (input) =>
   new Promise((resolve, reject) => {
@@ -115,6 +86,8 @@ export const nodeRunnerPoster: RunnerPoster = (input) =>
         method: 'POST',
         headers: { ...input.headers, 'content-length': String(Buffer.byteLength(input.body)) },
         timeout: input.timeoutMs,
+        // Never through a proxy from the environment: it would resolve the host, not our lookup.
+        agent: directAgent(input.url),
         ...(!input.allowPrivate && { lookup: publicOnlyLookup }),
       },
       (response) => {

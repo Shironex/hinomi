@@ -113,6 +113,8 @@ export const channel = {
   minSeverity: 'high' as const,
   url: 'https://hooks.example.dev/...b7c1',
   urlEncrypted: true,
+  allowPrivate: false,
+  secretSet: false,
 }
 
 const repo = (id: number, fullName: string) => ({

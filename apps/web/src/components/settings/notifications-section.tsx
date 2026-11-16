@@ -5,17 +5,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   IconAlertTriangle,
   IconBell,
-  IconBrandDiscord,
   IconLoader2,
-  IconMail,
   IconPencil,
   IconPlus,
   IconTrash,
-  IconWebhook,
 } from '@tabler/icons-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Field, FieldError } from '@/components/form/field'
 import { ChannelForm } from '@/components/notifications/channel-form'
+import { KIND_COPY } from '@/components/notifications/channel-kinds'
 import { SEVERITY_OPTIONS } from '@/components/notifications/severity-options'
 import { EmptyState } from '@/components/states/empty-state'
 import { ErrorState } from '@/components/states/error-state'
@@ -71,7 +69,8 @@ export function NotificationsSection() {
           </Button>
         }
       >
-        Add a Discord, webhook or email channel to hear about new exposed findings as they appear.
+        Add a Discord, Slack, Telegram, ntfy, Gotify, email or webhook channel to hear about new
+        exposed findings as they appear.
       </EmptyState>
     )
   } else {
@@ -115,14 +114,19 @@ export function NotificationsSection() {
   )
 }
 
-const KIND_ICONS = { discord: IconBrandDiscord, webhook: IconWebhook, email: IconMail } as const
-const KIND_LABELS = { discord: 'Discord', webhook: 'Webhook', email: 'Email' } as const
+/** What to do again once HINOMI_SECRET_KEY is set, so every secret of the channel gets encrypted. */
+function unencryptedFix(channel: NotifyChannel): string {
+  if (channel.kind === 'email') return 'save the password again.'
+  if (channel.kind === 'webpush') return 'add this browser again.'
+  if (channel.kind === 'telegram') return 'save the token again.'
+  return channel.secretSet ? 'save the URL and the token or secret again.' : 'save the URL again.'
+}
 
 function ChannelRow({ channel }: { channel: NotifyChannel }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const KindIcon = KIND_ICONS[channel.kind]
+  const KindIcon = KIND_COPY[channel.kind].icon
   const severity = SEVERITY_OPTIONS.find((o) => o.value === channel.minSeverity)?.label
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: settingsKeys.channels })
@@ -160,8 +164,9 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
       title={channel.name}
       sub={
         <>
-          {KIND_LABELS[channel.kind]}
+          {KIND_COPY[channel.kind].label}
           {channel.email ? ` to ${channel.email.to.join(', ')}` : ''}, {severity?.toLowerCase()}
+          {channel.allowPrivate ? ', private addresses allowed' : ''}
           <span className="block truncate font-mono">{channel.url}</span>
         </>
       }
@@ -177,10 +182,16 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
       {channel.urlEncrypted ? null : (
         <p className="flex items-start gap-2 text-xs text-wait">
           <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
-          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and save the{' '}
-          {channel.kind === 'email' ? 'password' : 'URL'} again.
+          Stored without encryption because HINOMI_SECRET_KEY is not set. Set it and{' '}
+          {unencryptedFix(channel)}
         </p>
       )}
+      {channel.disabledReason && !channel.enabled ? (
+        <p className="flex items-start gap-2 text-xs text-wait">
+          <IconAlertTriangle aria-hidden="true" className="mt-px size-3.5 shrink-0" stroke={1.75} />
+          {channel.disabledReason}
+        </p>
+      ) : null}
       {editing ? (
         <div className="border-t border-border pt-3.5">
           <ChannelForm
@@ -237,7 +248,7 @@ function ChannelRow({ channel }: { channel: NotifyChannel }) {
         pending={remove.isPending}
         error={remove.error ? describeError(remove.error) : null}
       >
-        Hinomi stops sending alerts and digests here and forgets the webhook URL.
+        Hinomi stops sending alerts and digests here and forgets its URL and tokens.
       </ConfirmDialog>
     </SetRow>
   )

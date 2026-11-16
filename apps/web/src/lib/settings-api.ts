@@ -5,6 +5,7 @@ import {
   notifyChannelsResponseSchema,
   notifyChannelTestResultSchema,
   notifySettingsSchema,
+  webPushKeySchema,
   repoDetailSchema,
   repoOverridesResponseSchema,
   reposResponseSchema,
@@ -163,6 +164,9 @@ export const updateChannel = (id: string, body: UpdateNotifyChannelRequest) =>
 
 export const removeChannel = (id: string) =>
   request(`/notifications/channels/${id}`, noContent, { method: 'DELETE' })
+
+/** The VAPID public key this browser subscribes to web push with. */
+export const getWebPushKey = () => api.get('/notifications/push-key', webPushKeySchema)
 
 export const testChannel = (id: string) =>
   api.post(`/notifications/channels/${id}/test`, notifyChannelTestResultSchema)

@@ -1,7 +1,8 @@
 import { createTransport, type Transporter } from 'nodemailer'
 import type { ResolvedEmail } from './channels.js'
-import { EVENT_LABELS, type MessageType } from './format.js'
+import type { MessageType } from './format.js'
 import type { NotificationItem } from './items.js'
+import { itemTexts, omittedLine, oneLine, plainItem } from './text.js'
 import type { ScanLogger } from '../scan/index.js'
 
 /** What an email carries: a subject, plain text and a simple HTML body. */
@@ -20,34 +21,6 @@ export function escapeHtml(text: string): string {
     .replaceAll("'", '&#39;')
 }
 
-/** Only http and https links go into a message; anything else is left out. */
-function safeLink(url: string | null): string | null {
-  return url && /^https?:\/\//i.test(url) ? url : null
-}
-
-/** Header values must stay on one line. */
-const oneLine = (text: string) => text.replace(/[\r\n]+/g, ' ').trim()
-
-/** The lines of one finding, shared by the text and HTML bodies. */
-function itemLines(
-  item: NotificationItem,
-  labelEvent: boolean,
-): { title: string; rows: [string, string][] } {
-  const prefix = labelEvent || item.event === 'reopened' ? `${EVENT_LABELS[item.event]}: ` : ''
-  const rows: [string, string][] = []
-  if (item.summary) rows.push(['Summary', item.summary])
-  if (item.repo) rows.push(['Repository', item.repo])
-  if (item.deployments.length > 0) {
-    rows.push(['Deployment', item.deployments.map((d) => `${d.name} (${d.reach})`).join(', ')])
-  }
-  if (item.installedVersion) rows.push(['Installed', item.installedVersion])
-  if (item.fixedIn) rows.push(['Fixed in', item.fixedIn])
-  if (item.sources.length > 0) rows.push(['Sources', item.sources.join(', ')])
-  const ids = [item.advisory, ...item.cves].filter((id): id is string => id !== null)
-  if (ids.length > 0) rows.push(['Advisory', ids.join(', ')])
-  return { title: `${prefix}[${item.severity.toUpperCase()}] ${item.title}`, rows }
-}
-
 /**
  * Builds the email for a batch of items. No remote images, no scripts: a
  * heading, a line per field and a link back to Hinomi. Every piece of finding
@@ -61,17 +34,11 @@ export function emailContent(
   /** Lines under the heading (a summary's counts and link). */
   details: readonly string[] = [],
 ): EmailContent {
-  const labelEvent = type === 'digest'
   const textBlocks: string[] = []
   const htmlBlocks: string[] = []
-  for (const item of items) {
-    const { title, rows } = itemLines(item, labelEvent)
-    const link = safeLink(item.url)
-    textBlocks.push(
-      [title, ...rows.map(([k, v]) => `  ${k}: ${v}`), ...(link ? [`  Open: ${link}`] : [])].join(
-        '\n',
-      ),
-    )
+  for (const entry of itemTexts(type, items)) {
+    const { title, rows, link } = entry
+    textBlocks.push(plainItem(entry))
     const heading = link
       ? `<a href="${escapeHtml(link)}" style="color:#1d4ed8">${escapeHtml(title)}</a>`
       : escapeHtml(title)
@@ -87,7 +54,7 @@ export function emailContent(
         `</div>`,
     )
   }
-  const tail = omitted > 0 ? `${omitted} more not shown. Open Hinomi to see everything.` : ''
+  const tail = omittedLine(omitted)
   const intro = details.length > 0 ? [...details, ''] : []
   const text =
     [summary, '', ...intro, ...textBlocks.map((b) => `${b}\n`), tail].join('\n').trimEnd() + '\n'

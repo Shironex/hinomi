@@ -1049,6 +1049,7 @@ export const CHANNELS: NotifyChannel[] = [
     minSeverity: 'high',
     url: 'https://discord.example.dev/...9f2a',
     urlEncrypted: true,
+    allowPrivate: false,
   },
   {
     id: '0b8f6a52-3c1e-4d7a-9a52-5d2f0c1e7b11',
@@ -1058,6 +1059,7 @@ export const CHANNELS: NotifyChannel[] = [
     minSeverity: 'critical',
     url: 'smtp.example.dev:587',
     urlEncrypted: true,
+    allowPrivate: false,
     email: {
       host: 'smtp.example.dev',
       port: 587,
