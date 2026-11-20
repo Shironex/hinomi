@@ -26,7 +26,7 @@
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
-    "@noctcore/eslint-plugin-architecture": "^0.3.4",
+    "@noctcore/eslint-plugin-architecture": "^1.1.0",
     "@noctcore/eslint-plugin-async-safety": "^0.4.2",
     "@noctcore/eslint-plugin-code-quality": "^0.4.2",
     "@noctcore/eslint-plugin-contracts": "^0.7.2",
